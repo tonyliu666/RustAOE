@@ -6,5 +6,9 @@
 #![deny(clippy::float_arithmetic)]
 
 mod fx;
+mod grid;
+mod rng;
 
 pub use fx::Fx;
+pub use grid::{Grid, TilePos};
+pub use rng::Rng;
