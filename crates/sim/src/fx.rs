@@ -39,6 +39,22 @@ impl Fx {
         Fx((((num as i64) << SHIFT) / den as i64) as i32)
     }
 
+    /// Wraps a raw 16.16 bit pattern, clamped into range.
+    ///
+    /// Clamping matters for `i32::MIN`, which is one below `MIN` and is the
+    /// only bit pattern the type does not use.
+    pub const fn from_bits(bits: i32) -> Fx {
+        Fx::from_wide(bits as i64)
+    }
+
+    /// Returns the raw 16.16 bit pattern.
+    ///
+    /// Exposed for serialization, checksums, and tests that need to reason
+    /// about the last place. Gameplay code should use the arithmetic above.
+    pub const fn to_bits(self) -> i32 {
+        self.0
+    }
+
     /// Multiplies two fixed-point values.
     ///
     /// The intermediate product is widened to `i64` because two 16.16 values
