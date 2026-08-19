@@ -113,6 +113,14 @@ impl InputState {
         }
     }
 
+    /// Records a key no longer being held.
+    ///
+    /// A backend that polls levels rather than events needs this: without it a
+    /// key would stay down forever once pressed.
+    pub fn release_key(&mut self, key: Key) {
+        self.keys_down.retain(|held| *held != key);
+    }
+
     /// Drops the per-frame edges and scroll, keeping what is still held.
     ///
     /// A backend polls by reusing one `InputState` and calling this first, so

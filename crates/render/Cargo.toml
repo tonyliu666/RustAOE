@@ -6,5 +6,9 @@ license.workspace = true
 
 [features]
 default = []
+# The macroquad implementation of `Renderer` and `InputSource`. Off by default
+# so that tests and CI build the crate without a graphics stack.
+backend-macroquad = ["dep:macroquad"]
 
 [dependencies]
+macroquad = { version = "0.4", optional = true }

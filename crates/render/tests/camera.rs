@@ -11,7 +11,10 @@ fn the_camera_centre_maps_to_the_middle_of_the_viewport() {
 #[test]
 fn zoom_scales_distance_from_the_camera_centre() {
     let cam = Camera::new(Vec2::new(10.0, 10.0), 2.0, Vec2::new(800.0, 600.0));
-    assert_eq!(cam.world_to_screen(Vec2::new(11.0, 10.0)), Vec2::new(402.0, 300.0));
+    assert_eq!(
+        cam.world_to_screen(Vec2::new(11.0, 10.0)),
+        Vec2::new(402.0, 300.0)
+    );
 }
 
 /// Screen to world is the inverse of world to screen, which is what makes a

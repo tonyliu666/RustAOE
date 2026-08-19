@@ -51,3 +51,27 @@ fn cursor_and_scroll_are_carried_verbatim() {
     assert_eq!(input.cursor, Vec2::new(120.0, 45.0));
     assert_eq!(input.scroll, -3.0);
 }
+
+#[test]
+fn releasing_a_key_clears_the_held_level() {
+    let mut input = InputState::default();
+    input.press_key(Key::W);
+    input.begin_frame();
+    input.hold_key(Key::W);
+
+    input.release_key(Key::W);
+
+    assert!(!input.key_down(Key::W));
+    assert!(!input.key_pressed(Key::W));
+}
+
+#[test]
+fn releasing_a_key_that_was_never_held_is_harmless() {
+    let mut input = InputState::default();
+    input.hold_key(Key::A);
+
+    input.release_key(Key::D);
+
+    assert!(input.key_down(Key::A));
+    assert!(!input.key_down(Key::D));
+}

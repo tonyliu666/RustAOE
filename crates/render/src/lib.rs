@@ -12,6 +12,8 @@
 
 mod camera;
 mod input;
+#[cfg(feature = "backend-macroquad")]
+pub mod macroquad_backend;
 mod recording;
 
 pub use camera::{Camera, Vec2};
