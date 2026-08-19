@@ -1,0 +1,179 @@
+//! Translating world state into draw calls, asserted headlessly.
+
+use app::{draw_world, TILE_BLOCKED, TILE_OPEN};
+use render::{Camera, DrawCall, RecordingRenderer, Vec2};
+use sim::{MapSpec, TilePos, World};
+
+/// A camera wide enough that every tile of an 8x8 map is on screen.
+fn wide_camera() -> Camera {
+    Camera::new(Vec2::new(4.0, 4.0), 10.0, Vec2::new(400.0, 400.0))
+}
+
+fn world(map: MapSpec) -> World {
+    World::new(1, map)
+}
+
+#[test]
+fn a_frame_is_opened_with_the_camera_and_closed_again() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(8, 8));
+    let camera = wide_camera();
+
+    draw_world(&mut renderer, &camera, world.view());
+
+    assert_eq!(
+        renderer.calls().first(),
+        Some(&DrawCall::BeginFrame(camera))
+    );
+    assert_eq!(renderer.calls().last(), Some(&DrawCall::EndFrame));
+    assert_eq!(renderer.frame_count(), 1);
+}
+
+#[test]
+fn every_visible_tile_is_drawn_once() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(8, 8));
+
+    draw_world(&mut renderer, &wide_camera(), world.view());
+
+    assert_eq!(renderer.quads().count(), 64);
+}
+
+#[test]
+fn a_tile_is_drawn_as_a_one_by_one_quad_at_its_own_coordinates() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(8, 8));
+
+    draw_world(&mut renderer, &wide_camera(), world.view());
+
+    let quad = renderer
+        .quads()
+        .find(|(pos, _, _)| *pos == Vec2::new(3.0, 5.0))
+        .expect("tile 3,5 should be drawn at world 3,5");
+    assert_eq!(quad.1, Vec2::new(1.0, 1.0));
+}
+
+#[test]
+fn blocked_tiles_are_drawn_in_a_different_colour_from_open_ones() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(8, 8).with_blocked([TilePos::new(2, 2)]));
+
+    draw_world(&mut renderer, &wide_camera(), world.view());
+
+    let colour = |pos: Vec2| {
+        renderer
+            .quads()
+            .find(|(p, _, _)| *p == pos)
+            .map(|(_, _, c)| c)
+            .expect("tile should be drawn")
+    };
+    assert_eq!(colour(Vec2::new(2.0, 2.0)), TILE_BLOCKED);
+    assert_eq!(colour(Vec2::new(3.0, 2.0)), TILE_OPEN);
+    assert_ne!(TILE_OPEN, TILE_BLOCKED);
+}
+
+#[test]
+fn tiles_outside_the_viewport_are_not_drawn() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(128, 128));
+    // 400 pixels at 40 pixels per tile shows 10 tiles across, so at most 12x12
+    // once partly visible edge tiles are included.
+    let camera = Camera::new(Vec2::new(64.0, 64.0), 40.0, Vec2::new(400.0, 400.0));
+
+    draw_world(&mut renderer, &camera, world.view());
+
+    let drawn = renderer.quads().count();
+    assert!(
+        drawn >= 100,
+        "the visible 10x10 must be covered, got {drawn}"
+    );
+    assert!(drawn <= 144, "off-screen tiles must be culled, got {drawn}");
+}
+
+#[test]
+fn a_partly_visible_tile_at_the_viewport_edge_is_still_drawn() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(16, 16));
+    // Half a tile of offset puts the left column half off screen.
+    let camera = Camera::new(Vec2::new(8.5, 8.0), 100.0, Vec2::new(400.0, 400.0));
+
+    draw_world(&mut renderer, &camera, world.view());
+
+    assert!(
+        renderer
+            .quads()
+            .any(|(pos, _, _)| pos == Vec2::new(6.0, 6.0)),
+        "the half-visible tile 6,6 should be drawn, not culled"
+    );
+}
+
+#[test]
+fn nothing_is_drawn_beyond_the_map_edge() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(4, 4));
+    let camera = Camera::new(Vec2::new(0.0, 0.0), 10.0, Vec2::new(400.0, 400.0));
+
+    draw_world(&mut renderer, &camera, world.view());
+
+    for (pos, _, _) in renderer.quads() {
+        assert!(
+            pos.x >= 0.0 && pos.y >= 0.0 && pos.x < 4.0 && pos.y < 4.0,
+            "drew a tile at {pos:?}, which is off the map"
+        );
+    }
+    assert_eq!(renderer.quads().count(), 16);
+}
+
+#[test]
+fn the_frame_carries_a_debug_overlay_naming_the_tick() {
+    let mut renderer = RecordingRenderer::new();
+    let mut world = world(MapSpec::new(8, 8));
+    world.step(&[]);
+    world.step(&[]);
+    world.step(&[]);
+
+    draw_world(&mut renderer, &wide_camera(), world.view());
+
+    let (text, _) = renderer.texts().next().expect("an overlay should be drawn");
+    assert!(text.contains("tick 3"), "overlay was {text:?}");
+}
+
+#[test]
+fn the_overlay_is_drawn_inside_the_frame_so_the_camera_still_applies() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(8, 8));
+
+    draw_world(&mut renderer, &wide_camera(), world.view());
+
+    let overlay = renderer
+        .calls()
+        .iter()
+        .position(|call| matches!(call, DrawCall::Text { .. }))
+        .expect("an overlay should be drawn");
+    let end = renderer
+        .calls()
+        .iter()
+        .position(|call| *call == DrawCall::EndFrame)
+        .expect("the frame should be closed");
+    assert!(overlay < end);
+}
+
+#[test]
+fn the_overlay_sits_at_a_fixed_corner_of_the_screen_whatever_the_camera_shows() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(64, 64));
+    let near = Camera::new(Vec2::new(10.0, 10.0), 40.0, Vec2::new(400.0, 400.0));
+    let far = Camera::new(Vec2::new(50.0, 30.0), 8.0, Vec2::new(400.0, 400.0));
+
+    draw_world(&mut renderer, &near, world.view());
+    let near_pos = renderer.texts().next().expect("overlay").1;
+    renderer.clear();
+    draw_world(&mut renderer, &far, world.view());
+    let far_pos = renderer.texts().next().expect("overlay").1;
+
+    let to_screen = |cam: &Camera, pos: Vec2| cam.world_to_screen(pos);
+    let near_screen = to_screen(&near, near_pos);
+    let far_screen = to_screen(&far, far_pos);
+    assert!((near_screen.x - far_screen.x).abs() < 1e-3);
+    assert!((near_screen.y - far_screen.y).abs() < 1e-3);
+}
