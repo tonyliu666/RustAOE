@@ -32,6 +32,15 @@ impl Rng {
         }
     }
 
+    /// The raw generator state, for the world checksum.
+    ///
+    /// Crate-private: outside `sim` this is meaningless, and exposing it
+    /// publicly would invite code that reconstructs a generator mid-game and
+    /// forks the sequence.
+    pub(crate) const fn state(&self) -> [u64; 4] {
+        self.state
+    }
+
     /// Draws the next value and advances the state.
     pub fn next_u64(&mut self) -> u64 {
         let result = self.state[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);

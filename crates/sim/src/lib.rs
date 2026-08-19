@@ -8,7 +8,9 @@
 mod fx;
 mod grid;
 mod rng;
+mod world;
 
 pub use fx::Fx;
 pub use grid::{Grid, TilePos};
 pub use rng::Rng;
+pub use world::{Command, MapSpec, Tile, World, WorldView};
