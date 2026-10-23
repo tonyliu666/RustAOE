@@ -4,7 +4,19 @@
 //! `f32` results differ across platforms and would desync a lockstep game.
 
 /// A 16.16 signed fixed-point number.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct Fx(i32);
 
 /// Number of fractional bits in the representation.

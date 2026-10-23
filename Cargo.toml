@@ -4,5 +4,7 @@ members = ["crates/sim", "crates/render", "crates/app"]
 
 [workspace.package]
 edition = "2021"
+# `u64::is_multiple_of`, used by the replay checksum sampler, landed here.
+rust-version = "1.87"
 version = "0.1.0"
 license = "MIT"

@@ -43,6 +43,12 @@ impl CameraController {
         self.camera
     }
 
+    /// Centres the view on a world position.
+    pub fn look_at(&mut self, center: Vec2) {
+        self.camera.center = center;
+        self.clamp_to_map();
+    }
+
     /// Matches the viewport to a resized window.
     pub fn resize(&mut self, viewport: Vec2) {
         self.camera.viewport = viewport;

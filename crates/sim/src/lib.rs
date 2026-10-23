@@ -5,12 +5,25 @@
 
 #![deny(clippy::float_arithmetic)]
 
+mod entity;
 mod fx;
 mod grid;
+mod path;
+mod replay;
 mod rng;
+mod spatial;
+mod vec2;
 mod world;
 
+pub use entity::{
+    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Mine, MineId, Order, Player,
+    PlayerId, Route, Unit, UnitId, UnitKind, UnitStats,
+};
 pub use fx::Fx;
 pub use grid::{Grid, TilePos};
+pub use path::{astar, Dir8, FlowField, FlowFieldCache, PathRequest};
+pub use replay::{verify, Desync, Replay};
 pub use rng::Rng;
+pub use spatial::SpatialHash;
+pub use vec2::FxVec2;
 pub use world::{Command, MapSpec, Tile, World, WorldView};

@@ -92,6 +92,14 @@ impl InputState {
         self.mouse_pressed[button.index()] = true;
     }
 
+    /// Records a button held from an earlier frame.
+    ///
+    /// The level without the edge, which is what a drag in progress looks
+    /// like: down every frame, pressed only on the first.
+    pub fn hold(&mut self, button: MouseButton) {
+        self.mouse_down[button.index()] = true;
+    }
+
     /// Records a button coming up this frame.
     pub fn release(&mut self, button: MouseButton) {
         self.mouse_down[button.index()] = false;

@@ -1,10 +1,20 @@
 [package]
 name = "sim"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+slotmap = { version = "1.1.1", features = ["serde"] }
+smallvec = { version = "1.15.2", features = ["union", "serde"] }
 
 [dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1.11.0"
+smallvec = "1.15.2"
+
+[[bench]]
+name = "step"
+harness = false

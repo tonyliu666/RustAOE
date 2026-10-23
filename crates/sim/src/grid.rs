@@ -5,7 +5,19 @@
 /// Signed rather than unsigned so that arithmetic near the map edge can go
 /// negative and be rejected by a bounds check, instead of wrapping into a
 /// large positive value that looks in-bounds.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct TilePos {
     pub x: i32,
     pub y: i32,

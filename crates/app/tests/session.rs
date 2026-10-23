@@ -1,0 +1,525 @@
+//! Selection, hotseat switching, and the input-to-command mapping.
+//!
+//! Input is synthesised as a plain `InputState`, so all of this is testable
+//! without a window. That is the reason `InputSource` exists as a trait.
+
+use app::Session;
+use render::{Camera, InputState, Key, MouseButton, Vec2};
+use sim::{BuildingKind, Command, EntityId, MapSpec, PlayerId, TilePos, UnitId, UnitKind, World};
+
+/// A camera showing the whole 16x16 map.
+///
+/// The zoom is [`CameraController::MIN_ZOOM`] because the controller clamps to
+/// that on the first frame; picking anything below it would make the camera the
+/// tests convert with differ from the one the session actually uses.
+fn camera() -> Camera {
+    Camera::new(
+        Vec2::new(8.0, 8.0),
+        app::CameraController::MIN_ZOOM,
+        Vec2::new(64.0, 64.0),
+    )
+}
+
+fn session() -> Session {
+    Session::new(camera(), 16, 16)
+}
+
+/// A map with two villagers for player one and one for player two, plus a
+/// building each so that neither side has already lost.
+fn map() -> MapSpec {
+    MapSpec::new(16, 16)
+        .with_starting_gold(200)
+        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(0, 0))
+        .with_building(BuildingKind::Barracks, PlayerId::One, TilePos::new(0, 12))
+        .with_building(BuildingKind::TownCenter, PlayerId::Two, TilePos::new(12, 0))
+        .with_mine(TilePos::new(6, 12), 5000)
+        .with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(5, 5))
+        .with_unit(UnitKind::Soldier, PlayerId::One, TilePos::new(6, 5))
+        .with_unit(UnitKind::Villager, PlayerId::Two, TilePos::new(9, 9))
+        .with_unit(UnitKind::Soldier, PlayerId::Two, TilePos::new(5, 7))
+}
+
+fn world() -> World {
+    World::new(3, map())
+}
+
+/// The screen position of a world point, for this camera.
+fn at(world_pos: Vec2) -> Vec2 {
+    camera().world_to_screen(world_pos)
+}
+
+/// An otherwise empty frame of input with the cursor somewhere.
+fn at_cursor(cursor: Vec2) -> InputState {
+    let mut input = InputState::default();
+    input.cursor = cursor;
+    input
+}
+
+/// A click: press on one frame, release on the next.
+///
+/// Two frames rather than one, because that is what a real mouse produces and
+/// because the press and the release mean different things — the press opens a
+/// drag, the release resolves it.
+fn click(session: &mut Session, world: &World, button: MouseButton, cursor: Vec2) -> Vec<Command> {
+    let mut press = at_cursor(cursor);
+    press.press(button);
+    let mut commands = session.update(&press, 0.0, world.view());
+
+    let mut release = at_cursor(cursor);
+    release.hold(button);
+    release.release(button);
+    commands.extend(session.update(&release, 0.0, world.view()));
+    commands
+}
+
+fn units_of(world: &World, owner: PlayerId) -> Vec<UnitId> {
+    world
+        .view()
+        .units()
+        .filter(|(_, u)| u.owner == owner)
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// Selects every unit the active player owns by dragging a box over the map.
+fn select_all(session: &mut Session, world: &World) {
+    let mut press = at_cursor(at(Vec2::new(0.0, 0.0)));
+    press.press(MouseButton::Left);
+    session.update(&press, 0.0, world.view());
+
+    let mut release = at_cursor(at(Vec2::new(16.0, 16.0)));
+    release.hold(MouseButton::Left);
+    release.release(MouseButton::Left);
+    session.update(&release, 0.0, world.view());
+}
+
+// --- selection ------------------------------------------------------------
+
+#[test]
+fn clicking_a_unit_selects_it() {
+    let world = world();
+    let mut session = session();
+    let expected = units_of(&world, PlayerId::One)[0];
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(5.5, 5.5)),
+    );
+
+    assert_eq!(session.selection(), [expected]);
+}
+
+#[test]
+fn clicking_empty_ground_clears_the_selection() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    assert!(!session.selection().is_empty());
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(2.5, 9.5)),
+    );
+
+    assert!(session.selection().is_empty());
+}
+
+#[test]
+fn a_box_selects_only_the_active_players_units() {
+    let world = world();
+    let mut session = session();
+
+    select_all(&mut session, &world);
+
+    let mine = units_of(&world, PlayerId::One);
+    let mut selected = session.selection().to_vec();
+    selected.sort();
+    let mut expected = mine;
+    expected.sort();
+    assert_eq!(selected, expected);
+}
+
+#[test]
+fn a_drag_in_progress_is_reported_so_it_can_be_drawn() {
+    let world = world();
+    let mut session = session();
+
+    let mut press = at_cursor(at(Vec2::new(1.0, 1.0)));
+    press.press(MouseButton::Left);
+    session.update(&press, 0.0, world.view());
+
+    let corners = session.drag_box(Vec2::new(4.0, 3.0));
+    assert_eq!(corners, Some((Vec2::new(1.0, 1.0), Vec2::new(4.0, 3.0))));
+}
+
+#[test]
+fn a_dead_unit_falls_out_of_the_selection() {
+    let mut world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    let before = session.selection().len();
+
+    let villager = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::One && u.kind == UnitKind::Villager)
+        .map(|(id, _)| id)
+        .expect("player one has a villager");
+    let enemy = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::Two && u.kind == UnitKind::Soldier)
+        .map(|(id, _)| id)
+        .expect("player two has a soldier");
+    world.step(&[Command::Attack {
+        player: PlayerId::Two,
+        units: [enemy].into_iter().collect(),
+        target: EntityId::Unit(villager),
+    }]);
+    // Forty hit points at eight damage a second, plus the walk into range.
+    for _ in 0..300 {
+        world.step(&[]);
+    }
+    assert!(
+        world.view().unit(villager).is_none(),
+        "the villager survived"
+    );
+
+    session.update(&InputState::default(), 0.0, world.view());
+
+    assert_eq!(session.selection().len(), before - 1);
+    assert!(!session.selection().contains(&villager));
+}
+
+// --- orders ---------------------------------------------------------------
+
+#[test]
+fn right_clicking_open_ground_orders_a_move_there() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(10.5, 13.5)),
+    );
+
+    match commands.as_slice() {
+        [Command::Move { player, target, .. }] => {
+            assert_eq!(*player, PlayerId::One);
+            assert_eq!(*target, TilePos::new(10, 13));
+        }
+        other => panic!("expected one move order, got {other:?}"),
+    }
+}
+
+#[test]
+fn right_clicking_a_mine_orders_the_villagers_to_gather() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(6.5, 12.5)),
+    );
+
+    match commands.as_slice() {
+        [Command::Gather { player, units, .. }] => {
+            assert_eq!(*player, PlayerId::One);
+            // The soldier in the selection is not a gatherer and is dropped.
+            assert_eq!(units.len(), 1);
+        }
+        other => panic!("expected one gather order, got {other:?}"),
+    }
+}
+
+#[test]
+fn right_clicking_a_mine_with_no_villagers_selected_is_a_move_order() {
+    let world = world();
+    let mut session = session();
+    let soldier = world
+        .view()
+        .units()
+        .find(|(_, u)| u.kind == UnitKind::Soldier)
+        .map(|(id, _)| id)
+        .expect("the soldier is on the map");
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(6.5, 5.5)),
+    );
+    assert_eq!(session.selection(), [soldier]);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(6.5, 12.5)),
+    );
+
+    assert!(
+        matches!(commands.as_slice(), [Command::Move { .. }]),
+        "got {commands:?}"
+    );
+}
+
+#[test]
+fn right_clicking_an_enemy_unit_orders_an_attack() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(9.5, 9.5)),
+    );
+
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [Command::Attack {
+                target: EntityId::Unit(_),
+                ..
+            }]
+        ),
+        "got {commands:?}"
+    );
+}
+
+#[test]
+fn right_clicking_an_enemy_building_orders_an_attack() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(13.5, 1.5)),
+    );
+
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [Command::Attack {
+                target: EntityId::Building(_),
+                ..
+            }]
+        ),
+        "got {commands:?}"
+    );
+}
+
+#[test]
+fn right_clicking_your_own_building_is_a_move_order_not_an_attack() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(1.5, 1.5)),
+    );
+
+    assert!(
+        matches!(commands.as_slice(), [Command::Move { .. }]),
+        "got {commands:?}"
+    );
+}
+
+#[test]
+fn right_clicking_with_nothing_selected_orders_nothing() {
+    let world = world();
+    let mut session = session();
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(10.5, 13.5)),
+    );
+
+    assert!(commands.is_empty(), "got {commands:?}");
+}
+
+// --- training -------------------------------------------------------------
+
+#[test]
+fn the_first_hotkey_trains_a_villager_at_the_town_centre() {
+    let world = world();
+    let mut session = session();
+    let mut input = InputState::default();
+    input.press_key(Key::Digit1);
+
+    let commands = session.update(&input, 0.0, world.view());
+
+    match commands.as_slice() {
+        [Command::Train {
+            player,
+            unit,
+            building,
+        }] => {
+            assert_eq!(*player, PlayerId::One);
+            assert_eq!(*unit, UnitKind::Villager);
+            assert_eq!(
+                world.view().building(*building).map(|b| b.kind),
+                Some(BuildingKind::TownCenter)
+            );
+        }
+        other => panic!("expected one train order, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_second_hotkey_trains_a_soldier_at_the_barracks() {
+    let world = world();
+    let mut session = session();
+    let mut input = InputState::default();
+    input.press_key(Key::Digit2);
+
+    let commands = session.update(&input, 0.0, world.view());
+
+    match commands.as_slice() {
+        [Command::Train { unit, building, .. }] => {
+            assert_eq!(*unit, UnitKind::Soldier);
+            assert_eq!(
+                world.view().building(*building).map(|b| b.kind),
+                Some(BuildingKind::Barracks)
+            );
+        }
+        other => panic!("expected one train order, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_hotkey_with_no_building_that_can_train_it_does_nothing() {
+    // Player two has a town centre but no barracks.
+    let world = world();
+    let mut session = session();
+    let mut tab = InputState::default();
+    tab.press_key(Key::Tab);
+    session.update(&tab, 0.0, world.view());
+
+    let mut input = InputState::default();
+    input.press_key(Key::Digit2);
+    let commands = session.update(&input, 0.0, world.view());
+
+    assert!(commands.is_empty(), "got {commands:?}");
+}
+
+// --- hotseat --------------------------------------------------------------
+
+#[test]
+fn tab_hands_the_keyboard_to_the_other_player() {
+    let world = world();
+    let mut session = session();
+    assert_eq!(session.active_player(), PlayerId::One);
+
+    let mut input = InputState::default();
+    input.press_key(Key::Tab);
+    session.update(&input, 0.0, world.view());
+
+    assert_eq!(session.active_player(), PlayerId::Two);
+}
+
+#[test]
+fn each_player_keeps_their_own_selection_across_a_swap() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    let first = session.selection().to_vec();
+
+    let mut tab = InputState::default();
+    tab.press_key(Key::Tab);
+    session.update(&tab, 0.0, world.view());
+    assert!(
+        session.selection().is_empty(),
+        "player two selected nothing yet"
+    );
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(9.5, 9.5)),
+    );
+    let second = session.selection().to_vec();
+
+    session.update(&tab, 0.0, world.view());
+    assert_eq!(session.selection(), first.as_slice());
+    assert_ne!(first, second);
+}
+
+#[test]
+fn each_player_keeps_their_own_camera() {
+    let world = world();
+    let mut session = session();
+
+    let mut pan = InputState::default();
+    pan.hold_key(Key::D);
+    session.update(&pan, 0.5, world.view());
+    let moved = session.camera().center;
+
+    let mut tab = InputState::default();
+    tab.press_key(Key::Tab);
+    session.update(&tab, 0.0, world.view());
+
+    assert_ne!(session.camera().center, moved);
+}
+
+#[test]
+fn orders_are_stamped_with_whoever_holds_the_keyboard() {
+    let world = world();
+    let mut session = session();
+    let mut tab = InputState::default();
+    tab.press_key(Key::Tab);
+    session.update(&tab, 0.0, world.view());
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(9.5, 9.5)),
+    );
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(11.5, 11.5)),
+    );
+
+    match commands.as_slice() {
+        [Command::Move { player, .. }] => assert_eq!(*player, PlayerId::Two),
+        other => panic!("expected a move order for player two, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_half_finished_drag_does_not_survive_a_swap() {
+    let world = world();
+    let mut session = session();
+    let mut press = at_cursor(at(Vec2::new(1.0, 1.0)));
+    press.press(MouseButton::Left);
+    session.update(&press, 0.0, world.view());
+
+    let mut tab = InputState::default();
+    tab.press_key(Key::Tab);
+    session.update(&tab, 0.0, world.view());
+    session.update(&tab, 0.0, world.view());
+
+    assert_eq!(session.drag_box(Vec2::new(4.0, 4.0)), None);
+}
