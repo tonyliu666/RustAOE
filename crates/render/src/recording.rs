@@ -4,7 +4,7 @@
 //! translation of game state into primitives is assertable in CI, with no
 //! window and no GPU. The real backend is verified by eye.
 
-use crate::{Camera, Color, Renderer, Vec2};
+use crate::{Camera, Color, Renderer, TextureId, Vec2};
 
 /// One recorded call, in the order it was made.
 #[derive(Clone, PartialEq, Debug)]
@@ -26,6 +26,11 @@ pub enum DrawCall {
         px: f32,
         color: Color,
     },
+    Sprite {
+        texture: TextureId,
+        pos: Vec2,
+        size: Vec2,
+    },
     EndFrame,
 }
 
@@ -33,6 +38,8 @@ pub enum DrawCall {
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct RecordingRenderer {
     calls: Vec<DrawCall>,
+    /// The size of each loaded texture, indexed by its ID.
+    textures: Vec<(u32, u32)>,
 }
 
 impl RecordingRenderer {
@@ -59,6 +66,20 @@ impl RecordingRenderer {
             DrawCall::Text { text, pos, .. } => Some((text.as_str(), *pos)),
             _ => None,
         })
+    }
+
+    /// The sprites recorded so far, as `(texture, pos, size)`.
+    pub fn sprites(&self) -> impl Iterator<Item = (TextureId, Vec2, Vec2)> + '_ {
+        self.calls.iter().filter_map(|call| match call {
+            DrawCall::Sprite { texture, pos, size } => Some((*texture, *pos, *size)),
+            _ => None,
+        })
+    }
+
+    /// The size of a texture this renderer loaded, or `None` for one it did
+    /// not, which would be a drawing bug in the caller.
+    pub fn texture_size(&self, texture: TextureId) -> Option<(u32, u32)> {
+        self.textures.get(texture.0 as usize).copied()
     }
 
     /// Number of completed frames.
@@ -102,5 +123,15 @@ impl Renderer for RecordingRenderer {
 
     fn end_frame(&mut self) {
         self.calls.push(DrawCall::EndFrame);
+    }
+
+    fn load_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> TextureId {
+        debug_assert_eq!(rgba.len(), width as usize * height as usize * 4);
+        self.textures.push((width, height));
+        TextureId(self.textures.len() as u32 - 1)
+    }
+
+    fn sprite(&mut self, texture: TextureId, pos: Vec2, size: Vec2) {
+        self.calls.push(DrawCall::Sprite { texture, pos, size });
     }
 }

@@ -46,42 +46,17 @@ fn no_input_leaves_the_camera_where_it_was() {
 }
 
 #[test]
-fn w_and_s_pan_the_camera_up_and_down() {
-    let mut up = controller();
-    let mut down = controller();
-    let start = up.camera().center.y;
+fn w_a_s_d_do_not_move_the_camera() {
+    // The map pans with the mouse at the screen edge only, as in the
+    // original.
+    for key in [Key::W, Key::A, Key::S, Key::D] {
+        let mut cam = controller();
+        let before = cam.camera();
 
-    up.update(&holding(&[Key::W]), 0.1);
-    down.update(&holding(&[Key::S]), 0.1);
+        cam.update(&holding(&[key]), 0.1);
 
-    assert!(up.camera().center.y < start, "W should pan towards lower y");
-    assert!(
-        down.camera().center.y > start,
-        "S should pan towards higher y"
-    );
-}
-
-#[test]
-fn a_and_d_pan_the_camera_left_and_right() {
-    let mut left = controller();
-    let mut right = controller();
-    let start = left.camera().center.x;
-
-    left.update(&holding(&[Key::A]), 0.1);
-    right.update(&holding(&[Key::D]), 0.1);
-
-    assert!(left.camera().center.x < start);
-    assert!(right.camera().center.x > start);
-}
-
-#[test]
-fn opposing_keys_cancel_out() {
-    let mut cam = controller();
-    let before = cam.camera();
-
-    cam.update(&holding(&[Key::W, Key::S, Key::A, Key::D]), 0.1);
-
-    assert_eq!(before, cam.camera());
+        assert_eq!(before, cam.camera(), "{key:?} moved the camera");
+    }
 }
 
 #[test]
@@ -90,8 +65,8 @@ fn panning_twice_as_long_pans_twice_as_far() {
     let mut long = controller();
     let start = short.camera().center.x;
 
-    short.update(&holding(&[Key::D]), 0.1);
-    long.update(&holding(&[Key::D]), 0.2);
+    short.update(&cursor_at(799.0, 300.0), 0.1);
+    long.update(&cursor_at(799.0, 300.0), 0.2);
 
     let short_delta = short.camera().center.x - start;
     let long_delta = long.camera().center.x - start;
@@ -105,7 +80,7 @@ fn a_long_frame_cannot_teleport_the_camera_across_the_map() {
 
     // A stalled frame — a breakpoint, a disk hitch — must not translate into a
     // jump of hundreds of tiles.
-    cam.update(&holding(&[Key::D]), 30.0);
+    cam.update(&cursor_at(799.0, 300.0), 30.0);
 
     let delta = cam.camera().center.x - start;
     assert!(delta > 0.0);
@@ -117,7 +92,7 @@ fn panning_stops_at_the_map_edge() {
     let mut cam = controller();
 
     for _ in 0..1000 {
-        cam.update(&holding(&[Key::D, Key::S]), 0.1);
+        cam.update(&cursor_at(799.0, 599.0), 0.1);
     }
 
     assert_eq!(cam.camera().center.x, MAP as f32);
@@ -129,7 +104,7 @@ fn panning_stops_at_the_map_origin() {
     let mut cam = controller();
 
     for _ in 0..1000 {
-        cam.update(&holding(&[Key::A, Key::W]), 0.1);
+        cam.update(&cursor_at(0.0, 0.0), 0.1);
     }
 
     assert_eq!(cam.camera().center.x, 0.0);
@@ -270,18 +245,6 @@ fn a_cursor_outside_the_window_does_not_pan() {
             "cursor at ({x}, {y}) panned"
         );
     }
-}
-
-#[test]
-fn an_edge_and_a_key_together_are_no_faster_than_the_key() {
-    let mut both = cursor_at(0.0, 300.0);
-    both.hold_key(Key::A);
-
-    assert!(
-        close(pan(&both), Vec2::new(-STEP, 0.0)),
-        "panned {:?}",
-        pan(&both)
-    );
 }
 
 #[test]

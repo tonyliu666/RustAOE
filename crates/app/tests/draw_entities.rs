@@ -3,7 +3,9 @@
 //! Asserted against `RecordingRenderer` rather than by eye: this is the payoff
 //! of `render` not knowing what a unit is.
 
-use app::{draw_world, Hud, GAIA, MINE, PLAYER_COLORS, PLAYER_ONE, PLAYER_TWO, SELECTION};
+mod common;
+
+use app::{draw_world, Hud, Sprites, UNIT_PIXELS_PER_TILE};
 use render::{Camera, Color, DrawCall, RecordingRenderer, Vec2};
 use sim::{
     BuildingKind, Command, FxVec2, MapSpec, PlayerId, Resources, TilePos, UnitId, UnitKind, World,
@@ -24,9 +26,29 @@ fn hud<'a>(selection: &'a [UnitId], drag_box: Option<(Vec2, Vec2)>) -> Hud<'a> {
     }
 }
 
-fn draw(renderer: &mut RecordingRenderer, world: &World, hud: &Hud<'_>) {
+/// Draws a frame with a fresh fake sprite set, returning the set so a test
+/// can tell which texture is which.
+fn draw(renderer: &mut RecordingRenderer, world: &World, hud: &Hud<'_>) -> Sprites {
     let previous: HashMap<UnitId, FxVec2> = HashMap::new();
-    draw_world(renderer, &camera(), world.view(), &previous, 0.0, hud);
+    let sprites = common::sprites(renderer);
+    draw_world(
+        renderer,
+        &camera(),
+        world.view(),
+        &previous,
+        0.0,
+        hud,
+        &sprites,
+    );
+    sprites
+}
+
+fn lines(renderer: &RecordingRenderer) -> usize {
+    renderer
+        .calls()
+        .iter()
+        .filter(|call| matches!(call, DrawCall::Line { .. }))
+        .count()
 }
 
 /// A 16x16 map with one unit of each side, a building, and a mine.
@@ -49,44 +71,6 @@ fn quads_of_color(renderer: &RecordingRenderer, color: Color) -> Vec<(Vec2, Vec2
 }
 
 #[test]
-fn each_side_is_drawn_in_its_own_colour() {
-    let mut renderer = RecordingRenderer::new();
-    let world = populated();
-
-    draw(&mut renderer, &world, &hud(&[], None));
-
-    // Player one has a town centre and a villager, player two has one soldier.
-    assert_eq!(quads_of_color(&renderer, PLAYER_ONE).len(), 2);
-    assert_eq!(quads_of_color(&renderer, PLAYER_TWO).len(), 1);
-    assert_ne!(PLAYER_ONE, PLAYER_TWO);
-}
-
-#[test]
-fn a_building_is_drawn_at_its_footprint_size() {
-    let mut renderer = RecordingRenderer::new();
-    let world = populated();
-
-    draw(&mut renderer, &world, &hud(&[], None));
-
-    let size = BuildingKind::TownCenter.size() as f32;
-    assert!(
-        quads_of_color(&renderer, PLAYER_ONE)
-            .contains(&(Vec2::new(1.0, 1.0), Vec2::new(size, size))),
-        "the town centre should cover its whole footprint"
-    );
-}
-
-#[test]
-fn a_mine_is_drawn_where_it_stands() {
-    let mut renderer = RecordingRenderer::new();
-    let world = populated();
-
-    draw(&mut renderer, &world, &hud(&[], None));
-
-    assert!(quads_of_color(&renderer, MINE).contains(&(Vec2::new(12.0, 12.0), Vec2::new(2.0, 2.0))));
-}
-
-#[test]
 fn a_selected_unit_gets_an_outline_the_others_do_not() {
     let mut renderer = RecordingRenderer::new();
     let world = populated();
@@ -97,11 +81,12 @@ fn a_selected_unit_gets_an_outline_the_others_do_not() {
         .expect("the villager is on the map");
 
     draw(&mut renderer, &world, &hud(&[], None));
-    assert!(quads_of_color(&renderer, SELECTION).is_empty());
+    assert_eq!(lines(&renderer), 0);
 
+    // A thin outline, as in the original: four lines, no filled rectangle.
     renderer.clear();
     draw(&mut renderer, &world, &hud(&[villager], None));
-    assert_eq!(quads_of_color(&renderer, SELECTION).len(), 1);
+    assert_eq!(lines(&renderer), 4);
 }
 
 #[test]
@@ -112,12 +97,7 @@ fn the_drag_rectangle_is_drawn_as_four_lines() {
 
     draw(&mut renderer, &world, &hud(&[], Some(corners)));
 
-    let lines: Vec<_> = renderer
-        .calls()
-        .iter()
-        .filter(|call| matches!(call, DrawCall::Line { .. }))
-        .collect();
-    assert_eq!(lines.len(), 4);
+    assert_eq!(lines(&renderer), 4);
 }
 
 #[test]
@@ -174,6 +154,7 @@ fn a_unit_is_drawn_between_its_last_two_positions() {
     let previous: HashMap<UnitId, FxVec2> = [(id, before)].into_iter().collect();
 
     let mut renderer = RecordingRenderer::new();
+    let sprites = common::sprites(&mut renderer);
     draw_world(
         &mut renderer,
         &camera(),
@@ -181,17 +162,19 @@ fn a_unit_is_drawn_between_its_last_two_positions() {
         &previous,
         0.5,
         &hud(&[], None),
+        &sprites,
     );
 
-    let body = quads_of_color(&renderer, PLAYER_ONE)
-        .first()
-        .copied()
+    let villager = sprites.villager[1];
+    let (_, pos, _) = renderer
+        .sprites()
+        .find(|(t, _, _)| *t == villager.texture)
         .expect("the villager should be drawn");
     // Halfway through the tick, halfway between the two positions.
+    let hotspot_x = villager.hotspot.x / UNIT_PIXELS_PER_TILE;
     assert!(
-        (body.0.x - (now.x - 1.0 - body.1.x / 2.0)).abs() < 1e-3,
-        "drawn at {:?}, expected halfway back",
-        body.0
+        (pos.x - (now.x - 1.0 - hotspot_x)).abs() < 1e-3,
+        "drawn at {pos:?}, expected halfway back"
     );
 }
 
@@ -234,36 +217,6 @@ fn the_overlay_shows_every_resource_of_the_active_player() {
             && line.contains("stone 44")),
         "overlay was {overlay:?}"
     );
-}
-
-#[test]
-fn every_player_and_gaia_has_a_colour_of_its_own() {
-    let mut colours: Vec<Color> = PLAYER_COLORS.to_vec();
-    colours.push(GAIA);
-
-    for (i, a) in colours.iter().enumerate() {
-        for b in &colours[i + 1..] {
-            assert_ne!(a, b);
-        }
-    }
-    assert_eq!(PLAYER_COLORS[0], PLAYER_ONE);
-    assert_eq!(PLAYER_COLORS[1], PLAYER_TWO);
-}
-
-#[test]
-fn a_third_players_and_gaias_units_are_drawn_in_their_own_colours() {
-    let mut renderer = RecordingRenderer::new();
-    let map = MapSpec::new(16, 16)
-        .with_players(3)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
-        .with_unit(UnitKind::Villager, PlayerId::new(3), TilePos::new(6, 6))
-        .with_unit(UnitKind::Villager, PlayerId::GAIA, TilePos::new(9, 9));
-    let world = World::new(7, map);
-
-    draw(&mut renderer, &world, &hud(&[], None));
-
-    assert_eq!(quads_of_color(&renderer, PLAYER_COLORS[2]).len(), 1);
-    assert_eq!(quads_of_color(&renderer, GAIA).len(), 1);
 }
 
 #[test]

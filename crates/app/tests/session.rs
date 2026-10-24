@@ -498,8 +498,13 @@ fn each_player_keeps_their_own_camera() {
     let world = world();
     let mut session = session();
 
+    // The mouse at the right edge of the window pans the view.
     let mut pan = InputState::default();
-    pan.hold_key(Key::D);
+    pan.cursor = Vec2::new(
+        session.camera().viewport.x - 1.0,
+        session.camera().viewport.y / 2.0,
+    );
+    pan.cursor_seen = true;
     session.update(&pan, 0.5, world.view());
     let moved = session.camera().center;
 

@@ -12,15 +12,17 @@ mod draw;
 mod pick;
 mod replay_file;
 mod session;
+mod sprites;
 
 pub use camera_controller::CameraController;
 pub use content_file::{
     load_content, new_game_content, parse_content, ContentFileError, DEFAULT_CONTENT,
 };
-pub use draw::{
-    draw_world, Hud, GAIA, HEALTH, HEALTH_LOST, MINE, PLAYER_COLORS, PLAYER_ONE, PLAYER_TWO,
-    SELECTION, TILE_BLOCKED, TILE_OPEN,
-};
+pub use draw::{draw_world, Hud, HEALTH, HEALTH_LOST, SELECTION};
 pub use pick::{building_at, entity_at, mine_at, tile_at, to_screen_space, unit_at, units_in_box};
 pub use replay_file::{load, save, ReplayError};
 pub use session::{PlayerUi, Session};
+pub use sprites::{
+    assets_dir, load_images, unskew_tile, AssetError, GameImages, Sprite, Sprites,
+    UNIT_PIXELS_PER_TILE,
+};

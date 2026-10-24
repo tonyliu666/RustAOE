@@ -1,8 +1,10 @@
 //! Translating world state into draw calls, asserted headlessly.
 
-use app::{draw_world, Hud, TILE_BLOCKED, TILE_OPEN};
+mod common;
+
+use app::{draw_world, Hud};
 use render::{Camera, DrawCall, RecordingRenderer, Vec2};
-use sim::{FxVec2, MapSpec, PlayerId, TilePos, UnitId, World};
+use sim::{FxVec2, MapSpec, PlayerId, UnitId, World};
 use std::collections::HashMap;
 
 /// Draws a frame with no selection, no drag, and no interpolation.
@@ -12,7 +14,25 @@ use std::collections::HashMap;
 /// is actually asserting.
 fn draw(renderer: &mut RecordingRenderer, camera: &Camera, world: &World) {
     let previous: HashMap<UnitId, FxVec2> = HashMap::new();
-    draw_world(renderer, camera, world.view(), &previous, 0.0, &plain_hud());
+    let sprites = common::sprites(renderer);
+    draw_world(
+        renderer,
+        camera,
+        world.view(),
+        &previous,
+        0.0,
+        &plain_hud(),
+        &sprites,
+    );
+}
+
+/// The ground tiles drawn: one 1x1 grass sprite per tile.
+fn ground(renderer: &RecordingRenderer) -> Vec<(Vec2, Vec2)> {
+    renderer
+        .sprites()
+        .filter(|(_, _, size)| *size == Vec2::new(1.0, 1.0))
+        .map(|(_, pos, size)| (pos, size))
+        .collect()
 }
 
 fn plain_hud() -> Hud<'static> {
@@ -56,40 +76,30 @@ fn every_visible_tile_is_drawn_once() {
 
     draw(&mut renderer, &wide_camera(), &world);
 
-    assert_eq!(renderer.quads().count(), 64);
+    assert_eq!(ground(&renderer).len(), 64);
 }
 
 #[test]
-fn a_tile_is_drawn_as_a_one_by_one_quad_at_its_own_coordinates() {
+fn a_tile_is_drawn_one_by_one_at_its_own_coordinates() {
     let mut renderer = RecordingRenderer::new();
     let world = world(MapSpec::new(8, 8));
 
     draw(&mut renderer, &wide_camera(), &world);
 
-    let quad = renderer
-        .quads()
-        .find(|(pos, _, _)| *pos == Vec2::new(3.0, 5.0))
-        .expect("tile 3,5 should be drawn at world 3,5");
-    assert_eq!(quad.1, Vec2::new(1.0, 1.0));
+    assert!(
+        ground(&renderer).contains(&(Vec2::new(3.0, 5.0), Vec2::new(1.0, 1.0))),
+        "tile 3,5 should be drawn at world 3,5"
+    );
 }
 
 #[test]
-fn blocked_tiles_are_drawn_in_a_different_colour_from_open_ones() {
+fn plain_ground_draws_no_filled_rectangles() {
     let mut renderer = RecordingRenderer::new();
-    let world = world(MapSpec::new(8, 8).with_blocked([TilePos::new(2, 2)]));
+    let world = world(MapSpec::new(8, 8));
 
     draw(&mut renderer, &wide_camera(), &world);
 
-    let colour = |pos: Vec2| {
-        renderer
-            .quads()
-            .find(|(p, _, _)| *p == pos)
-            .map(|(_, _, c)| c)
-            .expect("tile should be drawn")
-    };
-    assert_eq!(colour(Vec2::new(2.0, 2.0)), TILE_BLOCKED);
-    assert_eq!(colour(Vec2::new(3.0, 2.0)), TILE_OPEN);
-    assert_ne!(TILE_OPEN, TILE_BLOCKED);
+    assert_eq!(renderer.quads().count(), 0);
 }
 
 #[test]
@@ -102,7 +112,7 @@ fn tiles_outside_the_viewport_are_not_drawn() {
 
     draw(&mut renderer, &camera, &world);
 
-    let drawn = renderer.quads().count();
+    let drawn = ground(&renderer).len();
     assert!(
         drawn >= 100,
         "the visible 10x10 must be covered, got {drawn}"
@@ -120,9 +130,9 @@ fn a_partly_visible_tile_at_the_viewport_edge_is_still_drawn() {
     draw(&mut renderer, &camera, &world);
 
     assert!(
-        renderer
-            .quads()
-            .any(|(pos, _, _)| pos == Vec2::new(6.0, 6.0)),
+        ground(&renderer)
+            .iter()
+            .any(|(pos, _)| *pos == Vec2::new(6.0, 6.0)),
         "the half-visible tile 6,6 should be drawn, not culled"
     );
 }
@@ -135,13 +145,13 @@ fn nothing_is_drawn_beyond_the_map_edge() {
 
     draw(&mut renderer, &camera, &world);
 
-    for (pos, _, _) in renderer.quads() {
+    for (pos, _) in ground(&renderer) {
         assert!(
             pos.x >= 0.0 && pos.y >= 0.0 && pos.x < 4.0 && pos.y < 4.0,
             "drew a tile at {pos:?}, which is off the map"
         );
     }
-    assert_eq!(renderer.quads().count(), 16);
+    assert_eq!(ground(&renderer).len(), 16);
 }
 
 #[test]

@@ -41,3 +41,30 @@ fn playback_ignores_the_content_file_so_a_broken_one_does_not_stop_it() {
     assert!(matches!(result, Ok(None)), "{result:?}");
     let _ = std::fs::remove_file(&path);
 }
+
+// --- where the game's sprites come from ------------------------------------
+
+use app::assets_dir;
+use std::path::{Path, PathBuf};
+
+#[test]
+fn the_assets_option_names_the_install() {
+    let dir = assets_dir(Some(Path::new("/games/aoe2")), Some("/elsewhere".into()));
+
+    assert_eq!(dir, Ok(PathBuf::from("/games/aoe2")));
+}
+
+#[test]
+fn without_the_option_the_environment_names_the_install() {
+    let dir = assets_dir(None, Some("/from/env".into()));
+
+    assert_eq!(dir, Ok(PathBuf::from("/from/env")));
+}
+
+#[test]
+fn with_neither_there_is_no_game_to_draw_and_the_error_says_how_to_fix_it() {
+    let error = assets_dir(None, None).expect_err("nothing to draw with");
+
+    assert!(error.contains("--assets"), "{error}");
+    assert!(error.contains("AOE_ASSETS"), "{error}");
+}

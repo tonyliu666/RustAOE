@@ -7,7 +7,7 @@
 
 use macroquad::prelude as mq;
 
-use crate::{Camera, Color, InputSource, InputState, Key, MouseButton, Renderer, Vec2};
+use crate::{Camera, Color, InputSource, InputState, Key, MouseButton, Renderer, TextureId, Vec2};
 
 /// Draws through macroquad's immediate-mode API.
 #[derive(Default)]
@@ -15,6 +15,8 @@ pub struct MacroquadRenderer {
     /// The camera of the frame in progress, kept so that text can be drawn in
     /// screen space and the world camera restored afterwards.
     camera: Option<Camera>,
+    /// Uploaded textures, indexed by [`TextureId`].
+    textures: Vec<mq::Texture2D>,
 }
 
 impl MacroquadRenderer {
@@ -84,6 +86,32 @@ impl Renderer for MacroquadRenderer {
     fn end_frame(&mut self) {
         mq::set_default_camera();
         self.camera = None;
+    }
+
+    fn load_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> TextureId {
+        let texture = mq::Texture2D::from_rgba8(width as u16, height as u16, rgba);
+        // The original's sprites are pixel art: scale them without blurring.
+        texture.set_filter(mq::FilterMode::Nearest);
+        self.textures.push(texture);
+        TextureId(self.textures.len() as u32 - 1)
+    }
+
+    fn sprite(&mut self, texture: TextureId, pos: Vec2, size: Vec2) {
+        // An ID this renderer never issued is skipped rather than panicking
+        // mid-frame; the recording renderer is where that bug is caught.
+        let Some(texture) = self.textures.get(texture.0 as usize) else {
+            return;
+        };
+        mq::draw_texture_ex(
+            texture,
+            pos.x,
+            pos.y,
+            mq::WHITE,
+            mq::DrawTextureParams {
+                dest_size: Some(mq::vec2(size.x, size.y)),
+                ..Default::default()
+            },
+        );
     }
 }
 

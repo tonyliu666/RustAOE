@@ -1,4 +1,5 @@
-//! Turning held keys and wheel movement into camera motion.
+//! Turning the mouse at the screen edge, the wheel, and the zoom keys into
+//! camera motion.
 //!
 //! Camera state is presentation, so it lives here rather than in `sim` and is
 //! free to use floating point. In hotseat play each player has their own
@@ -6,7 +7,7 @@
 
 use render::{Camera, InputState, Key, MouseButton, Vec2};
 
-/// A camera plus the keyboard and wheel bindings that move it.
+/// A camera plus the mouse and keyboard bindings that move it.
 #[derive(Clone, PartialEq, Debug)]
 pub struct CameraController {
     camera: Camera,
@@ -15,7 +16,7 @@ pub struct CameraController {
 }
 
 impl CameraController {
-    /// Pan speed in tiles per second, at any zoom.
+    /// Edge-scroll speed in tiles per second, at any zoom.
     pub const PAN_TILES_PER_SECOND: f32 = 48.0;
     /// Longest frame that may drive camera motion, in seconds.
     ///
@@ -71,35 +72,16 @@ impl CameraController {
         }
         self.camera.zoom = (self.camera.zoom * zoom_factor).clamp(Self::MIN_ZOOM, Self::MAX_ZOOM);
 
-        let mut pan = Vec2::ZERO;
-        if input.key_down(Key::W) {
-            pan.y -= 1.0;
-        }
-        if input.key_down(Key::S) {
-            pan.y += 1.0;
-        }
-        if input.key_down(Key::A) {
-            pan.x -= 1.0;
-        }
-        if input.key_down(Key::D) {
-            pan.x += 1.0;
-        }
-
-        // The mouse at a screen edge pans too, as in the original. Not while
-        // dragging a selection box, which would slide the map out from under
-        // the box, and not before the cursor has really been seen, which would
-        // drift the view towards the corner the backend reports by default.
-        if input.cursor_seen && !input.is_down(MouseButton::Left) {
-            pan = pan + self.edge_direction(input.cursor);
-        }
-        // One direction per axis, then unit length: a key and an edge pushing
-        // the same way, or a corner, never pan faster than one key.
-        pan.x = pan.x.clamp(-1.0, 1.0);
-        pan.y = pan.y.clamp(-1.0, 1.0);
-        let length = (pan.x * pan.x + pan.y * pan.y).sqrt();
-        if length > 0.0 {
-            pan = pan * (1.0 / length);
-        }
+        // Only the mouse at a screen edge pans, as in the original; there are
+        // no pan keys. Not while dragging a selection box, which would slide
+        // the map out from under the box, and not before the cursor has really
+        // been seen, which would drift the view towards the corner the backend
+        // reports by default.
+        let pan = if input.cursor_seen && !input.is_down(MouseButton::Left) {
+            self.edge_direction(input.cursor)
+        } else {
+            Vec2::ZERO
+        };
 
         let step = Self::PAN_TILES_PER_SECOND * dt;
         self.camera.center = self.camera.center + pan * step;

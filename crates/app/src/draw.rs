@@ -1,38 +1,20 @@
 //! World state to draw calls.
 //!
 //! This is the translation layer the crate split exists for: `render` knows
-//! quads, `sim` knows tiles, and neither can see the other.
+//! sprites and lines, `sim` knows tiles, and neither can see the other.
+//!
+//! Everything on the map is drawn with the original game's sprites. The only
+//! filled rectangles are health bars, and the only lines are the selection
+//! outline and the drag box, as in the original.
 
 use crate::pick::to_screen_space;
+use crate::sprites::{Sprite, Sprites, UNIT_PIXELS_PER_TILE};
 use render::{Camera, Color, Renderer, Vec2};
-use sim::{FxVec2, Outcome, PlayerId, Resource, Resources, TilePos, UnitId, UnitKind, WorldView};
-use std::collections::HashMap;
+use sim::{FxVec2, Outcome, PlayerId, Resource, Resources, TilePos, UnitId, WorldView};
+use std::collections::{HashMap, HashSet};
 
-/// A passable tile.
-pub const TILE_OPEN: Color = Color::rgb(0.20, 0.36, 0.22);
-/// A tile a unit cannot walk on.
-pub const TILE_BLOCKED: Color = Color::rgb(0.32, 0.29, 0.26);
-/// Each player's units and buildings, players 1 to 8 in order.
-pub const PLAYER_COLORS: [Color; 8] = [
-    Color::rgb(0.30, 0.55, 0.95), // blue
-    Color::rgb(0.90, 0.35, 0.30), // red
-    Color::rgb(0.35, 0.80, 0.35), // green
-    Color::rgb(0.95, 0.85, 0.25), // yellow
-    Color::rgb(0.25, 0.80, 0.80), // cyan
-    Color::rgb(0.70, 0.40, 0.85), // purple
-    Color::rgb(0.75, 0.75, 0.75), // light grey
-    Color::rgb(0.95, 0.55, 0.15), // orange
-];
-/// Player one's colour.
-pub const PLAYER_ONE: Color = PLAYER_COLORS[0];
-/// Player two's colour.
-pub const PLAYER_TWO: Color = PLAYER_COLORS[1];
-/// Gaia's units and buildings: the map's neutral objects.
-pub const GAIA: Color = Color::rgb(0.45, 0.40, 0.35);
-/// A gold mine.
-pub const MINE: Color = Color::rgb(0.85, 0.72, 0.20);
 /// The outline around a selected unit and the drag rectangle.
-pub const SELECTION: Color = Color::rgb(0.95, 0.95, 0.40);
+pub const SELECTION: Color = Color::rgb(0.95, 0.95, 0.95);
 /// The filled part of a health bar.
 pub const HEALTH: Color = Color::rgb(0.25, 0.85, 0.35);
 /// The empty part of a health bar.
@@ -44,8 +26,6 @@ const OVERLAY_ORIGIN: Vec2 = Vec2::new(8.0, 24.0);
 const OVERLAY_PX: f32 = 20.0;
 /// Vertical gap between overlay lines, in screen pixels.
 const OVERLAY_LINE: f32 = 22.0;
-/// Villager and soldier body size, in tiles.
-const UNIT_SIZE: Vec2 = Vec2::new(0.5, 0.5);
 /// Height of a health bar, in tiles.
 const HEALTH_BAR_HEIGHT: f32 = 0.12;
 
@@ -74,22 +54,16 @@ pub fn draw_world<R: Renderer>(
     previous: &HashMap<UnitId, FxVec2>,
     alpha: f32,
     hud: &Hud<'_>,
+    sprites: &Sprites,
 ) {
     renderer.begin_frame(camera);
-    draw_terrain(renderer, camera, view);
-    draw_mines(renderer, view);
-    draw_buildings(renderer, view);
-    draw_units(renderer, view, previous, alpha, hud);
+    draw_terrain(renderer, camera, view, sprites);
+    draw_mines(renderer, view, sprites);
+    draw_buildings(renderer, view, sprites);
+    draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
     draw_overlay(renderer, camera, view, hud);
     renderer.end_frame();
-}
-
-fn player_color(player: PlayerId) -> Color {
-    match player.number() {
-        0 => GAIA,
-        n => PLAYER_COLORS[usize::from(n - 1) % PLAYER_COLORS.len()],
-    }
 }
 
 /// `food 0  wood 0  gold 200  stone 0`, in the fixed resource order.
@@ -146,43 +120,88 @@ fn draw_overlay<R: Renderer>(
     }
 }
 
-/// Draws the tiles the camera can see.
+/// Draws the ground the camera can see, then the trees standing on it.
 ///
 /// Culling is by tile range rather than per-tile testing: a 128x128 map is
-/// 16k quads, and at close zoom fewer than a hundred of them are on screen.
-fn draw_terrain<R: Renderer>(renderer: &mut R, camera: &Camera, view: WorldView<'_>) {
+/// 16k tiles, and at close zoom fewer than a hundred of them are on screen.
+fn draw_terrain<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    sprites: &Sprites,
+) {
     let (min, max) = visible_tiles(camera, view.width(), view.height());
+    for y in min.y..=max.y {
+        for x in min.x..=max.x {
+            if view.tile(TilePos::new(x, y)).is_some() {
+                let at = Vec2::new(x as f32, y as f32);
+                renderer.sprite(sprites.grass_at(x, y), at, Vec2::new(1.0, 1.0));
+            }
+        }
+    }
 
+    // Rock from the map is drawn as forest. Buildings and mines also block
+    // their tiles for pathing, but stand on open ground, so their footprints
+    // get no trees.
+    let covered: HashSet<TilePos> = view
+        .buildings()
+        .flat_map(|(_, b)| b.footprint().collect::<Vec<_>>())
+        .chain(
+            view.mines()
+                .flat_map(|(_, m)| m.footprint().collect::<Vec<_>>()),
+        )
+        .collect();
+    // A tree is taller and wider than its tile, so trees just outside the
+    // view can still reach into it. Rows are drawn top to bottom so that
+    // nearer trees overlap farther ones.
+    let (min, max) = (
+        TilePos::new(min.x - TREE_REACH, min.y),
+        TilePos::new(max.x + TREE_REACH, max.y + TREE_REACH),
+    );
     for y in min.y..=max.y {
         for x in min.x..=max.x {
             let pos = TilePos::new(x, y);
             let Some(tile) = view.tile(pos) else { continue };
-            let color = if tile.passable {
-                TILE_OPEN
-            } else {
-                TILE_BLOCKED
-            };
-            renderer.quad(Vec2::new(x as f32, y as f32), Vec2::new(1.0, 1.0), color);
+            if !tile.passable && !covered.contains(&pos) {
+                let centre = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                stand(renderer, &sprites.tree, centre, 1.0 / UNIT_PIXELS_PER_TILE);
+            }
         }
     }
 }
 
-fn draw_mines<R: Renderer>(renderer: &mut R, view: WorldView<'_>) {
+/// Tiles beyond the view whose trees may still reach into it.
+const TREE_REACH: i32 = 3;
+
+/// Draws `sprite` with its ground point on `ground`, at `scale` tiles per
+/// sprite pixel. Returns where the sprite was drawn and its size.
+fn stand<R: Renderer>(renderer: &mut R, sprite: &Sprite, ground: Vec2, scale: f32) -> (Vec2, Vec2) {
+    let origin = ground - sprite.hotspot * scale;
+    let size = Vec2::new(sprite.width, sprite.height) * scale;
+    renderer.sprite(sprite.texture, origin, size);
+    (origin, size)
+}
+
+fn draw_mines<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
     for (_, mine) in view.mines() {
-        let size = sim::Mine::SIZE as f32;
-        renderer.quad(
-            Vec2::new(mine.origin.x as f32, mine.origin.y as f32),
-            Vec2::new(size, size),
-            MINE,
+        stand(
+            renderer,
+            &sprites.gold_mine,
+            to_screen_space(mine.center()),
+            1.0 / UNIT_PIXELS_PER_TILE,
         );
     }
 }
 
-fn draw_buildings<R: Renderer>(renderer: &mut R, view: WorldView<'_>) {
+fn draw_buildings<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
     for (_, building) in view.buildings() {
         let size = building.kind.size() as f32;
         let origin = Vec2::new(building.origin.x as f32, building.origin.y as f32);
-        renderer.quad(origin, Vec2::new(size, size), player_color(building.owner));
+        // Scaled to the footprint's width, with the sprite's ground point on
+        // the footprint's centre, so that it covers the tiles it blocks.
+        let sprite = sprites.building(building.kind, building.owner);
+        let centre = origin + Vec2::new(size, size) * 0.5;
+        stand(renderer, sprite, centre, size / sprite.width);
         health_bar(
             renderer,
             origin,
@@ -199,6 +218,7 @@ fn draw_units<R: Renderer>(
     previous: &HashMap<UnitId, FxVec2>,
     alpha: f32,
     hud: &Hud<'_>,
+    sprites: &Sprites,
 ) {
     for (id, unit) in view.units() {
         let now = to_screen_space(unit.pos);
@@ -207,29 +227,19 @@ fn draw_units<R: Renderer>(
         // origin.
         let before = previous.get(&id).map_or(now, |pos| to_screen_space(*pos));
         let at = before + (now - before) * alpha;
-        let origin = at - UNIT_SIZE * 0.5;
+        let sprite = sprites.unit(unit.kind, unit.owner);
+        let (origin, size) = stand(renderer, sprite, at, 1.0 / UNIT_PIXELS_PER_TILE);
 
         if hud.selection.contains(&id) {
-            renderer.quad(
-                origin - Vec2::new(0.1, 0.1),
-                UNIT_SIZE + Vec2::new(0.2, 0.2),
-                SELECTION,
-            );
+            outline(renderer, origin, origin + size);
         }
-        renderer.quad(origin, UNIT_SIZE, player_color(unit.owner));
         health_bar(
             renderer,
-            origin - Vec2::new(0.0, 0.25),
-            UNIT_SIZE.x,
+            origin,
+            size.x,
             unit.hp,
             view.content().unit(unit.kind).max_hp,
         );
-
-        // A loaded villager carries a visible nugget, so that the gather loop
-        // can be watched rather than inferred from the gold counter.
-        if unit.kind == UnitKind::Villager && unit.carrying > 0 {
-            renderer.quad(origin + Vec2::new(0.15, 0.15), Vec2::new(0.2, 0.2), MINE);
-        }
     }
 }
 
@@ -244,11 +254,15 @@ fn health_bar<R: Renderer>(renderer: &mut R, origin: Vec2, width: f32, hp: i32, 
     renderer.quad(top, Vec2::new(width * fraction, HEALTH_BAR_HEIGHT), HEALTH);
 }
 
-/// Draws the rectangle the player is dragging, as four lines.
+/// Draws the rectangle the player is dragging.
 fn draw_drag_box<R: Renderer>(renderer: &mut R, hud: &Hud<'_>) {
-    let Some((from, to)) = hud.drag_box else {
-        return;
-    };
+    if let Some((from, to)) = hud.drag_box {
+        outline(renderer, from, to);
+    }
+}
+
+/// A thin rectangle between two corners, as four lines.
+fn outline<R: Renderer>(renderer: &mut R, from: Vec2, to: Vec2) {
     let corners = [
         Vec2::new(from.x, from.y),
         Vec2::new(to.x, from.y),

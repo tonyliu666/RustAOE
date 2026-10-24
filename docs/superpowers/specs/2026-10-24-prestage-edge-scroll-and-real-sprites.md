@@ -1,7 +1,7 @@
 # Pre-stage: edge scrolling and real sprites
 
 **Date:** 2026-10-24
-**Status:** Proposed, awaiting review
+**Status:** Done 2026-10-24, pending end-of-stage review
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.5 step 4
 **Pulls forward:** part of plan Phase 12 (assets)
 
@@ -103,6 +103,23 @@ player 3 villager is drawn in player 3's colour.
 **Tests:** synthetic SLP bytes for each command produce the expected pixels;
 a command running past the frame is an error.
 
+**Result (2026-10-24):** every sprite in the install decodes without an
+error: 1,768 in `graphics.drs`, 27 in `terrain.drs`. Player colour is palette
+index `value + 16 * player`, confirmed by eye (player 1 trims are blue).
+Sprites chosen for B6 by looking at contact sheets:
+
+| Use | Archive | ID | Notes |
+| --- | --- | --- | --- |
+| Grass | `terrain.drs` | 15001 | 97x49 diamond, 100 variations |
+| Villager | `graphics.drs` | 1473 | male villager, 75 frames (5 directions x 15) |
+| Militia (our soldier) | `graphics.drs` | 1181 | sword infantry, 30 frames |
+| Town centre | `graphics.drs` | 901 | upper section; the original draws the TC in pieces |
+| Barracks | `graphics.drs` | 131 | thatched, matching the town centre |
+
+Other families seen: female villager 1382 to 1457, male villager 1473 to
+1535, barracks variants 130 to 145, town-centre sections 900 to 927 (per
+culture and age), castles 302 to 305, wonders 3534 to 3546.
+
 ### B5: sprites in the renderer
 
 `render::Renderer` gains textures: `load_texture(width, height, rgba) ->
@@ -147,3 +164,44 @@ direction, sound, other terrain types, and the isometric view.
    centre, and a barracks drawn with the original sprites. Checked by eye.
 3. Without `--assets`, the game runs as before.
 4. `cargo test --workspace` and clippy pass. No asset file is committed.
+
+## Gate results (2026-10-24)
+
+| Gate | Evidence |
+| --- | --- |
+| 1. Edge scrolling | `crates/app/tests/camera_controller.rs` (edges, corners, centre-to-cursor direction, outside window, unseen cursor, drag); screenshots show no drift with the mouse outside the window |
+| 2. Original sprites | Screenshot with `--assets /tmp/aoe2-install`: real grass in 16 variations, town centre (901) and barracks (131) with player 1's blue trim, male villagers (1473), all upright; start zoom 48 px per tile, one screen pixel per sprite pixel for units |
+| 3. Without `--assets` | Runs as before (shapes); `--assets` on a missing folder exits 1 with `.../data/interfac.drs: No such file or directory` |
+| 4. Tests and clippy | `cargo test --workspace`: 309 passed, 0 failed; clippy clean with and without the window feature. No asset file is committed |
+
+Also fixed on the way: ground under buildings and mines is drawn as grass,
+not rock (`ground_under_a_building_is_grass_not_rock`).
+
+Known gaps, not in this pre-stage: the town centre is only its upper section
+(the original assembles it from several pieces); gold mines are still a
+yellow square; units show one still frame facing south; the selection mark
+is a rectangle behind the sprite.
+
+## Follow-up: mouse-only panning, no shapes (2026-10-24, user request)
+
+- **W, A, S, and D no longer pan.** The map pans only with the mouse at the
+  screen edge, as in the original. Q, E, and the wheel still zoom.
+  (`w_a_s_d_do_not_move_the_camera`; the other camera tests now pan with the
+  edge.)
+- **Sprites are required.** `draw_world` takes `&Sprites`, and every shape
+  path is gone. The binary takes the install from `--assets DIR`, else the
+  `AOE_ASSETS` environment variable, else exits with:
+  `no Age of Empires II install to draw with: pass --assets DIR (the folder
+  holding data/graphics.drs) or set AOE_ASSETS`. `--verify` draws nothing and
+  still needs no install. Start zoom is 48 px per tile.
+- **Rock is forest:** grass with an oak (`graphics.drs` 1270) standing on each
+  rock tile, drawn row by row so nearer trees overlap farther ones. No trees
+  on building or mine footprints.
+- **Gold mine:** `graphics.drs` 4479, frame 0, standing on the mine's centre.
+- **Selection:** a thin white four-line outline around the unit's sprite,
+  instead of a filled yellow rectangle.
+- **Removed:** the gold nugget square on a loaded villager, and the player
+  colour constants (player colours now come from each sprite decoded per
+  player).
+- **Kept, as in the original:** health bars (the only filled rectangles,
+  checked by `the_only_filled_rectangles_are_health_bars`) and the drag box.

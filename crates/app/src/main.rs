@@ -15,17 +15,22 @@ struct Options {
     /// Read the game's numbers from this RON file instead of the built-in
     /// defaults.
     content: Option<std::path::PathBuf>,
+    /// The extracted install to draw the original game's sprites from.
+    /// Falls back to the `AOE_ASSETS` environment variable.
+    assets: Option<std::path::PathBuf>,
     seed: u64,
 }
 
 const USAGE: &str = "\
-usage: aoe [--record FILE] [--play FILE] [--verify FILE] [--content FILE] [--seed N]
+usage: aoe [--record FILE] [--play FILE] [--verify FILE] [--content FILE] [--assets DIR] [--seed N]
 
   --record FILE  write this session's commands to FILE
   --play FILE    replay FILE instead of reading input
   --verify FILE  replay FILE without a window and check its checksums
   --content FILE read unit and building numbers from FILE (RON); a
                  replay always uses the numbers it was recorded with
+  --assets DIR   the extracted Age of Empires II install to draw with (the
+                 folder holding data/graphics.drs); defaults to $AOE_ASSETS
   --seed N       seed the simulation (default 24065)
 ";
 
@@ -45,6 +50,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--play" => options.play = Some(value()?.into()),
             "--verify" => options.verify = Some(value()?.into()),
             "--content" => options.content = Some(value()?.into()),
+            "--assets" => options.assets = Some(value()?.into()),
             "--seed" => {
                 let raw = value()?;
                 options.seed = raw
@@ -92,8 +98,9 @@ mod game {
     /// than spiralling: each frame would otherwise take longer than the ticks
     /// it is trying to make up.
     const MAX_CATCH_UP_TICKS: u32 = 5;
-    /// Starting zoom, in screen pixels per tile.
-    const START_ZOOM: f32 = 16.0;
+    /// Starting zoom, in screen pixels per tile: one screen pixel per sprite
+    /// pixel for units, the size they are drawn at in the original.
+    const START_ZOOM: f32 = app::UNIT_PIXELS_PER_TILE;
 
     pub struct Config {
         pub seed: u64,
@@ -102,6 +109,8 @@ mod game {
         pub content: Option<Content>,
         pub record: Option<PathBuf>,
         pub play: Option<PathBuf>,
+        /// The extracted install to take sprites from.
+        pub assets: PathBuf,
     }
 
     pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
@@ -122,6 +131,10 @@ mod game {
             .map(|_| Replay::with_content(seed, map.clone(), content.clone()));
 
         let mut renderer = MacroquadRenderer::new();
+        // Decoded once and uploaded now that the window, and with it the
+        // graphics context, exists. A bad install is an error at startup,
+        // not a crash mid-game.
+        let sprites = app::load_images(&config.assets)?.upload(&mut renderer);
         let mut input_source = MacroquadInput::new();
         let mut session = Session::new(
             Camera::new(Vec2::ZERO, START_ZOOM, MacroquadRenderer::viewport()),
@@ -192,6 +205,7 @@ mod game {
                 &previous,
                 alpha,
                 &hud,
+                &sprites,
             );
             mq::next_frame().await;
         }
@@ -202,6 +216,24 @@ mod game {
         }
         Ok(())
     }
+}
+
+/// Checks the install and the content, then runs the game.
+///
+/// The install is checked first: without it there is nothing to draw, and
+/// saying so beats loading content for a game that cannot start.
+#[cfg(feature = "window")]
+async fn start(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    let assets = app::assets_dir(options.assets.as_deref(), std::env::var_os("AOE_ASSETS"))?;
+    let content = app::new_game_content(options.play.is_some(), options.content.as_deref())?;
+    game::run(game::Config {
+        seed: options.seed,
+        content,
+        record: options.record.clone(),
+        play: options.play.clone(),
+        assets,
+    })
+    .await
 }
 
 #[cfg(feature = "window")]
@@ -217,18 +249,7 @@ async fn main() {
 
     let result = match &options.verify {
         Some(path) => verify(path),
-        None => match app::new_game_content(options.play.is_some(), options.content.as_deref()) {
-            Err(error) => Err(error.into()),
-            Ok(content) => {
-                game::run(game::Config {
-                    seed: options.seed,
-                    content,
-                    record: options.record.clone(),
-                    play: options.play.clone(),
-                })
-                .await
-            }
-        },
+        None => start(&options).await,
     };
     if let Err(error) = result {
         eprintln!("{error}");

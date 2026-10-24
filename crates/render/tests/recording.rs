@@ -73,3 +73,41 @@ fn frames_are_counted_and_the_log_can_be_cleared() {
     assert_eq!(recorder.frame_count(), 0);
     assert!(recorder.calls().is_empty());
 }
+
+// --- textures and sprites ---------------------------------------------------
+
+#[test]
+fn each_loaded_texture_gets_its_own_id_and_keeps_its_size() {
+    let mut recorder = RecordingRenderer::new();
+
+    let grass = recorder.load_texture(97, 49, &[0; 97 * 49 * 4]);
+    let villager = recorder.load_texture(21, 42, &[0; 21 * 42 * 4]);
+
+    assert_ne!(grass, villager);
+    assert_eq!(recorder.texture_size(grass), Some((97, 49)));
+    assert_eq!(recorder.texture_size(villager), Some((21, 42)));
+}
+
+#[test]
+fn a_sprite_is_recorded_with_its_texture_position_and_size() {
+    let mut recorder = RecordingRenderer::new();
+    let texture = recorder.load_texture(2, 2, &[0; 16]);
+
+    recorder.begin_frame(&camera());
+    recorder.sprite(texture, Vec2::new(3.0, 4.0), Vec2::new(1.0, 2.0));
+    recorder.end_frame();
+
+    assert_eq!(
+        recorder.sprites().collect::<Vec<_>>(),
+        [(texture, Vec2::new(3.0, 4.0), Vec2::new(1.0, 2.0))]
+    );
+}
+
+#[test]
+fn a_texture_that_was_never_loaded_has_no_size() {
+    let mut other = RecordingRenderer::new();
+    let foreign = other.load_texture(1, 1, &[0; 4]);
+    let recorder = RecordingRenderer::new();
+
+    assert_eq!(recorder.texture_size(foreign), None);
+}
