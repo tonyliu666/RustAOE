@@ -168,7 +168,13 @@ fn draw_buildings<R: Renderer>(renderer: &mut R, view: WorldView<'_>) {
         let size = building.kind.size() as f32;
         let origin = Vec2::new(building.origin.x as f32, building.origin.y as f32);
         renderer.quad(origin, Vec2::new(size, size), player_color(building.owner));
-        health_bar(renderer, origin, size, building.hp, building.kind.max_hp());
+        health_bar(
+            renderer,
+            origin,
+            size,
+            building.hp,
+            view.content().building(building.kind).max_hp,
+        );
     }
 }
 
@@ -201,7 +207,7 @@ fn draw_units<R: Renderer>(
             origin - Vec2::new(0.0, 0.25),
             UNIT_SIZE.x,
             unit.hp,
-            unit.kind.stats().max_hp,
+            view.content().unit(unit.kind).max_hp,
         );
 
         // A loaded villager carries a visible nugget, so that the gather loop

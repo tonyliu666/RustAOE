@@ -1,6 +1,8 @@
 //! Replay files survive the round trip to disk and back.
 
-use sim::{BuildingKind, Command, MapSpec, PlayerId, Replay, TilePos, UnitId, UnitKind, World};
+use sim::{
+    BuildingKind, Command, Content, MapSpec, PlayerId, Replay, TilePos, UnitId, UnitKind, World,
+};
 use std::path::PathBuf;
 
 /// A path in the temporary directory, unique to this test binary and name.
@@ -94,4 +96,64 @@ fn a_missing_replay_file_is_an_io_error() {
     let error = app::load(&scratch("does-not-exist-at-all"));
 
     assert!(matches!(error, Err(app::ReplayError::Io(_))), "{error:?}");
+}
+
+#[test]
+fn a_replay_keeps_the_content_it_was_recorded_with() {
+    let path = scratch("content");
+    let mut content = Content::default();
+    content.soldier.damage = 13;
+    let replay = Replay::with_content(5, map(), content.clone());
+
+    app::save(&path, &replay).expect("the replay should write");
+    let loaded = app::load(&path).expect("the replay should read back");
+
+    assert_eq!(loaded.content, content);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_replay_from_before_content_was_recorded_loads_with_the_default_content() {
+    // The file format before Phase 1: no `content` field. Those games were
+    // all played with the default numbers.
+    let path = scratch("old-format");
+    let old = "(
+        seed: 7,
+        map: (
+            width: 8,
+            height: 8,
+            blocked: [],
+            buildings: [],
+            mines: [],
+            units: [],
+            starting_gold: 0,
+        ),
+        commands: [],
+        checksums: [],
+    )";
+    std::fs::write(&path, old).expect("the scratch file should write");
+
+    let loaded = app::load(&path).expect("an old replay should still read");
+
+    assert_eq!(loaded.seed, 7);
+    assert_eq!(loaded.content, Content::default());
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_replay_carrying_content_the_game_cannot_run_with_is_refused() {
+    // A replay is a shared bug report, so its content is user input exactly
+    // like a `--content` file and gets the same checks.
+    let path = scratch("invalid-content");
+    let mut content = Content::default();
+    content.villager.max_hp = 0;
+    app::save(&path, &Replay::with_content(5, map(), content)).expect("the replay should write");
+
+    let error = app::load(&path);
+
+    match error {
+        Err(app::ReplayError::Invalid(error)) => assert_eq!(error.field, "villager.max_hp"),
+        other => panic!("expected an invalid-content error, got {other:?}"),
+    }
+    let _ = std::fs::remove_file(&path);
 }

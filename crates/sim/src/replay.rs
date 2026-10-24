@@ -5,7 +5,7 @@
 //! determinism regression test, because a checksum that diverges on playback
 //! is a desync caught on one machine instead of in a live match.
 
-use crate::{Command, MapSpec};
+use crate::{Command, Content, MapSpec};
 use serde::{Deserialize, Serialize};
 
 /// Everything needed to reproduce a session exactly.
@@ -13,6 +13,13 @@ use serde::{Deserialize, Serialize};
 pub struct Replay {
     pub seed: u64,
     pub map: MapSpec,
+    /// The numbers the game was played by.
+    ///
+    /// Defaulted when absent: replays written before content became data
+    /// have no such field, and every one of them was played with the
+    /// default numbers.
+    #[serde(default)]
+    pub content: Content,
     /// Tick to the commands issued on it, sparse and in ascending tick order.
     pub commands: Vec<(u64, Vec<Command>)>,
     /// Checksums sampled every [`Replay::CHECKSUM_INTERVAL`] ticks.
@@ -27,10 +34,17 @@ impl Replay {
     /// point at the system that diverged.
     pub const CHECKSUM_INTERVAL: u64 = 100;
 
+    /// A recording of a game played with the default content.
     pub fn new(seed: u64, map: MapSpec) -> Replay {
+        Replay::with_content(seed, map, Content::default())
+    }
+
+    /// A recording of a game played with `content`.
+    pub fn with_content(seed: u64, map: MapSpec, content: Content) -> Replay {
         Replay {
             seed,
             map,
+            content,
             commands: Vec::new(),
             checksums: Vec::new(),
         }
@@ -102,7 +116,8 @@ impl std::error::Error for Desync {}
 /// Returns the first divergence rather than all of them: after the first one
 /// the two worlds are different games, and the later mismatches say nothing.
 pub fn verify(replay: &Replay) -> Result<(), Desync> {
-    let mut world = crate::World::new(replay.seed, replay.map.clone());
+    let mut world =
+        crate::World::with_content(replay.seed, replay.map.clone(), replay.content.clone());
     let last = replay.last_tick();
     for tick in 0..=last {
         if let Some(expected) = replay.checksum_at(tick) {

@@ -38,6 +38,7 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 
 - **Goal:** Food, wood, gold, and stone, each with its own gatherer and drop-off.
 - **Work:** Generalise the gather state machine over resource kind. Add a resource field to `Player`. Gold conservation becomes a per-resource property test.
+- **Costs become multi-resource.** `UnitStats::cost` changes from one gold number to a cost per resource, written in RON as `cost: (food: 50)`. Match the original game: a villager costs food, not gold. The default content changes to the original's costs (villager 50 food; soldier as the militia, 60 food and 20 gold), confirmed against the game data before they become the defaults. This changes the outcome of default-content games, so it is a recorded replay break.
 - **Reference:** Gather loop in `reverse/aoc/aoc_decompiled.c`. Search for the resource strings in `reverse/aoc/strings.txt` first.
 - **Gate:** Conservation property test passes for all four resources. A villager never delivers a resource to a building that does not accept it.
 
@@ -104,6 +105,11 @@ These apply to every phase.
 7. **Verify before claiming done.** Run `cargo test --workspace` and the phase's gate. Report the output, not a summary of it.
 8. **Narrate code work.** Before writing code, say which file changes and why. After, say what changed and which test shows it works.
 9. **Commit only when asked.** Use the attribution line from the session instructions.
+10. **Check the direction after every phase.** When a phase's gate passes, run two independent subagent checks before the next phase starts:
+    - **Code review** of the phase's diff against its spec, for bugs, determinism risks, and weak tests.
+    - **Direction check.** A fresh subagent gets only the repository path and one question: compared with the reverse-engineering output in `reverse/`, is the project's current state on the right path toward this plan, and if not, what is missing? Do not give it your own conclusions or a summary of the work, so that its answer is not anchored on yours.
+    
+    Report both results to the user. Fold any accepted findings into this plan before the next phase.
 
 ## Immediate next steps
 

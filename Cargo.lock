@@ -51,6 +51,7 @@ dependencies = [
  "macroquad",
  "render",
  "ron",
+ "serde",
  "sim",
  "smallvec",
 ]

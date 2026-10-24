@@ -1,0 +1,47 @@
+// The numbers the game plays by.
+//
+// Read once at startup. Every field is required, and an unknown field is an
+// error, so a typo cannot load quietly and do nothing.
+//
+// Times are in ticks; the simulation runs at 20 ticks per second.
+// Fractions are written `(numerator, denominator)`: `(1, 8)` is one eighth.
+// Distances are in tiles.
+//
+// Costs are in gold, the only resource so far. Phase 2 of the exe-parity plan
+// turns them into per-resource costs, with the villager costing food.
+(
+    villager: (
+        max_hp: 40,
+        speed: (1, 8),          // tiles per tick: 2.5 tiles per second
+        damage: 0,              // zero: cannot be ordered to attack
+        range: (0, 1),
+        attack_cooldown: 0,
+        radius: (1, 4),
+        cost: 50,
+        train_ticks: 100,       // 5 seconds
+    ),
+    soldier: (
+        max_hp: 60,
+        speed: (1, 8),
+        damage: 8,
+        range: (3, 2),          // 1.5 tiles, centre to centre
+        attack_cooldown: 20,    // one hit per second
+        radius: (1, 4),
+        cost: 60,
+        train_ticks: 120,       // 6 seconds
+    ),
+    town_center: (
+        max_hp: 1000,
+        drop_off: true,
+        trains: [Villager],
+    ),
+    barracks: (
+        max_hp: 600,
+        drop_off: false,
+        trains: [Soldier],
+    ),
+    gather: (
+        carry_capacity: 10,
+        ticks_per_gold: 40,     // one gold every 2 seconds
+    ),
+)

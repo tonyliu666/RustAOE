@@ -62,66 +62,6 @@ pub enum UnitKind {
     Soldier,
 }
 
-/// Combat and movement numbers for a unit type.
-///
-/// A plain struct rather than a match scattered through the systems, so that
-/// loading these from RON later is a change to where the table comes from and
-/// not a change to any system that reads it.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct UnitStats {
-    pub max_hp: i32,
-    /// Tiles per tick.
-    pub speed: Fx,
-    /// Zero for a unit that cannot attack.
-    pub damage: i32,
-    /// Attack reach in tiles, measured centre to centre.
-    pub range: Fx,
-    /// Ticks between attacks.
-    pub attack_cooldown: u32,
-    /// Collision radius used by local avoidance, in tiles.
-    pub radius: Fx,
-}
-
-impl UnitKind {
-    pub const fn stats(self) -> UnitStats {
-        match self {
-            // 2.5 tiles per second at 20 Hz.
-            UnitKind::Villager => UnitStats {
-                max_hp: 40,
-                speed: Fx::from_frac(1, 8),
-                damage: 0,
-                range: Fx::ZERO,
-                attack_cooldown: 0,
-                radius: Fx::from_frac(1, 4),
-            },
-            UnitKind::Soldier => UnitStats {
-                max_hp: 60,
-                speed: Fx::from_frac(1, 8),
-                damage: 8,
-                range: Fx::from_frac(3, 2),
-                attack_cooldown: 20,
-                radius: Fx::from_frac(1, 4),
-            },
-        }
-    }
-
-    /// Gold cost to train.
-    pub const fn cost(self) -> i32 {
-        match self {
-            UnitKind::Villager => 50,
-            UnitKind::Soldier => 60,
-        }
-    }
-
-    /// Ticks of training time.
-    pub const fn train_ticks(self) -> u32 {
-        match self {
-            UnitKind::Villager => 100,
-            UnitKind::Soldier => 120,
-        }
-    }
-}
-
 /// What a unit is currently trying to do.
 ///
 /// One order at a time, replaced wholesale by a new command. Order queues are a
@@ -191,7 +131,7 @@ pub struct Unit {
     pub pos: FxVec2,
     pub hp: i32,
     pub order: Order,
-    /// Gold held, up to [`Unit::CARRY_CAPACITY`].
+    /// Gold held, up to the content's `gather.carry_capacity`.
     pub carrying: i32,
     /// Ticks spent at the mine face since the last gold was extracted.
     pub mine_ticks: u32,
@@ -207,14 +147,6 @@ pub struct Unit {
 }
 
 impl Unit {
-    /// Gold a villager holds before it must walk back to a drop-off.
-    pub const CARRY_CAPACITY: i32 = 10;
-    /// Ticks per gold extracted: one gold every two seconds at 20 Hz.
-    ///
-    /// Whole gold on a tick counter rather than a fractional per-tick rate, so
-    /// that gold is always an integer and the conservation property has
-    /// nothing to round.
-    pub const MINE_TICKS_PER_GOLD: u32 = 40;
     /// Ticks of no movement before a unit re-plans or abandons its order.
     pub const STUCK_LIMIT: u32 = 30;
     /// Re-plans allowed before a stalled unit gives up for good.
@@ -227,12 +159,14 @@ impl Unit {
     /// How close counts as having arrived, in tiles.
     pub const ARRIVE_RADIUS: Fx = Fx::from_frac(3, 4);
 
-    pub fn new(kind: UnitKind, owner: PlayerId, pos: FxVec2) -> Unit {
+    /// A fresh unit at full health. `hp` is the kind's `max_hp` from the
+    /// content the world plays by.
+    pub fn new(kind: UnitKind, owner: PlayerId, pos: FxVec2, hp: i32) -> Unit {
         Unit {
             kind,
             owner,
             pos,
-            hp: kind.stats().max_hp,
+            hp,
             order: Order::Idle,
             carrying: 0,
             mine_ticks: 0,
@@ -256,33 +190,15 @@ pub enum BuildingKind {
 }
 
 impl BuildingKind {
-    pub const fn max_hp(self) -> i32 {
-        match self {
-            BuildingKind::TownCenter => 1000,
-            BuildingKind::Barracks => 600,
-        }
-    }
-
     /// Footprint in tiles, square.
+    ///
+    /// Still in code rather than content: maps, picking, and drawing need it
+    /// with no world in hand. Placement moves to content with construction.
     pub const fn size(self) -> i32 {
         match self {
             BuildingKind::TownCenter => 4,
             BuildingKind::Barracks => 3,
         }
-    }
-
-    /// Whether villagers may deposit gold here.
-    pub const fn is_drop_off(self) -> bool {
-        matches!(self, BuildingKind::TownCenter)
-    }
-
-    /// Whether this building can train `kind`.
-    pub const fn trains(self, kind: UnitKind) -> bool {
-        matches!(
-            (self, kind),
-            (BuildingKind::TownCenter, UnitKind::Villager)
-                | (BuildingKind::Barracks, UnitKind::Soldier)
-        )
     }
 }
 
@@ -307,12 +223,14 @@ impl Building {
     /// How many units may be waiting to train.
     pub const QUEUE_LIMIT: usize = 5;
 
-    pub fn new(kind: BuildingKind, owner: PlayerId, origin: TilePos) -> Building {
+    /// A building at full health. `hp` is the kind's `max_hp` from the
+    /// content the world plays by.
+    pub fn new(kind: BuildingKind, owner: PlayerId, origin: TilePos, hp: i32) -> Building {
         Building {
             kind,
             owner,
             origin,
-            hp: kind.max_hp(),
+            hp,
             queue: Vec::new(),
             train_ticks: 0,
         }

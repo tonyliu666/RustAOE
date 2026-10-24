@@ -6,7 +6,7 @@ use crate::entity::{
 };
 use crate::path::{astar, Dir8, FlowFieldCache, PathRequest};
 use crate::spatial::SpatialHash;
-use crate::{Fx, FxVec2, Grid, Rng, TilePos};
+use crate::{Content, Fx, FxVec2, Grid, Rng, TilePos};
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 use smallvec::SmallVec;
@@ -182,6 +182,8 @@ pub struct World {
     buildings: SlotMap<BuildingId, Building>,
     mines: SlotMap<MineId, Mine>,
     players: [Player; 2],
+    /// The numbers every system plays by. Fixed for the life of the world.
+    content: Content,
     outcome: Option<PlayerId>,
     spatial: SpatialHash,
     flow_fields: FlowFieldCache,
@@ -201,7 +203,17 @@ impl World {
     /// measured from the target's edge.
     pub const INTERACT_RANGE: Fx = Fx::from_frac(3, 2);
 
+    /// A world playing by the default content.
     pub fn new(seed: u64, map: MapSpec) -> World {
+        World::with_content(seed, map, Content::default())
+    }
+
+    /// A world playing by `content`.
+    ///
+    /// The content is not validated here: that is the loader's job, done once
+    /// at startup, so that a bad file is an error message and not a world
+    /// that misbehaves.
+    pub fn with_content(seed: u64, map: MapSpec, content: Content) -> World {
         let mut terrain = Grid::new(map.width, map.height, Tile::OPEN);
         for pos in &map.blocked {
             if terrain.in_bounds(*pos) {
@@ -224,6 +236,7 @@ impl World {
                     gold: map.starting_gold,
                 },
             ],
+            content,
             outcome: None,
             spatial: SpatialHash::new(map.width, map.height, SpatialHash::DEFAULT_CELL_SIZE),
             flow_fields: FlowFieldCache::new(FlowFieldCache::DEFAULT_CAPACITY),
@@ -232,7 +245,8 @@ impl World {
         };
 
         for (kind, owner, origin) in map.buildings {
-            let building = Building::new(kind, owner, origin);
+            let hp = world.content.building(kind).max_hp;
+            let building = Building::new(kind, owner, origin, hp);
             world.stamp(building.footprint(), Tile::BLOCKED);
             world.buildings.insert(building);
         }
@@ -242,9 +256,12 @@ impl World {
             world.mines.insert(mine);
         }
         for (kind, owner, at) in map.units {
-            world
-                .units
-                .insert(Unit::new(kind, owner, FxVec2::tile_center(at)));
+            world.units.insert(Unit::new(
+                kind,
+                owner,
+                FxVec2::tile_center(at),
+                world.content.unit(kind).max_hp,
+            ));
         }
         world
     }
@@ -410,7 +427,7 @@ impl World {
             return;
         }
         for id in self.owned(player, units) {
-            if self.units[id].kind.stats().damage == 0 {
+            if self.content.unit(self.units[id].kind).damage == 0 {
                 continue;
             }
             self.units[id].order = Order::Attack {
@@ -450,12 +467,12 @@ impl World {
             return;
         };
         if target.owner != player
-            || !target.kind.trains(unit)
+            || !self.content.building(target.kind).trains.contains(&unit)
             || target.queue.len() >= Building::QUEUE_LIMIT
         {
             return;
         }
-        let cost = unit.cost();
+        let cost = self.content.unit(unit).cost;
         if self.players[player.index()].gold < cost {
             return;
         }
@@ -464,7 +481,7 @@ impl World {
         self.players[player.index()].gold -= cost;
         let target = &mut self.buildings[building];
         if target.queue.is_empty() {
-            target.train_ticks = unit.train_ticks();
+            target.train_ticks = self.content.unit(unit).train_ticks;
         }
         target.queue.push(unit);
     }
@@ -533,7 +550,7 @@ impl World {
     /// hit it, which the terrain it stamps makes impossible.
     fn radius_of(&self, target: EntityId) -> Option<Fx> {
         match target {
-            EntityId::Unit(id) => self.units.get(id).map(|u| u.kind.stats().radius),
+            EntityId::Unit(id) => self.units.get(id).map(|u| self.content.unit(u.kind).radius),
             EntityId::Building(id) => self
                 .buildings
                 .get(id)
@@ -544,7 +561,7 @@ impl World {
 
     /// How close an attacker has to be to `target` to land a hit.
     fn reach(&self, attacker: UnitId, target: EntityId) -> Option<Fx> {
-        Some(self.units[attacker].kind.stats().range + self.radius_of(target)?)
+        Some(self.content.unit(self.units[attacker].kind).range + self.radius_of(target)?)
     }
 
     // --- Phase 2: production ----------------------------------------------
@@ -567,11 +584,18 @@ impl World {
             let Some(spawn) = self.free_tile_beside(origin, size) else {
                 continue;
             };
-            self.units
-                .insert(Unit::new(kind, owner, FxVec2::tile_center(spawn)));
+            self.units.insert(Unit::new(
+                kind,
+                owner,
+                FxVec2::tile_center(spawn),
+                self.content.unit(kind).max_hp,
+            ));
             let building = &mut self.buildings[id];
             building.queue.remove(0);
-            building.train_ticks = building.queue.first().map_or(0, |next| next.train_ticks());
+            building.train_ticks = building
+                .queue
+                .first()
+                .map_or(0, |next| self.content.unit(*next).train_ticks);
         }
     }
 
@@ -614,9 +638,10 @@ impl World {
     }
 
     fn gather_extract(&mut self, id: UnitId, mine: MineId) {
+        let gather = self.content.gather;
         let unit = &mut self.units[id];
         unit.mine_ticks += 1;
-        if unit.mine_ticks < Unit::MINE_TICKS_PER_GOLD {
+        if unit.mine_ticks < gather.ticks_per_gold {
             return;
         }
         unit.mine_ticks = 0;
@@ -630,7 +655,7 @@ impl World {
             self.units[id].carrying += 1;
         }
         let exhausted = self.mines[mine].remaining <= 0;
-        if self.units[id].carrying >= Unit::CARRY_CAPACITY || exhausted {
+        if self.units[id].carrying >= gather.carry_capacity || exhausted {
             self.send_to_drop_off(id, mine);
         }
     }
@@ -649,7 +674,10 @@ impl World {
         let unit = &mut self.units[id];
         let owner = unit.owner;
         let carried = std::mem::take(&mut unit.carrying);
-        self.players[owner.index()].gold += carried;
+        // Saturating for the same reason as `damage`: content decides how
+        // much a load holds, so the sum must not differ between builds.
+        let gold = &mut self.players[owner.index()].gold;
+        *gold = gold.saturating_add(carried);
 
         // Head back for another load, unless the seam is gone.
         let seam_alive = self.mines.get(mine).is_some_and(|m| m.remaining > 0);
@@ -677,7 +705,7 @@ impl World {
         let nearest = self
             .buildings
             .iter()
-            .filter(|(_, b)| b.owner == owner && b.kind.is_drop_off())
+            .filter(|(_, b)| b.owner == owner && self.content.building(b.kind).drop_off)
             .min_by_key(|(_, b)| (b.center() - pos).length_squared())
             .map(|(id, b)| (id, b.origin, b.kind.size()));
 
@@ -769,7 +797,8 @@ impl World {
     fn move_unit(&mut self, id: UnitId) {
         let unit = &self.units[id];
         let (pos, kind) = (unit.pos, unit.kind);
-        let speed = kind.stats().speed;
+        let stats = *self.content.unit(kind);
+        let speed = stats.speed;
 
         let Some(desired) = self.desired_direction(id) else {
             self.units[id].stuck_ticks = 0;
@@ -782,7 +811,7 @@ impl World {
         // gets through a gap.
         let crowding = self.separation(id).clamp_length(speed.div(Fx::from_int(2)));
         let steering = (desired * speed + crowding).clamp_length(speed);
-        let moved = self.slide(pos, steering, kind.stats().radius);
+        let moved = self.slide(pos, steering, stats.radius);
         self.units[id].pos = moved;
 
         // A unit that has been pressed against something for a second and a
@@ -891,7 +920,7 @@ impl World {
     /// apart and units on top of each other separate hard.
     fn separation(&self, id: UnitId) -> FxVec2 {
         let unit = &self.units[id];
-        let (pos, radius) = (unit.pos, unit.kind.stats().radius);
+        let (pos, radius) = (unit.pos, self.content.unit(unit.kind).radius);
         let spacing = radius + radius;
         let limit = spacing.to_bits() as i64;
 
@@ -977,7 +1006,7 @@ impl World {
                 self.units[id].order = Order::Idle;
                 continue;
             };
-            let stats = self.units[id].kind.stats();
+            let stats = *self.content.unit(self.units[id].kind);
             let Some(reach) = self.reach(id, target) else {
                 continue;
             };
@@ -993,16 +1022,20 @@ impl World {
         }
     }
 
+    /// Saturating rather than plain subtraction: content may set damage as
+    /// high as `i32::MAX`, and several such hits on one target in one tick
+    /// would otherwise panic a debug build and wrap the target back to life
+    /// in a release build, so the two would play different games.
     fn damage(&mut self, target: EntityId, amount: i32) {
         match target {
             EntityId::Unit(id) => {
                 if let Some(unit) = self.units.get_mut(id) {
-                    unit.hp -= amount;
+                    unit.hp = unit.hp.saturating_sub(amount);
                 }
             }
             EntityId::Building(id) => {
                 if let Some(building) = self.buildings.get_mut(id) {
-                    building.hp -= amount;
+                    building.hp = building.hp.saturating_sub(amount);
                 }
             }
             // Mines cannot be attacked; `order_attack` rejects them, and a
@@ -1107,6 +1140,12 @@ impl<'a> WorldView<'a> {
 
     pub fn gold(&self, player: PlayerId) -> i32 {
         self.world.players[player.index()].gold
+    }
+
+    /// The numbers the world plays by, for anything drawn from them, such as
+    /// the length of a full health bar.
+    pub const fn content(&self) -> &'a Content {
+        &self.world.content
     }
 
     pub fn units(&self) -> impl Iterator<Item = (UnitId, &'a Unit)> {

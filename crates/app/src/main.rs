@@ -12,15 +12,20 @@ struct Options {
     play: Option<std::path::PathBuf>,
     /// Replay a recording headlessly and check its checksums.
     verify: Option<std::path::PathBuf>,
+    /// Read the game's numbers from this RON file instead of the built-in
+    /// defaults.
+    content: Option<std::path::PathBuf>,
     seed: u64,
 }
 
 const USAGE: &str = "\
-usage: aoe [--record FILE] [--play FILE] [--verify FILE] [--seed N]
+usage: aoe [--record FILE] [--play FILE] [--verify FILE] [--content FILE] [--seed N]
 
   --record FILE  write this session's commands to FILE
   --play FILE    replay FILE instead of reading input
   --verify FILE  replay FILE without a window and check its checksums
+  --content FILE read unit and building numbers from FILE (RON); a
+                 replay always uses the numbers it was recorded with
   --seed N       seed the simulation (default 24065)
 ";
 
@@ -39,6 +44,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--record" => options.record = Some(value()?.into()),
             "--play" => options.play = Some(value()?.into()),
             "--verify" => options.verify = Some(value()?.into()),
+            "--content" => options.content = Some(value()?.into()),
             "--seed" => {
                 let raw = value()?;
                 options.seed = raw
@@ -50,6 +56,16 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         }
     }
     Ok(options)
+}
+
+/// The numbers a new game plays by: `--content FILE` if given, otherwise the
+/// file built into the binary.
+#[cfg(feature = "window")]
+fn content(path: Option<&std::path::Path>) -> Result<sim::Content, app::ContentFileError> {
+    match path {
+        Some(path) => app::load_content(path),
+        None => app::parse_content(app::DEFAULT_CONTENT),
+    }
 }
 
 /// Replays a recording with no window and reports the first divergence.
@@ -74,7 +90,7 @@ mod game {
     use macroquad::prelude as mq;
     use render::macroquad_backend::{MacroquadInput, MacroquadRenderer};
     use render::{Camera, InputSource, Vec2};
-    use sim::{Command, FxVec2, MapSpec, Replay, UnitId, World};
+    use sim::{Command, Content, FxVec2, MapSpec, Replay, UnitId, World};
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -91,24 +107,27 @@ mod game {
 
     pub struct Config {
         pub seed: u64,
+        /// Numbers for a new game. Ignored during playback.
+        pub content: Content,
         pub record: Option<PathBuf>,
         pub play: Option<PathBuf>,
     }
 
     pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-        // A recording carries its own seed and map, so playback must use them
-        // rather than whatever this invocation was configured with.
+        // A recording carries its own seed, map, and content, so playback
+        // must use them rather than whatever this invocation was configured
+        // with.
         let playback = config.play.as_deref().map(app::load).transpose()?;
-        let (seed, map) = match &playback {
-            Some(replay) => (replay.seed, replay.map.clone()),
-            None => (config.seed, MapSpec::proof_of_concept()),
+        let (seed, map, content) = match &playback {
+            Some(replay) => (replay.seed, replay.map.clone(), replay.content.clone()),
+            None => (config.seed, MapSpec::proof_of_concept(), config.content),
         };
 
-        let mut world = World::new(seed, map.clone());
+        let mut world = World::with_content(seed, map.clone(), content.clone());
         let mut recorder = config
             .record
             .as_ref()
-            .map(|_| Replay::new(seed, map.clone()));
+            .map(|_| Replay::with_content(seed, map.clone(), content.clone()));
 
         let mut renderer = MacroquadRenderer::new();
         let mut input_source = MacroquadInput::new();
@@ -205,14 +224,18 @@ async fn main() {
 
     let result = match &options.verify {
         Some(path) => verify(path),
-        None => {
-            game::run(game::Config {
-                seed: options.seed,
-                record: options.record.clone(),
-                play: options.play.clone(),
-            })
-            .await
-        }
+        None => match content(options.content.as_deref()) {
+            Err(error) => Err(error.into()),
+            Ok(content) => {
+                game::run(game::Config {
+                    seed: options.seed,
+                    content,
+                    record: options.record.clone(),
+                    play: options.play.clone(),
+                })
+                .await
+            }
+        },
     };
     if let Err(error) = result {
         eprintln!("{error}");

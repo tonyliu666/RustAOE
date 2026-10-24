@@ -5,6 +5,7 @@
 
 #![deny(clippy::float_arithmetic)]
 
+mod content;
 mod entity;
 mod fx;
 mod grid;
@@ -15,9 +16,10 @@ mod spatial;
 mod vec2;
 mod world;
 
+pub use content::{BuildingStats, Content, ContentError, GatherStats, UnitStats};
 pub use entity::{
     Building, BuildingId, BuildingKind, EntityId, GatherPhase, Mine, MineId, Order, Player,
-    PlayerId, Route, Unit, UnitId, UnitKind, UnitStats,
+    PlayerId, Route, Unit, UnitId, UnitKind,
 };
 pub use fx::Fx;
 pub use grid::{Grid, TilePos};

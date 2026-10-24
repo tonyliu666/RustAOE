@@ -4,8 +4,8 @@
 //! pure function of state and commands, so no mocks and no fixtures are needed.
 
 use sim::{
-    BuildingId, BuildingKind, Command, EntityId, MapSpec, MineId, PlayerId, TilePos, UnitId,
-    UnitKind, World,
+    BuildingId, BuildingKind, Command, Content, EntityId, MapSpec, MineId, PlayerId, TilePos,
+    UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
 
@@ -226,7 +226,7 @@ fn a_villager_cannot_be_ordered_to_attack() {
 
     assert_eq!(
         world.view().unit(victim).map(|u| u.hp),
-        Some(UnitKind::Villager.stats().max_hp)
+        Some(Content::default().villager.max_hp)
     );
 }
 
@@ -258,7 +258,7 @@ fn a_unit_cannot_be_ordered_to_attack_its_own_side() {
 
     assert_eq!(
         world.view().unit(friend).map(|u| u.hp),
-        Some(UnitKind::Villager.stats().max_hp)
+        Some(Content::default().villager.max_hp)
     );
 }
 
@@ -400,11 +400,14 @@ fn training_a_villager_spends_gold_and_produces_a_unit() {
     }]);
     assert_eq!(
         world.view().gold(PlayerId::One),
-        before - UnitKind::Villager.cost(),
+        before - Content::default().villager.cost,
         "gold is charged when the unit is queued, not when it pops"
     );
 
-    run(&mut world, UnitKind::Villager.train_ticks() as u64 + 1);
+    run(
+        &mut world,
+        Content::default().villager.train_ticks as u64 + 1,
+    );
 
     assert_eq!(units_of(&world, PlayerId::One).len(), 1);
 }
@@ -451,7 +454,10 @@ fn a_barracks_trains_soldiers() {
         building: barracks,
         unit: UnitKind::Soldier,
     }]);
-    run(&mut world, UnitKind::Soldier.train_ticks() as u64 + 1);
+    run(
+        &mut world,
+        Content::default().soldier.train_ticks as u64 + 1,
+    );
 
     let trained = units_of(&world, PlayerId::One);
     assert_eq!(trained.len(), 1);
@@ -475,7 +481,7 @@ fn a_queue_of_two_units_costs_two_units_worth_of_gold() {
 
     assert_eq!(
         world.view().gold(PlayerId::One),
-        200 - 2 * UnitKind::Villager.cost()
+        200 - 2 * Content::default().villager.cost
     );
 }
 
@@ -513,7 +519,7 @@ fn a_soldier_kills_an_enemy_villager_in_range() {
     // Forty hit points at eight damage a second is five swings.
     run(
         &mut world,
-        5 * UnitKind::Soldier.stats().attack_cooldown as u64,
+        5 * Content::default().soldier.attack_cooldown as u64,
     );
 
     assert!(

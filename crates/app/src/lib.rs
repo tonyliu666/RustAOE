@@ -7,12 +7,14 @@
 //! See `docs/superpowers/specs/2026-08-04-rts-poc-design.md`.
 
 mod camera_controller;
+mod content_file;
 mod draw;
 mod pick;
 mod replay_file;
 mod session;
 
 pub use camera_controller::CameraController;
+pub use content_file::{load_content, parse_content, ContentFileError, DEFAULT_CONTENT};
 pub use draw::{
     draw_world, Hud, HEALTH, HEALTH_LOST, MINE, PLAYER_ONE, PLAYER_TWO, SELECTION, TILE_BLOCKED,
     TILE_OPEN,
