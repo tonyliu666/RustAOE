@@ -32,6 +32,10 @@ const HEADER: usize = 32;
 const FRAME_RECORD: usize = 32;
 const VERSION: &[u8; 4] = b"2.0N";
 const TRANSPARENT_ROW: u16 = 0x8000;
+/// The largest frame side accepted, in pixels. The original's largest
+/// sprites are a few hundred pixels; a damaged header claiming more would
+/// otherwise ask for gigabytes before anything else was checked.
+pub const MAX_FRAME_SIDE: i32 = 4096;
 /// Palette entries between one player's colours and the next.
 const PLAYER_COLOUR_STRIDE: u16 = 16;
 
@@ -100,6 +104,8 @@ pub enum SlpError {
     NotSlp,
     /// A frame size that is negative.
     BadFrame(usize),
+    /// A frame wider or taller than [`MAX_FRAME_SIDE`].
+    FrameTooLarge(usize),
     /// A frame number the sprite does not have.
     NoSuchFrame(usize),
     /// A row's commands draw more pixels than the frame is wide.
@@ -114,6 +120,12 @@ impl fmt::Display for SlpError {
             SlpError::Truncated => write!(f, "SLP sprite is truncated"),
             SlpError::NotSlp => write!(f, "not an SLP 2.0N sprite"),
             SlpError::BadFrame(frame) => write!(f, "SLP frame {frame} has a negative size"),
+            SlpError::FrameTooLarge(frame) => {
+                write!(
+                    f,
+                    "SLP frame {frame} is larger than {MAX_FRAME_SIDE} pixels a side"
+                )
+            }
             SlpError::NoSuchFrame(frame) => write!(f, "SLP sprite has no frame {frame}"),
             SlpError::RowOverflow { row } => {
                 write!(f, "SLP row {row} draws past the frame's width")
@@ -200,6 +212,20 @@ impl<'a> Slp<'a> {
             };
             if frame.width < 0 || frame.height < 0 {
                 return Err(SlpError::BadFrame(index));
+            }
+            if frame.width > MAX_FRAME_SIDE || frame.height > MAX_FRAME_SIDE {
+                return Err(SlpError::FrameTooLarge(index));
+            }
+            // Both per-row tables must fit, so decoding never reads past the
+            // end and a short file is reported before any pixels are made.
+            let tables = 4 * frame.height as usize;
+            for table_at in [frame.outline_at, frame.commands_at] {
+                if table_at
+                    .checked_add(tables)
+                    .is_none_or(|end| end > bytes.len())
+                {
+                    return Err(SlpError::Truncated);
+                }
             }
             frames.push(frame);
         }

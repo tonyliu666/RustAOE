@@ -13,6 +13,8 @@ pub struct CameraController {
     camera: Camera,
     map_width: i32,
     map_height: i32,
+    /// Whether the mouse at the window edge pans.
+    edge_scroll: bool,
 }
 
 impl CameraController {
@@ -39,6 +41,7 @@ impl CameraController {
             camera,
             map_width,
             map_height,
+            edge_scroll: true,
         }
     }
 
@@ -50,6 +53,11 @@ impl CameraController {
     pub fn look_at(&mut self, center: Vec2) {
         self.camera.center = center;
         self.clamp_to_map();
+    }
+
+    /// Turns panning with the mouse at the window edge on or off.
+    pub fn set_edge_scroll(&mut self, on: bool) {
+        self.edge_scroll = on;
     }
 
     /// Matches the viewport to a resized window.
@@ -77,7 +85,7 @@ impl CameraController {
         // the map out from under the box, and not before the cursor has really
         // been seen, which would drift the view towards the corner the backend
         // reports by default.
-        let pan = if input.cursor_seen && !input.is_down(MouseButton::Left) {
+        let pan = if self.edge_scroll && input.cursor_seen && !input.is_down(MouseButton::Left) {
             self.edge_direction(input.cursor)
         } else {
             Vec2::ZERO

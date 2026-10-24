@@ -111,3 +111,14 @@ fn a_texture_that_was_never_loaded_has_no_size() {
 
     assert_eq!(recorder.texture_size(foreign), None);
 }
+
+#[test]
+fn a_loaded_texture_keeps_its_pixels_for_inspection() {
+    let mut recorder = RecordingRenderer::new();
+    let texture = recorder.load_texture(1, 1, &[10, 20, 30, 255]);
+
+    assert_eq!(
+        recorder.texture_pixels(texture),
+        Some([10, 20, 30, 255].as_slice())
+    );
+}

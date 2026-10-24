@@ -557,3 +557,89 @@ fn a_half_finished_drag_does_not_survive_a_swap() {
 
     assert_eq!(session.drag_box(Vec2::new(4.0, 4.0)), None);
 }
+
+// --- mouse lock ---------------------------------------------------------------
+
+/// A frame with the cursor resting on the right edge of the window.
+fn at_right_edge(session: &Session) -> InputState {
+    let mut input = InputState::default();
+    let viewport = session.camera().viewport;
+    input.cursor = Vec2::new(viewport.x - 1.0, viewport.y / 2.0);
+    input.cursor_seen = true;
+    input
+}
+
+fn press(key: Key) -> InputState {
+    let mut input = InputState::default();
+    input.press_key(key);
+    input
+}
+
+#[test]
+fn the_mouse_starts_locked_to_the_window() {
+    assert!(session().mouse_locked());
+}
+
+#[test]
+fn f10_unlocks_the_mouse_and_f10_again_locks_it() {
+    let world = world();
+    let mut session = session();
+
+    session.update(&press(Key::F10), 0.0, world.view());
+    assert!(!session.mouse_locked());
+
+    session.update(&press(Key::F10), 0.0, world.view());
+    assert!(session.mouse_locked());
+}
+
+#[test]
+fn with_the_mouse_unlocked_the_edges_do_not_scroll() {
+    // Unlocked means the player is reaching for another program, and the
+    // window cannot tell when the mouse leaves it.
+    let world = world();
+    let mut session = session();
+    session.update(&press(Key::F10), 0.0, world.view());
+    let before = session.camera().center;
+
+    session.update(&at_right_edge(&session), 0.5, world.view());
+
+    assert_eq!(session.camera().center, before);
+}
+
+#[test]
+fn locking_again_brings_edge_scrolling_back() {
+    let world = world();
+    let mut session = session();
+    session.update(&press(Key::F10), 0.0, world.view());
+    session.update(&press(Key::F10), 0.0, world.view());
+    let before = session.camera().center;
+
+    session.update(&at_right_edge(&session), 0.5, world.view());
+
+    assert_ne!(session.camera().center, before);
+}
+
+#[test]
+fn a_click_on_a_units_drawn_body_selects_it() {
+    let world = world();
+    let mut session = session();
+    session.set_bodies(app::Bodies {
+        villager: app::Body {
+            offset: Vec2::new(-0.25, -1.0),
+            size: Vec2::new(0.5, 1.0),
+        },
+        soldier: app::Body {
+            offset: Vec2::new(-0.25, -1.0),
+            size: Vec2::new(0.5, 1.0),
+        },
+    });
+    // Player one's villager stands at (5.5, 5.5); click 0.8 tiles above.
+    let mut click = at_cursor(at(Vec2::new(5.5, 4.7)));
+    click.press(MouseButton::Left);
+    session.update(&click, 0.0, world.view());
+    let mut release = at_cursor(at(Vec2::new(5.5, 4.7)));
+    release.release(MouseButton::Left);
+    session.update(&release, 0.0, world.view());
+
+    assert_eq!(session.selection().len(), 1);
+}

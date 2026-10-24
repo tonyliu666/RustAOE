@@ -149,6 +149,13 @@ mod game {
             }
         }
 
+        // Clicks select what is drawn: the sprites' bodies, not just feet.
+        session.set_bodies(sprites.bodies());
+
+        // The mouse starts held inside the window, as AoE2's "lock mouse to
+        // window" does; F10 frees it. See `Session::mouse_locked`.
+        mq::set_cursor_grab(session.mouse_locked());
+
         let mut pending: Vec<Command> = Vec::new();
         let mut previous: HashMap<UnitId, FxVec2> = world.view().snapshot().into_iter().collect();
         let mut accumulator = 0.0;
@@ -161,7 +168,11 @@ mod game {
             }
 
             session.resize(MacroquadRenderer::viewport());
+            let was_locked = session.mouse_locked();
             let commands = session.update(&input, dt, world.view());
+            if session.mouse_locked() != was_locked {
+                mq::set_cursor_grab(session.mouse_locked());
+            }
             // Live input is ignored during playback, apart from the camera:
             // watching a replay from a different angle is useful, changing its
             // outcome is not.

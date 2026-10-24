@@ -415,3 +415,17 @@ fn a_third_player_and_gaia_get_their_own_colours() {
     assert_eq!(drawn_with(&renderer, set.villager[3].texture).len(), 1);
     assert_eq!(drawn_with(&renderer, set.villager[0].texture).len(), 1);
 }
+
+#[test]
+fn unskewing_an_empty_tile_gives_a_transparent_square_rather_than_a_panic() {
+    let empty = Image {
+        width: 0,
+        height: 0,
+        rgba: Vec::new(),
+    };
+
+    let square = unskew_tile(&empty, 4);
+
+    assert_eq!((square.width, square.height), (4, 4));
+    assert!(square.rgba.iter().all(|&b| b == 0));
+}

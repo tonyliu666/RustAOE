@@ -301,3 +301,14 @@ fn a_cursor_at_the_centre_of_a_tiny_window_does_not_break_the_camera() {
 
     assert_eq!(cam.camera().center, Vec2::new(64.0, 64.0));
 }
+
+#[test]
+fn with_edge_scrolling_off_the_edges_do_nothing() {
+    let mut cam = controller();
+    cam.set_edge_scroll(false);
+    let before = cam.camera();
+
+    cam.update(&cursor_at(0.0, 300.0), 0.1);
+
+    assert_eq!(before, cam.camera());
+}

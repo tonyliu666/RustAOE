@@ -38,8 +38,8 @@ pub enum DrawCall {
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct RecordingRenderer {
     calls: Vec<DrawCall>,
-    /// The size of each loaded texture, indexed by its ID.
-    textures: Vec<(u32, u32)>,
+    /// The size and pixels of each loaded texture, indexed by its ID.
+    textures: Vec<(u32, u32, Vec<u8>)>,
 }
 
 impl RecordingRenderer {
@@ -79,7 +79,17 @@ impl RecordingRenderer {
     /// The size of a texture this renderer loaded, or `None` for one it did
     /// not, which would be a drawing bug in the caller.
     pub fn texture_size(&self, texture: TextureId) -> Option<(u32, u32)> {
-        self.textures.get(texture.0 as usize).copied()
+        self.textures
+            .get(texture.0 as usize)
+            .map(|(w, h, _)| (*w, *h))
+    }
+
+    /// The RGBA pixels a texture was loaded with, so a test can check what
+    /// would have been drawn.
+    pub fn texture_pixels(&self, texture: TextureId) -> Option<&[u8]> {
+        self.textures
+            .get(texture.0 as usize)
+            .map(|(_, _, pixels)| pixels.as_slice())
     }
 
     /// Number of completed frames.
@@ -127,7 +137,7 @@ impl Renderer for RecordingRenderer {
 
     fn load_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> TextureId {
         debug_assert_eq!(rgba.len(), width as usize * height as usize * 4);
-        self.textures.push((width, height));
+        self.textures.push((width, height, rgba.to_vec()));
         TextureId(self.textures.len() as u32 - 1)
     }
 

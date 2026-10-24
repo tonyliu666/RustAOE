@@ -6,6 +6,7 @@
 //! textures. See `docs/superpowers/specs/2026-10-24-prestage-edge-scroll-and-real-sprites.md`
 //! for how the sprite IDs below were chosen.
 
+use crate::pick::{Bodies, Body};
 use assets::{Drs, DrsError, Image, Palette, PaletteError, Slp, SlpError};
 use render::{Renderer, TextureId, Vec2};
 use sim::{BuildingKind, PlayerId, UnitKind};
@@ -77,6 +78,22 @@ impl Sprites {
             BuildingKind::Barracks => &self.barracks,
         };
         &set[slot(owner)]
+    }
+
+    /// Each unit kind's drawn body, for picking: the same placement as
+    /// drawing, so a click lands on what the player sees.
+    pub fn bodies(&self) -> Bodies {
+        let body = |sprite: &Sprite| {
+            let scale = 1.0 / UNIT_PIXELS_PER_TILE;
+            Body {
+                offset: Vec2::new(-sprite.hotspot.x, -sprite.hotspot.y) * scale,
+                size: Vec2::new(sprite.width, sprite.height) * scale,
+            }
+        };
+        Bodies {
+            villager: body(&self.villager[1]),
+            soldier: body(&self.soldier[1]),
+        }
     }
 
     /// The grass texture for a tile. Varies from tile to tile, the same way
@@ -166,6 +183,11 @@ pub enum AssetError {
         path: PathBuf,
         id: u32,
     },
+    /// A sprite with no frames, or a frame with no pixels: nothing to draw,
+    /// and grass with no frames would divide by zero when choosing a tile.
+    EmptySprite {
+        id: u32,
+    },
     Slp {
         id: u32,
         error: SlpError,
@@ -178,6 +200,9 @@ impl fmt::Display for AssetError {
             AssetError::Io { path, error } => write!(f, "{}: {error}", path.display()),
             AssetError::Drs { path, error } => write!(f, "{}: {error}", path.display()),
             AssetError::Palette(error) => write!(f, "game palette: {error}"),
+            AssetError::EmptySprite { id } => {
+                write!(f, "sprite {id} has no frames or no pixels to draw")
+            }
             AssetError::Missing { path, id } => {
                 write!(
                     f,
@@ -241,10 +266,10 @@ pub fn load_images(dir: &Path) -> Result<GameImages, AssetError> {
     // step. `player` picks the player colours.
     let decode = |id: u32, player: u8| -> Result<Frame, AssetError> {
         let slp = graphics.sprite(id)?;
-        let first = *slp.frames().next().ok_or(AssetError::Missing {
-            path: graphics.path.clone(),
-            id,
-        })?;
+        let first = *slp.frames().next().ok_or(AssetError::EmptySprite { id })?;
+        if first.width == 0 || first.height == 0 {
+            return Err(AssetError::EmptySprite { id });
+        }
         let image = slp
             .decode(0, &palette, player)
             .map_err(|error| AssetError::Slp { id, error })?;
@@ -263,6 +288,9 @@ pub fn load_images(dir: &Path) -> Result<GameImages, AssetError> {
 
     let grass_slp = terrain.sprite(GRASS)?;
     let variations = grass_slp.frames().count().min(GRASS_VARIATIONS);
+    if variations == 0 || grass_slp.frames().any(|f| f.width == 0 || f.height == 0) {
+        return Err(AssetError::EmptySprite { id: GRASS });
+    }
     let grass = (0..variations)
         .map(|frame| {
             grass_slp
@@ -291,6 +319,15 @@ pub fn load_images(dir: &Path) -> Result<GameImages, AssetError> {
 /// square's top-left corner comes from the diamond's top vertex, its
 /// top-right from the right vertex, and so on round.
 pub fn unskew_tile(diamond: &Image, size: u32) -> Image {
+    // Nothing to sample from: a transparent square rather than a clamp with
+    // its bounds reversed.
+    if diamond.width == 0 || diamond.height == 0 {
+        return Image {
+            width: size,
+            height: size,
+            rgba: vec![0; (size * size * 4) as usize],
+        };
+    }
     let (w, h) = (diamond.width as f32, diamond.height as f32);
     let mut rgba = Vec::with_capacity((size * size * 4) as usize);
     for y in 0..size {

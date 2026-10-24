@@ -44,6 +44,7 @@ pub enum Key {
     Space,
     Digit1,
     Digit2,
+    F10,
 }
 
 /// One frame of input.

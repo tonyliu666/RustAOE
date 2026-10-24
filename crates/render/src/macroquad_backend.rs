@@ -89,6 +89,18 @@ impl Renderer for MacroquadRenderer {
     }
 
     fn load_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> TextureId {
+        // macroquad takes 16-bit sizes. A larger image is a caller bug (the
+        // asset readers cap sprites well below this), so say so plainly
+        // rather than truncating the size and failing deep in the backend.
+        assert!(
+            width <= u32::from(u16::MAX) && height <= u32::from(u16::MAX),
+            "texture {width}x{height} is too large to upload"
+        );
+        assert_eq!(
+            rgba.len(),
+            width as usize * height as usize * 4,
+            "texture data does not match its size"
+        );
         let texture = mq::Texture2D::from_rgba8(width as u16, height as u16, rgba);
         // The original's sprites are pixel art: scale them without blurring.
         texture.set_filter(mq::FilterMode::Nearest);
@@ -133,7 +145,7 @@ const BUTTONS: [(MouseButton, mq::MouseButton); 3] = [
     (MouseButton::Middle, mq::MouseButton::Middle),
 ];
 
-const KEYS: [(Key, mq::KeyCode); 11] = [
+const KEYS: [(Key, mq::KeyCode); 12] = [
     (Key::W, mq::KeyCode::W),
     (Key::A, mq::KeyCode::A),
     (Key::S, mq::KeyCode::S),
@@ -145,6 +157,7 @@ const KEYS: [(Key, mq::KeyCode); 11] = [
     (Key::Space, mq::KeyCode::Space),
     (Key::Digit1, mq::KeyCode::Key1),
     (Key::Digit2, mq::KeyCode::Key2),
+    (Key::F10, mq::KeyCode::F10),
 ];
 
 impl InputSource for MacroquadInput {

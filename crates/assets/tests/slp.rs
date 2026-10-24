@@ -337,3 +337,46 @@ fn a_command_byte_the_format_does_not_define_is_an_error() {
         Some(SlpError::UnknownCommand { row: 0, byte: 0x8E })
     );
 }
+
+/// Overwrites frame 0's width and height in a built sprite.
+fn with_frame_size(mut bytes: Vec<u8>, width: i32, height: i32) -> Vec<u8> {
+    bytes[32 + 16..32 + 20].copy_from_slice(&width.to_le_bytes());
+    bytes[32 + 20..32 + 24].copy_from_slice(&height.to_le_bytes());
+    bytes
+}
+
+#[test]
+fn a_frame_too_large_to_be_a_sprite_is_an_error_before_anything_is_allocated() {
+    // A damaged header claiming two billion pixels a side would otherwise ask
+    // for more memory than exists.
+    for (width, height) in [(i32::MAX, i32::MAX), (4097, 10), (10, 4097), (70_000, 1)] {
+        let bytes = with_frame_size(
+            build(&[frame(1, vec![row(&[1 << 2, 1, 0x0F])])]),
+            width,
+            height,
+        );
+
+        assert_eq!(
+            Slp::parse(&bytes).err(),
+            Some(SlpError::FrameTooLarge(0)),
+            "{width}x{height} was accepted"
+        );
+    }
+}
+
+#[test]
+fn the_largest_allowed_frame_is_accepted() {
+    // Rows past the first are marked in tables that do not exist, so only the
+    // size check is exercised: parse must not reject 4096 on size grounds.
+    let bytes = with_frame_size(build(&[frame(1, vec![row(&[1 << 2, 1, 0x0F])])]), 4096, 1);
+
+    assert!(Slp::parse(&bytes).is_ok());
+}
+
+#[test]
+fn row_tables_running_past_the_end_are_an_error_when_the_sprite_is_read() {
+    // One row of tables is present; a height of 1000 claims 999 more.
+    let bytes = with_frame_size(build(&[frame(1, vec![row(&[1 << 2, 1, 0x0F])])]), 1, 1000);
+
+    assert_eq!(Slp::parse(&bytes).err(), Some(SlpError::Truncated));
+}

@@ -19,7 +19,9 @@ pub use content_file::{
     load_content, new_game_content, parse_content, ContentFileError, DEFAULT_CONTENT,
 };
 pub use draw::{draw_world, Hud, HEALTH, HEALTH_LOST, SELECTION};
-pub use pick::{building_at, entity_at, mine_at, tile_at, to_screen_space, unit_at, units_in_box};
+pub use pick::{
+    building_at, entity_at, mine_at, tile_at, to_screen_space, unit_at, units_in_box, Bodies, Body,
+};
 pub use replay_file::{load, save, ReplayError};
 pub use session::{PlayerUi, Session};
 pub use sprites::{

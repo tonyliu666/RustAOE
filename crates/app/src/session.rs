@@ -38,6 +38,14 @@ pub struct Session {
     /// One per player, player 1 first. Gaia has none: nobody plays it.
     players: Vec<PlayerUi>,
     active: PlayerId,
+    /// Whether the mouse is held inside the window. The window cannot tell
+    /// when the mouse leaves it, so edge scrolling only runs while locked:
+    /// otherwise a mouse that left through an edge would scroll the map for
+    /// as long as the player used another program.
+    mouse_locked: bool,
+    /// Where each unit kind's drawn body is, so a click selects what the
+    /// player sees.
+    bodies: pick::Bodies,
 }
 
 impl Session {
@@ -56,6 +64,8 @@ impl Session {
                 .map(|_| PlayerUi::new(controller.clone()))
                 .collect(),
             active: PlayerId::ONE,
+            mouse_locked: true,
+            bodies: pick::Bodies::default(),
         }
     }
 
@@ -108,7 +118,24 @@ impl Session {
     /// `dt` drives camera motion only. Commands are not rate-limited here: the
     /// caller collects them until the next simulation tick, which is what
     /// keeps input responsive at frame rate while the simulation runs at 20 Hz.
+    /// Matches picking to the bodies the sprites are drawn with.
+    pub fn set_bodies(&mut self, bodies: pick::Bodies) {
+        self.bodies = bodies;
+    }
+
+    /// Whether the mouse should be held inside the window. The application
+    /// applies it to the real window; F10 toggles it.
+    pub const fn mouse_locked(&self) -> bool {
+        self.mouse_locked
+    }
+
     pub fn update(&mut self, input: &InputState, dt: f32, view: WorldView<'_>) -> Vec<Command> {
+        if input.key_pressed(Key::F10) {
+            self.mouse_locked = !self.mouse_locked;
+            for player in &mut self.players {
+                player.camera.set_edge_scroll(self.mouse_locked);
+            }
+        }
         if input.key_pressed(Key::Tab) {
             // Drop the half-finished drag: it belongs to the player who is
             // handing over the keyboard.
@@ -161,11 +188,11 @@ impl Session {
         let travel = cursor - from;
         let dragged = travel.x.abs() > Session::CLICK_SLOP || travel.y.abs() > Session::CLICK_SLOP;
         let selection = if dragged {
-            pick::units_in_box(view, owner, from, cursor)
+            pick::units_in_box(view, owner, from, cursor, &self.bodies)
         } else {
             // A click on empty ground clears the selection, which is how every
             // RTS behaves and what makes a misclick recoverable.
-            pick::unit_at(view, cursor)
+            pick::unit_at(view, cursor, &self.bodies)
                 .filter(|id| view.unit(*id).is_some_and(|u| u.owner == owner))
                 .into_iter()
                 .collect()
@@ -181,7 +208,7 @@ impl Session {
             return None;
         }
 
-        match pick::entity_at(view, cursor) {
+        match pick::entity_at(view, cursor, &self.bodies) {
             // A mine means gather, but only for villagers; a soldier sent to a
             // mine should walk there rather than have its order dropped.
             Some(EntityId::Mine(mine)) => {

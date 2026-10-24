@@ -12,4 +12,4 @@ mod slp;
 
 pub use drs::{Drs, DrsError, DrsTable};
 pub use palette::{Palette, PaletteError};
-pub use slp::{Image, Slp, SlpError, SlpFrame, SHADOW};
+pub use slp::{Image, Slp, SlpError, SlpFrame, MAX_FRAME_SIDE, SHADOW};
