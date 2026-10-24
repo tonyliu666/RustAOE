@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
-**Date:** 2026-10-24
-**Status:** Proposed
+**Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
+**Status:** Phases 0 and 1 done. Phase 1.5 next.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
@@ -13,66 +13,106 @@ The PoC spec's non-goals still apply until the phase that removes them. Each rem
 
 ## Where we are
 
-- PoC milestones 1–8 are in code on `feat/rts-poc-milestone-1`. `cargo test --workspace` passes.
-- Unverified: the criterion benchmark for 200 units under 5 ms per tick (milestone 4). Measure it before anything else.
-- Game-side reference is ready: 7,509 decompiled functions, and the random-map entry point is `FUN_0045ee10`.
+- PoC milestones 1–8 are in code on `feat/rts-poc-milestone-1`.
+- Phase 0 is done: 44 µs per tick for 200 units against a 5 ms budget (`docs/benchmarks.md`).
+- Phase 1 is done: unit, building, and gather numbers come from RON (`docs/superpowers/specs/2026-10-24-phase1-data-driven-content.md`). Commits `c1bc3c2`, `feea851`.
+- Game-side reference: 7,509 decompiled functions. World creation is `FUN_0040bdf0` (Gaia, then a player count from the game settings, up to 8; its `< 9` loops set teams and diplomacy). Random-map selection is `FUN_0045ee10`, which only picks a `.rms` script or a real-world `.scx`; the script interpreter it builds is `FUN_00534c40`.
+
+## Revision notes
+
+The direction check after Phase 1 found that four assumptions in `sim` would block later phases, and that the plan left out systems the binary has. Accepted changes:
+
+- New Phase 1.5 generalises the core types before Phase 2 builds on them.
+- New Phase 1.6 builds a `.dat` converter (option A: a dev tool that writes our RON from the original data), so phases take numbers from the game's data, not from memory.
+- Terrain types and elevation get their own phase before the combat roster.
+- Fog of war moves before the AI, so the AI is written against what a player can see.
+- Maps centre on the `.rms` script format, with variable map size.
+- New phases cover diplomacy and teams, walls and trade, victory conditions, save and load, and game speed.
+- Performance checkpoints are added where table sizes or unit counts grow.
+
+Old to new numbering: 2 → 2, 3 → 3, 4 → 4, new 5, 5 → 6, 6 → 7, 8 → 8, 7 → 9, new 10, new 11, 9 → 12, 10 → 13.
 
 ## Phases
 
 Each phase has a goal, a deliverable, a verification gate, and the reference to read first. A phase is done when its gate passes. Do not start the next phase while the gate is red.
 
-### Phase 0: Close the PoC
+### Phase 0: Close the PoC (done)
 
 - **Goal:** Confirm the PoC matches its own spec before extending it.
-- **Work:** Run the 200-unit criterion benchmark (`crates/sim/benches/step.rs`). Record the flow-field build cost. Check that every proptest in the spec's testing section exists and runs.
-- **Gate:** Benchmark under 5 ms per tick, recorded in `docs/` with the machine spec. Any missing property test is added.
+- **Gate result:** 44.35 µs per tick, recorded in `docs/benchmarks.md`. All five spec property tests exist.
 
-### Phase 1: Data-driven content
+### Phase 1: Data-driven content (done)
 
 - **Goal:** Stop hard-coding unit and building stats.
-- **Work:** Define a RON schema for units, buildings, and mines. Load it once at startup into plain structs, as the spec's error-handling section already requires.
-- **Reference:** No game format read yet. This phase uses our own schema.
-- **Gate:** Changing a stat in a RON file changes gameplay with no code change. A test loads a bad file and gets an error, not a panic.
+- **Gate result:** see the gate table in the Phase 1 spec. Footprint sizes and mine contents stayed out of scope, as the spec records.
+
+### Phase 1.5: Generalise the core
+
+- **Goal:** Remove the four assumptions that every later phase would otherwise build on: a replay format with no version, one resource, two players, and a fixed list of entity kinds.
+- **Spec:** [`2026-10-24-phase1.5-generalise-core.md`](../specs/2026-10-24-phase1.5-generalise-core.md).
+- **Work, in order:**
+  1. Replay format version.
+  2. Resources as a per-player array of food, wood, gold, and stone. Costs become a cost per resource. Only gold can be gathered until Phase 2.
+  2b. Widen the checksum to unit and building kinds, owners, orders, and production and gather timers, inside the same replay break.
+  3. Up to 8 players plus Gaia, with a per-player defeated flag from which the outcome is derived.
+  4. Content keyed by ID, so a new unit or building type is a RON entry, not a code change.
+- **Reference:** `FUN_0040bdf0` (world creation: player count at `param_2 + 0x294`; teams and diplomacy in its `< 9` loops), `FUN_00555380`/`FUN_00555440`/`FUN_00555510` (per-player attribute table; resources are entries 0 to 3).
+- **Gate:** A 4-player map plays to a single winner. A unit type added only in RON can be trained and fights. An old-format replay is refused with a version error that names both versions. The tick benchmark stays under budget.
+
+### Pre-stage: edge scrolling and real sprites (inserted before Phase 1.5 step 4)
+
+- **Goal:** Pan the map by moving the mouse to the screen edge, as in the original, and draw terrain, units, and buildings with the original sprites read from the user's own installer payload.
+- **Spec:** [`2026-10-24-prestage-edge-scroll-and-real-sprites.md`](../specs/2026-10-24-prestage-edge-scroll-and-real-sprites.md).
+- **Pulls forward** the DRS, SLP, and palette readers from Phase 12. The isometric view stays in Phase 12.
+- **Gate:** Edge scrolling works; with `--assets DIR` the main entities use the original sprites, checked by eye; without it the game runs as before. No asset file is committed.
+
+### Phase 1.6: `.dat` converter
+
+- **Goal:** Take game numbers from the original's data instead of from memory.
+- **Work:** A dev-only Rust tool, a workspace member so its tests run under `cargo test --workspace`, reads `data/empires2_x1_p1.dat` from a user-supplied install and writes the fields our schema has into RON. Resources map by name, not position (the original orders them food, wood, stone, gold), and float amounts round to integers; see the Phase 1.5 spec. The game itself reads only our RON; it never opens a `.dat`. Track `reverse/README.md` and `reverse/tools/` in git; keep decompiled output and extracted data ignored.
+- **Reference:** `FUN_00586b20` names the `.dat` path. The file is zlib-compressed and community-documented.
+- **Gate:** The tool reproduces known values (villager 25 HP and 50 food in the original). A test compares the tool's output for a few units against values recorded in the phase spec.
+- **Performance checkpoint:** load the full converted table (every unit type the `.dat` holds) and record load time and per-lookup cost in `docs/benchmarks.md`. Lookups must stay a direct index, not a search.
 
 ### Phase 2: Four resources
 
 - **Goal:** Food, wood, gold, and stone, each with its own gatherer and drop-off.
-- **Work:** Generalise the gather state machine over resource kind. Add a resource field to `Player`. Gold conservation becomes a per-resource property test.
-- **Costs become multi-resource.** `UnitStats::cost` changes from one gold number to a cost per resource, written in RON as `cost: (food: 50)`. Match the original game: a villager costs food, not gold. The default content changes to the original's costs (villager 50 food; soldier as the militia, 60 food and 20 gold), confirmed against the game data before they become the defaults. This changes the outcome of default-content games, so it is a recorded replay break.
+- **Work:** Generalise the gather state machine over resource kind, and turn `Mine` into a generic resource site owned by Gaia. Food sources: forage bushes, hunt, fish, and farms placed by the map, since players cannot build until Phase 3. Drop-off buildings (mill, lumber camp, mining camp) are placed by the map for the same reason. Conservation becomes a per-resource property test.
+- **Costs match the original.** A villager costs 50 food, not gold; the soldier becomes the militia at 60 food and 20 gold. Values come from the Phase 1.6 converter. This is a recorded replay break: bump the replay format version.
 - **Reference:** Gather loop in `reverse/aoc/aoc_decompiled.c`. Search for the resource strings in `reverse/aoc/strings.txt` first.
 - **Gate:** Conservation property test passes for all four resources. A villager never delivers a resource to a building that does not accept it.
 
-### Phase 3: Construction
+### Phase 3: Construction and population
 
-- **Goal:** Players place buildings. Builders construct them over time.
-- **Work:** Placement validation, construction progress, builder assignment. The spec deferred these; this phase writes a new spec first.
-- **Gate:** Unit tests for invalid placements, build progress, and builder death mid-construction.
+- **Goal:** Players place buildings, builders construct them over time, and houses raise the population cap.
+- **Work:** Placement validation, construction progress, builder assignment. Footprint sizes move into content here. Population cap and houses ("POPULATION-CAP-25" to "200" in the strings).
+- **Gate:** Unit tests for invalid placements, build progress, builder death mid-construction, and training refused at the population cap.
 
-### Phase 4: Ages and research
+### Phase 4: Ages, research, and civilizations
 
-- **Goal:** Dark, Feudal, Castle, and Imperial ages, with research queues and age-up costs.
-- **Work:** A tech table in RON, research queue on buildings, and gating of units and buildings by age.
-- **Reference:** Age and tech strings in `reverse/aoc/strings.txt`. Confirm the age costs against the game's data before hard-coding anything.
-- **Gate:** A replay recorded before the change still reproduces its checksums, or the change is recorded as an intentional replay break.
+- **Goal:** Dark, Feudal, Castle, and Imperial ages, research queues, and civilization bonuses.
+- **Work:** A per-player modifier layer over the shared content table, since a technology or a civilization bonus changes stats for one player only ("aqquire %d of attribute %d", "TechInfo" in the strings). Tech tree and civilizations come from the converter.
+- **Gate:** A researched technology changes one player's stats and not another's. The replay format version is bumped, or the change is shown not to alter old replays.
 
-### Phase 5: Unit roster
+### Phase 5: Terrain types and elevation
 
-- **Goal:** Add archers, cavalry, monks, and siege. This is the first phase that changes the combat model.
-- **Work:** Damage types and armour. The spec ruled both out; this phase replaces that rule with a spec change. Add projectiles only if the archer design needs them.
-- **Gate:** Damage unit tests per type. The tick budget benchmark is re-run with the larger roster.
+- **Goal:** Terrain beyond "passable or not": water, shallows, forest, and height.
+- **Work:** Terrain type per tile, passability per unit class (land, water), and elevation. Naval units, docks, and the hill bonus depend on this.
+- **Reference:** "Random Map elevation initilization" and `DATA\blendomatic.dat` (blending is a Phase 12 asset concern).
+- **Gate:** Land units never stand on water and ships never stand on land, as a property test.
 
-### Phase 6: Maps and scenarios
+### Phase 6: Unit roster and combat
 
-- **Goal:** Load a real map instead of the hard-coded PoC map.
-- **Work:** Start with a fixed-seed generator that produces a valid 128×128 map from terrain and a few placement rules. Read the `.rms` script format and the `.scx` scenario format only if the generator is not enough.
-- **Reference:** `FUN_0045ee10` and its callees for the random-map path. `random/*.rms` is in the game's data (in the 7z payload, not in the repo).
-- **Gate:** Map generation is deterministic for a seed (same seed, same checksum). Every generated map passes the no-tunnelling property test.
+- **Goal:** Archers, cavalry, monks, siege, and ships. The first phase that changes the combat model.
+- **Work:** Damage types and armour, replacing the PoC spec's rule against them. Projectiles if the archer design needs them. Stances, formations, and garrison.
+- **Gate:** Damage unit tests per type. **Performance checkpoint:** the tick benchmark runs at the original's scale, 8 players at 200 population plus Gaia, and the budget is re-set from that measurement.
 
-### Phase 7: AI opponent
+### Phase 7: Maps and scenarios
 
-- **Goal:** A scripted opponent, so one player can play alone.
-- **Work:** Start with a rule-based build order. AI issues ordinary `Command` values, so it goes through the same validation as a player.
-- **Gate:** The AI wins or loses a fixed-seed match deterministically. The sim has no AI-only code path.
+- **Goal:** Generate maps the way the original does.
+- **Work:** Interpret the `.rms` random-map script format, with variable map size. Load `.scx` scenarios, which the real-world maps use.
+- **Reference:** `FUN_0045ee10` (seeds and picks the script), `FUN_00534c40` (script interpreter), `FUN_0040df00` (scenario load). "ERROR: Syntax error. no matching start_random command" shows the script grammar.
+- **Gate:** Map generation is deterministic for a seed. Every generated map passes the no-tunnelling property test. At least one shipped `.rms` script generates a playable map.
 
 ### Phase 8: Fog of war and UI
 
@@ -80,16 +120,35 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 - **Work:** Visibility as sim state, so it stays in the checksum. The UI reads only the view.
 - **Gate:** A property test that no hidden enemy unit appears in a player's view.
 
-### Phase 9: Assets
+### Phase 9: AI opponent
+
+- **Goal:** A scripted opponent, so one player can play alone.
+- **Work:** A rule-based build order that sees only its own player's visible view. AI issues ordinary `Command` values, so it goes through the same validation as a player. The original's AI uses `.ai` script files; reading them is optional.
+- **Gate:** The AI wins or loses a fixed-seed match deterministically. The sim has no AI-only code path.
+
+### Phase 10: Diplomacy, walls, and trade
+
+- **Goal:** Teams and stances, walls and gates, markets, trade, and tribute.
+- **Reference:** "Diplomacy", "TEAMS-LOCKED", "LandTrade", "BoatTrade", `tribute.wav`.
+- **Gate:** Allied units never attack each other. Tribute conserves resources.
+
+### Phase 11: Victory conditions, save and load, and game speed
+
+- **Goal:** Conquest, relics, wonder, regicide, and king of the hill; mid-game save and load; game speed.
+- **Reference:** "VICTORY-CONQUEST", "REGICIDE", "KING-OF-THE-HILL", "AUTOSAVE", "Game Speed".
+- **Gate:** Each victory condition fires exactly once. A saved game reloads to the same checksum.
+
+### Phase 12: Assets
 
 - **Goal:** Real graphics and sound. This phase is out of the PoC architecture's scope and needs its own spec.
 - **Work:** Read `.drs` and `.slp` for sprites and terrain. Read `.wav` and `.mp3` for sound. Keep all asset loading in `app` and `render`.
 - **Gate:** A rendered screenshot matches a reference frame, checked by eye. Assets are not committed; they are read from a user-supplied install directory.
 
-### Phase 10: Multiplayer
+### Phase 13: Multiplayer
 
 - **Goal:** Lockstep networking over the existing command stream.
-- **Work:** The determinism design already supports this. The new work is transport, input delay, and desync reporting, all in a new spec.
+- **Work:** Transport, input delay, and desync reporting, in a new spec. Peers exchange a hash of their content and replay format version in the handshake. Widen the checksum to cover orders, gather timers, and production progress before this phase, so desyncs show up early.
+- **Reference:** "Starting Turn#%d", "Too many commands in one comm turn", "IsPlayerOutOfSync".
 - **Gate:** Two processes stay in sync for a 10-minute recorded match.
 
 ## Guidelines
@@ -97,27 +156,30 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 These apply to every phase.
 
 1. **Read the reference first.** Search `reverse/aoc/aoc_decompiled.c` and `reverse/aoc/strings.txt` before designing anything. Write the finding into the phase's spec as a short note with the function address.
-2. **Write a spec before code for any phase that changes the design.** Phases 3, 5, 6, 9, and 10 each need their own spec in `docs/superpowers/specs/`.
+2. **Write a spec before code for every phase.**
 3. **Test first in `sim`.** Write the failing test, watch it fail for the right reason, then write the code. `sim` is pure, so each test builds a small world and steps it.
 4. **Keep the boundaries.** `sim` has no floats and no I/O. `render` draws primitives only. `app` is the only crate that sees both. Enforce this with `cargo clippy` and the existing float lint.
-5. **Keep replays honest.** Any change that alters tick order or the checksum is a replay break. Record it in the phase notes and bump the replay format version.
+5. **Keep replays honest.** Any change that alters tick order or the checksum is a replay break. So is any change to the shape of `Content` or `MapSpec`, because a replay embeds both. Record it in the phase notes and bump the replay format version. A version is final only when its phase ends: do not keep replays or commit partway through a phase that changes the format.
 6. **Do not commit game assets.** Read them from a user-supplied install. The repo holds code, specs, and short reference notes only.
 7. **Verify before claiming done.** Run `cargo test --workspace` and the phase's gate. Report the output, not a summary of it.
-8. **Narrate code work.** Before writing code, say which file changes and why. After, say what changed and which test shows it works.
+8. **Narrate code work.** Before each step, say which files change, which tests are written, and why, and wait for the go-ahead. After, say what changed and which test shows it works.
 9. **Commit only when asked.** Use the attribution line from the session instructions.
 10. **Check the direction after every phase.** When a phase's gate passes, run two independent subagent checks before the next phase starts:
     - **Code review** of the phase's diff against its spec, for bugs, determinism risks, and weak tests.
     - **Direction check.** A fresh subagent gets only the repository path and one question: compared with the reverse-engineering output in `reverse/`, is the project's current state on the right path toward this plan, and if not, what is missing? Do not give it your own conclusions or a summary of the work, so that its answer is not anchored on yours.
-    
+
     Report both results to the user. Fold any accepted findings into this plan before the next phase.
 
-## Immediate next steps
+## Deferred findings
 
-1. Run Phase 0's benchmark and record the result.
-2. Write the Phase 1 spec (RON schema) and its failing tests.
-3. Note the four resource strings and their gather code paths in `reverse/` for Phase 2.
+From the Phase 1 review, accepted as minor and not yet fixed:
+
+- `radius` has no upper bound; above about 1/2 tile a unit cannot pass a one-tile gap. Fix with Phase 3 or Phase 6.
+- A bad `--content` file blocks `--play`, which ignores it. Fix with Phase 1.5's replay work.
+- The old-format replay test proves parsing only. Phase 1.5's version check replaces it.
+- Content is not in the checksum. Phase 13 handshake.
 
 ## Open questions
 
-- Is the Phase 9 asset read in scope for this repository, or a separate project?
-- Should the game's data files be read directly (`empires2_x1_p1.dat`), or should the RON schema be our own?
+- Is the Phase 12 asset read in scope for this repository, or a separate project?
+- Is the scenario editor in scope at all?
