@@ -72,7 +72,7 @@ band of forest.
 | Input | Does |
 | --- | --- |
 | Mouse at a screen edge | Scroll the map that way, diagonally in corners |
-| `F10` | Free the mouse from the window (and lock it again) |
+| `F10` | Lock the mouse inside the window (and free it again) |
 | `Q` / `E`, or mouse wheel | Zoom out / in |
 | Left click a unit | Select it |
 | Left drag | Box-select your units |
@@ -85,9 +85,16 @@ band of forest.
 | `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit |
 
-The mouse is held inside the window while you play, so pushing against an edge
-scrolls the map, as in the original. Press `F10` to reach other programs; edge
-scrolling stops until you press it again.
+The mouse is free to leave the window. Resting it at an edge scrolls the map.
+Press `F10` to lock it inside the window, as AoE2's "lock mouse to window"
+option does, which makes pushing against an edge scroll reliably.
+
+One quirk while the mouse is free: the window is not told when the mouse
+leaves it, so if you leave slowly through an edge the map keeps scrolling
+until the mouse comes back. Lock the mouse with `F10` to avoid it.
+
+Units are easy to click at any zoom: zoomed out, a click within a few pixels
+of a unit selects it, and a small wobble of the hand still counts as a click.
 
 The overlay in the top-left always tells you whose turn it is, their food,
 wood, gold, and stone, and how many units they have selected.

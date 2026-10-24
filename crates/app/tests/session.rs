@@ -576,47 +576,106 @@ fn press(key: Key) -> InputState {
 }
 
 #[test]
-fn the_mouse_starts_locked_to_the_window() {
-    assert!(session().mouse_locked());
+fn the_mouse_starts_free_to_leave_the_window() {
+    assert!(!session().mouse_locked());
 }
 
 #[test]
-fn f10_unlocks_the_mouse_and_f10_again_locks_it() {
+fn f10_locks_the_mouse_and_f10_again_frees_it() {
     let world = world();
     let mut session = session();
-
-    session.update(&press(Key::F10), 0.0, world.view());
-    assert!(!session.mouse_locked());
 
     session.update(&press(Key::F10), 0.0, world.view());
     assert!(session.mouse_locked());
+
+    session.update(&press(Key::F10), 0.0, world.view());
+    assert!(!session.mouse_locked());
 }
 
 #[test]
-fn with_the_mouse_unlocked_the_edges_do_not_scroll() {
-    // Unlocked means the player is reaching for another program, and the
-    // window cannot tell when the mouse leaves it.
+fn the_edges_scroll_whether_or_not_the_mouse_is_locked() {
+    for presses in [0, 1] {
+        let world = world();
+        let mut session = session();
+        for _ in 0..presses {
+            session.update(&press(Key::F10), 0.0, world.view());
+        }
+        let before = session.camera().center;
+
+        session.update(&at_right_edge(&session), 0.5, world.view());
+
+        assert_ne!(session.camera().center, before, "locked: {}", presses == 1);
+    }
+}
+
+// --- selecting at any zoom ------------------------------------------------------
+
+/// The real villager's body: 21x42 sprite pixels standing on (10, 40), at 48
+/// sprite pixels per tile.
+fn villager_bodies() -> app::Bodies {
+    let body = app::Body {
+        offset: Vec2::new(-10.0 / 48.0, -40.0 / 48.0),
+        size: Vec2::new(21.0 / 48.0, 42.0 / 48.0),
+    };
+    app::Bodies {
+        villager: body,
+        soldier: body,
+    }
+}
+
+/// Presses the left button over world point `from` and releases it over
+/// `to`, at `zoom` pixels per tile, and returns how many units ended up
+/// selected.
+fn click_and_release(zoom: f32, from: Vec2, to: Vec2) -> usize {
     let world = world();
-    let mut session = session();
-    session.update(&press(Key::F10), 0.0, world.view());
-    let before = session.camera().center;
+    let camera = Camera::new(Vec2::new(8.0, 8.0), zoom, Vec2::new(800.0, 600.0));
+    let mut session = Session::new(camera, 16, 16, 2);
+    session.set_bodies(villager_bodies());
+    let screen = |w: Vec2| camera.world_to_screen(w);
 
-    session.update(&at_right_edge(&session), 0.5, world.view());
-
-    assert_eq!(session.camera().center, before);
+    let mut down = InputState::default();
+    down.cursor = screen(from);
+    down.press(MouseButton::Left);
+    session.update(&down, 0.0, world.view());
+    let mut up = InputState::default();
+    up.cursor = screen(to);
+    up.release(MouseButton::Left);
+    session.update(&up, 0.0, world.view());
+    session.selection().len()
 }
 
 #[test]
-fn locking_again_brings_edge_scrolling_back() {
-    let world = world();
-    let mut session = session();
-    session.update(&press(Key::F10), 0.0, world.view());
-    session.update(&press(Key::F10), 0.0, world.view());
-    let before = session.camera().center;
+fn a_click_whose_hand_wobbles_two_pixels_selects_at_every_zoom() {
+    // Player one's villager stands at (5.5, 5.5). Zoomed out it is drawn a
+    // few pixels wide; a 2-pixel wobble must not miss it.
+    let feet = Vec2::new(5.5, 5.5);
+    for zoom in [4.0, 8.0, 16.0, 48.0] {
+        let wobble = Vec2::new(2.0 / zoom, 0.0);
 
-    session.update(&at_right_edge(&session), 0.5, world.view());
+        assert_eq!(
+            click_and_release(zoom, feet, feet + wobble),
+            1,
+            "zoom {zoom}"
+        );
+    }
+}
 
-    assert_ne!(session.camera().center, before);
+#[test]
+fn zoomed_out_a_unit_can_be_clicked_a_few_pixels_beside_its_tiny_sprite() {
+    // At 4 pixels per tile the villager is under 2 pixels wide; a click 8
+    // pixels to its side still selects it.
+    let beside = Vec2::new(5.5 + 8.0 / 4.0, 5.2);
+
+    assert_eq!(click_and_release(4.0, beside, beside), 1);
+}
+
+#[test]
+fn zoomed_in_a_click_beside_the_sprite_still_misses() {
+    // At 48 pixels per tile the sprite itself is the target; 30 pixels to
+    // its side is empty ground.
+    let beside = Vec2::new(5.5 + 30.0 / 48.0, 5.2);
+
+    assert_eq!(click_and_release(48.0, beside, beside), 0);
 }
 
 #[test]

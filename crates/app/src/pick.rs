@@ -37,6 +37,16 @@ impl Body {
         }
     }
 
+    /// This body grown, about its centre, to at least `min` tiles each way.
+    pub fn at_least(&self, min: f32) -> Body {
+        let grow = |size: f32| (min - size).max(0.0);
+        let (dx, dy) = (grow(self.size.x), grow(self.size.y));
+        Body {
+            offset: self.offset - Vec2::new(dx, dy) * 0.5,
+            size: self.size + Vec2::new(dx, dy),
+        }
+    }
+
     fn at(&self, ground: Vec2) -> (Vec2, Vec2) {
         let min = ground + self.offset;
         (min, min + self.size)
@@ -61,6 +71,14 @@ impl Default for Bodies {
 }
 
 impl Bodies {
+    /// Every body grown to at least `min` tiles each way.
+    pub fn at_least(&self, min: f32) -> Bodies {
+        Bodies {
+            villager: self.villager.at_least(min),
+            soldier: self.soldier.at_least(min),
+        }
+    }
+
     pub const fn of(&self, kind: UnitKind) -> Body {
         match kind {
             UnitKind::Villager => self.villager,
@@ -74,22 +92,42 @@ pub fn tile_at(world: Vec2) -> TilePos {
     TilePos::new(world.x.floor() as i32, world.y.floor() as i32)
 }
 
-/// The unit whose drawn body is under `world`.
+/// The unit under `world`.
 ///
-/// Where bodies overlap, the one drawn in front wins: units are drawn
-/// standing on their positions, so the one lower on screen covers the other.
-pub fn unit_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies) -> Option<UnitId> {
-    view.units()
+/// A click on a drawn body picks that unit; where drawn bodies overlap, the
+/// one drawn in front (lower on screen) wins. Off every drawn body, each
+/// target is grown to at least `min` tiles each way, so that a unit drawn a
+/// few pixels wide when zoomed out can still be clicked, and the unit whose
+/// body centre is nearest wins. The grown targets never take a click from a
+/// body the player actually clicked on.
+pub fn unit_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies, min: f32) -> Option<UnitId> {
+    let inside = |(lo, hi): (Vec2, Vec2)| {
+        (lo.x..=hi.x).contains(&world.x) && (lo.y..=hi.y).contains(&world.y)
+    };
+    // `total_cmp` throughout because `f32` has no total order, and the same
+    // click must resolve the same way every frame.
+    let on_body = view
+        .units()
         .filter_map(|(id, unit)| {
             let ground = to_screen_space(unit.pos);
-            let (min, max) = bodies.of(unit.kind).at(ground);
-            let inside = (min.x..=max.x).contains(&world.x) && (min.y..=max.y).contains(&world.y);
-            inside.then_some((id, ground.y))
+            inside(bodies.of(unit.kind).at(ground)).then_some((id, ground.y))
         })
-        // `total_cmp` because `f32` has no total order, and the same click
-        // must resolve the same way every frame.
         .max_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(id, _)| id)
+        .map(|(id, _)| id);
+    on_body.or_else(|| {
+        view.units()
+            .filter_map(|(id, unit)| {
+                let body = bodies.of(unit.kind);
+                let ground = to_screen_space(unit.pos);
+                inside(body.at_least(min).at(ground)).then(|| {
+                    let centre = ground + body.offset + body.size * 0.5;
+                    let gap = centre - world;
+                    (id, gap.x * gap.x + gap.y * gap.y)
+                })
+            })
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(id, _)| id)
+    })
 }
 
 /// The building covering `world`, if any.
@@ -112,8 +150,8 @@ pub fn mine_at(view: WorldView<'_>, world: Vec2) -> Option<MineId> {
 ///
 /// Units first, because they are small, on top, and the usual target; a mine
 /// last, because it is large and mostly scenery until a villager is selected.
-pub fn entity_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies) -> Option<EntityId> {
-    unit_at(view, world, bodies)
+pub fn entity_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies, min: f32) -> Option<EntityId> {
+    unit_at(view, world, bodies, min)
         .map(EntityId::Unit)
         .or_else(|| building_at(view, world).map(EntityId::Building))
         .or_else(|| mine_at(view, world).map(EntityId::Mine))

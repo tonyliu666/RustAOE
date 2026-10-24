@@ -43,8 +43,8 @@ fn one_villager() -> World {
 fn by_default_a_click_near_the_feet_picks_the_unit() {
     let world = one_villager();
 
-    assert!(unit_at(world.view(), Vec2::new(6.9, 6.5), &Bodies::default()).is_some());
-    assert!(unit_at(world.view(), Vec2::new(7.5, 6.5), &Bodies::default()).is_none());
+    assert!(unit_at(world.view(), Vec2::new(6.9, 6.5), &Bodies::default(), 0.0).is_some());
+    assert!(unit_at(world.view(), Vec2::new(7.5, 6.5), &Bodies::default(), 0.0).is_none());
 }
 
 #[test]
@@ -53,15 +53,15 @@ fn a_click_on_the_head_picks_the_unit() {
 
     // 0.8 tiles above the feet: inside the drawn body, outside the old
     // 0.6-tile circle around the feet.
-    assert!(unit_at(world.view(), Vec2::new(6.5, 5.7), &tall()).is_some());
+    assert!(unit_at(world.view(), Vec2::new(6.5, 5.7), &tall(), 0.0).is_some());
 }
 
 #[test]
 fn a_click_beside_the_body_picks_nothing() {
     let world = one_villager();
 
-    assert!(unit_at(world.view(), Vec2::new(6.9, 6.0), &tall()).is_none());
-    assert!(unit_at(world.view(), Vec2::new(6.5, 6.8), &tall()).is_none());
+    assert!(unit_at(world.view(), Vec2::new(6.9, 6.0), &tall(), 0.0).is_none());
+    assert!(unit_at(world.view(), Vec2::new(6.5, 6.8), &tall(), 0.0).is_none());
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn where_two_bodies_overlap_the_one_drawn_in_front_wins() {
         soldier: body,
     };
     assert_eq!(
-        unit_at(world.view(), Vec2::new(6.5, 6.2), &taller),
+        unit_at(world.view(), Vec2::new(6.5, 6.2), &taller, 0.0),
         Some(front)
     );
 }
@@ -106,12 +106,12 @@ fn a_click_on_a_units_head_over_a_building_picks_the_unit() {
     // The villager stands at (2.5, 4.5), just below the town centre, which
     // covers tiles 0 to 3. (2.5, 3.8) is on the villager's head and on the
     // town centre's last row of tiles.
-    let picked = entity_at(world.view(), Vec2::new(2.5, 3.8), &Bodies::default());
+    let picked = entity_at(world.view(), Vec2::new(2.5, 3.8), &Bodies::default(), 0.0);
     assert!(
         matches!(picked, Some(EntityId::Building(_))),
         "default bodies miss the head"
     );
-    let picked = entity_at(world.view(), Vec2::new(2.5, 3.8), &tall());
+    let picked = entity_at(world.view(), Vec2::new(2.5, 3.8), &tall(), 0.0);
     assert!(
         matches!(picked, Some(EntityId::Unit(_))),
         "picked {picked:?}"
@@ -147,4 +147,49 @@ fn a_drag_box_beside_the_body_selects_nothing() {
     );
 
     assert!(selected.is_empty());
+}
+
+#[test]
+fn a_click_on_a_drawn_body_beats_a_nearer_units_enlarged_target() {
+    // Two villagers side by side. With targets enlarged to 3 tiles, a click
+    // on the left one's body is also inside the right one's target; the body
+    // actually clicked wins.
+    let world = World::new(
+        1,
+        map()
+            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
+            .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(7, 7)),
+    );
+    let (left, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::ONE)
+        .expect("the left villager");
+
+    assert_eq!(
+        unit_at(world.view(), Vec2::new(6.5, 6.0), &tall(), 3.0),
+        Some(left)
+    );
+}
+
+#[test]
+fn off_every_body_the_nearest_enlarged_target_wins() {
+    let world = World::new(
+        1,
+        map()
+            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
+            .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(6, 8)),
+    );
+    let (upper, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::ONE)
+        .expect("the upper villager");
+
+    // (7.0, 6.2) touches neither body (x 6.25 to 6.75) but both enlarged
+    // targets; the upper villager's body centre (6.5, 6.0) is nearer.
+    assert_eq!(
+        unit_at(world.view(), Vec2::new(7.0, 6.2), &tall(), 4.0),
+        Some(upper)
+    );
 }

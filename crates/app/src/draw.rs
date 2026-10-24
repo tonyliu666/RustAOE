@@ -98,7 +98,7 @@ fn draw_overlay<R: Renderer>(
             resource_line(view.resources(hud.active_player)),
             hud.selection.len()
         ),
-        "tab switch  1 villager  2 soldier  right-click order  F10 free mouse".to_string(),
+        "tab switch  1 villager  2 soldier  right-click order  F10 lock mouse".to_string(),
     ];
     match view.outcome() {
         Some(Outcome::Won(winner)) => lines.push(format!("player {} wins", winner.number())),

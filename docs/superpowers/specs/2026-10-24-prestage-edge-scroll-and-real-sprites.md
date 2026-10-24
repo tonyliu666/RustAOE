@@ -234,3 +234,23 @@ From the end-of-stage code review and direction check:
 The original's archive functions, as promised in the reference note:
 `FUN_00543370` opens a DRS archive, `FUN_00543630` finds a file by type and
 ID in the first open archive that has it, `FUN_00543580` closes them.
+
+## User follow-up after the review fixes (2026-10-24)
+
+- **The mouse is free by default** (user request: "recover that the mouse you
+  can drag outside the playing zone"). F10 now locks it inside the window, and
+  edge scrolling works locked or free. Known quirk while free: leaving slowly
+  through an edge keeps scrolling until the mouse returns, because macroquad
+  does not report the mouse leaving the window. QUICKSTART documents it.
+- **Selecting while zoomed out** (user report: villagers could only be
+  selected zoomed in). Reproduced: at 8 pixels per tile a villager is drawn
+  about 3.5 pixels wide, and a 2-pixel wobble of the hand missed it; the
+  click-or-drag threshold was in tiles, so zoomed out a wobble became a drag.
+  Fixed:
+  - Click or drag is decided in screen pixels (`Session::CLICK_SLOP_PIXELS`,
+    6).
+  - A click on a drawn body picks that unit (front one wins). Off every body,
+    targets grow to at least `Session::MIN_PICK_PIXELS` (20) on screen and
+    the nearest body centre wins, so enlarged targets never take a click from
+    a body the player clicked.
+  - Drag boxes count the enlarged targets too.

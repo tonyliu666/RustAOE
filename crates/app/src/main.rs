@@ -152,8 +152,8 @@ mod game {
         // Clicks select what is drawn: the sprites' bodies, not just feet.
         session.set_bodies(sprites.bodies());
 
-        // The mouse starts held inside the window, as AoE2's "lock mouse to
-        // window" does; F10 frees it. See `Session::mouse_locked`.
+        // The mouse starts free to leave the window; F10 holds it inside, as
+        // AoE2's "lock mouse to window" does. See `Session::mouse_locked`.
         mq::set_cursor_grab(session.mouse_locked());
 
         let mut pending: Vec<Command> = Vec::new();

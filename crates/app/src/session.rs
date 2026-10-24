@@ -38,10 +38,10 @@ pub struct Session {
     /// One per player, player 1 first. Gaia has none: nobody plays it.
     players: Vec<PlayerUi>,
     active: PlayerId,
-    /// Whether the mouse is held inside the window. The window cannot tell
-    /// when the mouse leaves it, so edge scrolling only runs while locked:
-    /// otherwise a mouse that left through an edge would scroll the map for
-    /// as long as the player used another program.
+    /// Whether the mouse is held inside the window. Free by default, so the
+    /// player can reach other programs; F10 locks it, which also stops the
+    /// map scrolling on after the mouse leaves through an edge (the window
+    /// cannot tell when it leaves).
     mouse_locked: bool,
     /// Where each unit kind's drawn body is, so a click selects what the
     /// player sees.
@@ -49,12 +49,14 @@ pub struct Session {
 }
 
 impl Session {
-    /// A drag shorter than this is a click, not a box selection.
-    ///
-    /// In world units, so the threshold is a fixed distance on the map rather
-    /// than on screen; a shaky hand at high zoom would otherwise turn every
-    /// click into an empty box that clears the selection.
-    pub const CLICK_SLOP: f32 = 0.35;
+    /// A drag shorter than this many screen pixels is a click, not a box
+    /// selection. In pixels because a hand shakes in pixels: measured on the
+    /// map instead, a wobble zoomed out would be a drag, and zoomed in a long
+    /// drag would still be a click.
+    pub const CLICK_SLOP_PIXELS: f32 = 6.0;
+    /// The smallest a unit's click target gets, in screen pixels. Zoomed out
+    /// a villager is drawn a couple of pixels wide, far too small to click.
+    pub const MIN_PICK_PIXELS: f32 = 20.0;
 
     /// `players` is the map's player count, not counting Gaia.
     pub fn new(camera: Camera, map_width: i32, map_height: i32, players: u8) -> Session {
@@ -64,7 +66,7 @@ impl Session {
                 .map(|_| PlayerUi::new(controller.clone()))
                 .collect(),
             active: PlayerId::ONE,
-            mouse_locked: true,
+            mouse_locked: false,
             bodies: pick::Bodies::default(),
         }
     }
@@ -123,6 +125,12 @@ impl Session {
         self.bodies = bodies;
     }
 
+    /// The smallest click target at the current zoom, in tiles:
+    /// [`Session::MIN_PICK_PIXELS`] on screen.
+    fn min_pick(&self) -> f32 {
+        Session::MIN_PICK_PIXELS / self.camera().zoom
+    }
+
     /// Whether the mouse should be held inside the window. The application
     /// applies it to the real window; F10 toggles it.
     pub const fn mouse_locked(&self) -> bool {
@@ -132,9 +140,6 @@ impl Session {
     pub fn update(&mut self, input: &InputState, dt: f32, view: WorldView<'_>) -> Vec<Command> {
         if input.key_pressed(Key::F10) {
             self.mouse_locked = !self.mouse_locked;
-            for player in &mut self.players {
-                player.camera.set_edge_scroll(self.mouse_locked);
-            }
         }
         if input.key_pressed(Key::Tab) {
             // Drop the half-finished drag: it belongs to the player who is
@@ -186,13 +191,16 @@ impl Session {
         };
 
         let travel = cursor - from;
-        let dragged = travel.x.abs() > Session::CLICK_SLOP || travel.y.abs() > Session::CLICK_SLOP;
+        let zoom = self.camera().zoom;
+        let slop = Session::CLICK_SLOP_PIXELS / zoom;
+        let dragged = travel.x.abs() > slop || travel.y.abs() > slop;
+        let min = self.min_pick();
         let selection = if dragged {
-            pick::units_in_box(view, owner, from, cursor, &self.bodies)
+            pick::units_in_box(view, owner, from, cursor, &self.bodies.at_least(min))
         } else {
             // A click on empty ground clears the selection, which is how every
             // RTS behaves and what makes a misclick recoverable.
-            pick::unit_at(view, cursor, &self.bodies)
+            pick::unit_at(view, cursor, &self.bodies, min)
                 .filter(|id| view.unit(*id).is_some_and(|u| u.owner == owner))
                 .into_iter()
                 .collect()
@@ -208,7 +216,7 @@ impl Session {
             return None;
         }
 
-        match pick::entity_at(view, cursor, &self.bodies) {
+        match pick::entity_at(view, cursor, &self.bodies, self.min_pick()) {
             // A mine means gather, but only for villagers; a soldier sent to a
             // mine should walk there rather than have its order dropped.
             Some(EntityId::Mine(mine)) => {
