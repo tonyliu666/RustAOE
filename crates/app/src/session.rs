@@ -35,7 +35,8 @@ impl PlayerUi {
 /// The application's whole interactive state.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Session {
-    players: [PlayerUi; 2],
+    /// One per player, player 1 first. Gaia has none: nobody plays it.
+    players: Vec<PlayerUi>,
     active: PlayerId,
 }
 
@@ -47,11 +48,14 @@ impl Session {
     /// click into an empty box that clears the selection.
     pub const CLICK_SLOP: f32 = 0.35;
 
-    pub fn new(camera: Camera, map_width: i32, map_height: i32) -> Session {
+    /// `players` is the map's player count, not counting Gaia.
+    pub fn new(camera: Camera, map_width: i32, map_height: i32, players: u8) -> Session {
         let controller = CameraController::new(camera, map_width, map_height);
         Session {
-            players: [PlayerUi::new(controller.clone()), PlayerUi::new(controller)],
-            active: PlayerId::One,
+            players: (0..players.max(1))
+                .map(|_| PlayerUi::new(controller.clone()))
+                .collect(),
+            active: PlayerId::ONE,
         }
     }
 
@@ -60,11 +64,11 @@ impl Session {
     }
 
     pub fn active(&self) -> &PlayerUi {
-        &self.players[self.active.index()]
+        &self.players[slot(self.active)]
     }
 
     fn active_mut(&mut self) -> &mut PlayerUi {
-        let index = self.active.index();
+        let index = slot(self.active);
         &mut self.players[index]
     }
 
@@ -87,7 +91,9 @@ impl Session {
     /// on an empty corner, and per player because in hotseat they are looking
     /// at opposite ends of the map.
     pub fn look_at(&mut self, player: PlayerId, at: Vec2) {
-        self.players[player.index()].camera.look_at(at);
+        if let Some(ui) = self.players.get_mut(slot(player)) {
+            ui.camera.look_at(at);
+        }
     }
 
     /// Matches every camera to a resized window.
@@ -107,7 +113,8 @@ impl Session {
             // Drop the half-finished drag: it belongs to the player who is
             // handing over the keyboard.
             self.active_mut().drag_from = None;
-            self.active = self.active.other();
+            let count = self.players.len() as u8;
+            self.active = PlayerId::new(self.active.number() % count + 1);
         }
 
         self.active_mut().camera.update(input, dt);
@@ -243,4 +250,9 @@ impl Session {
         })
         .collect()
     }
+}
+
+/// A player's place in the session's table: player 1 is slot 0.
+fn slot(player: PlayerId) -> usize {
+    usize::from(player.number().saturating_sub(1))
 }

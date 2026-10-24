@@ -14,10 +14,12 @@ mod replay_file;
 mod session;
 
 pub use camera_controller::CameraController;
-pub use content_file::{load_content, parse_content, ContentFileError, DEFAULT_CONTENT};
+pub use content_file::{
+    load_content, new_game_content, parse_content, ContentFileError, DEFAULT_CONTENT,
+};
 pub use draw::{
-    draw_world, Hud, HEALTH, HEALTH_LOST, MINE, PLAYER_ONE, PLAYER_TWO, SELECTION, TILE_BLOCKED,
-    TILE_OPEN,
+    draw_world, Hud, GAIA, HEALTH, HEALTH_LOST, MINE, PLAYER_COLORS, PLAYER_ONE, PLAYER_TWO,
+    SELECTION, TILE_BLOCKED, TILE_OPEN,
 };
 pub use pick::{building_at, entity_at, mine_at, tile_at, to_screen_space, unit_at, units_in_box};
 pub use replay_file::{load, save, ReplayError};

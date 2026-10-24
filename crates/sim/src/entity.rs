@@ -5,7 +5,7 @@
 //! object graphs painful, and it keeps the whole state trivially copyable and
 //! serializable.
 
-use crate::{Fx, FxVec2, TilePos};
+use crate::{Fx, FxVec2, Resources, TilePos};
 use serde::{Deserialize, Serialize};
 use slotmap::new_key_type;
 
@@ -18,29 +18,38 @@ new_key_type! {
     pub struct MineId;
 }
 
-/// One of the two hotseat players.
+/// A player slot: Gaia, or one of up to eight players.
+///
+/// Gaia is slot 0, as in the original (`FUN_0040bdf0` builds Gaia before the
+/// players). It owns the map's neutral objects, never issues commands, and is
+/// never defeated.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
-pub enum PlayerId {
-    One,
-    Two,
-}
+pub struct PlayerId(u8);
 
 impl PlayerId {
-    pub const ALL: [PlayerId; 2] = [PlayerId::One, PlayerId::Two];
+    pub const GAIA: PlayerId = PlayerId(0);
+    pub const ONE: PlayerId = PlayerId(1);
+    pub const TWO: PlayerId = PlayerId(2);
+    /// Players a map may have, not counting Gaia.
+    pub const MAX_PLAYERS: u8 = 8;
 
-    pub const fn index(self) -> usize {
-        match self {
-            PlayerId::One => 0,
-            PlayerId::Two => 1,
-        }
+    /// Player `number`: 0 is Gaia, 1 to 8 are players.
+    pub const fn new(number: u8) -> PlayerId {
+        PlayerId(number)
     }
 
-    /// The other player. Only meaningful because the slice is two-player.
-    pub const fn other(self) -> PlayerId {
-        match self {
-            PlayerId::One => PlayerId::Two,
-            PlayerId::Two => PlayerId::One,
-        }
+    /// 0 for Gaia, 1 to 8 for players, as shown to people.
+    pub const fn number(self) -> u8 {
+        self.0
+    }
+
+    /// The slot in the world's player table.
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    pub const fn is_gaia(self) -> bool {
+        self.0 == 0
     }
 }
 
@@ -294,5 +303,8 @@ impl Mine {
 /// the application's business and must never affect the simulation.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Player {
-    pub gold: i32,
+    pub resources: Resources,
+    /// Out of the game. Set once and never cleared; a defeated player's
+    /// commands are dropped.
+    pub defeated: bool,
 }

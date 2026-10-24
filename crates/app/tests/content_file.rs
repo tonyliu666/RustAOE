@@ -4,7 +4,7 @@
 //! content file is user input.
 
 use app::{load_content, parse_content, ContentFileError, DEFAULT_CONTENT};
-use sim::{BuildingKind, Command, Content, MapSpec, PlayerId, TilePos, UnitKind, World};
+use sim::{BuildingKind, Command, Content, MapSpec, PlayerId, Resources, TilePos, UnitKind, World};
 
 /// The shipped file with exactly one piece of text swapped.
 fn default_with(from: &str, to: &str) -> String {
@@ -34,29 +34,30 @@ fn the_shipped_file_holds_the_default_content() {
 
 #[test]
 fn changing_a_number_in_the_file_changes_the_game() {
-    let content = parse_content(&default_with("cost: 50", "cost: 30")).expect("should parse");
+    let content =
+        parse_content(&default_with("cost: (gold: 50)", "cost: (gold: 30)")).expect("should parse");
     let map = MapSpec::new(16, 16)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(2, 2))
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(2, 2))
         .with_building(
             BuildingKind::TownCenter,
-            PlayerId::Two,
+            PlayerId::TWO,
             TilePos::new(10, 10),
         );
     let mut world = World::with_content(1, map, content);
     let (town_center, _) = world
         .view()
         .buildings()
-        .find(|(_, b)| b.owner == PlayerId::One)
+        .find(|(_, b)| b.owner == PlayerId::ONE)
         .expect("a town centre");
 
     world.step(&[Command::Train {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         building: town_center,
         unit: UnitKind::Villager,
     }]);
 
-    assert_eq!(world.view().gold(PlayerId::One), 170);
+    assert_eq!(world.view().gold(PlayerId::ONE), 170);
 }
 
 #[test]
@@ -107,8 +108,8 @@ fn a_number_the_game_cannot_run_with_names_its_field() {
 #[test]
 fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n        cost: 50",
-        "radius: (1, 0),\n        cost: 50",
+        "radius: (1, 4),\n        cost: (gold: 50)",
+        "radius: (1, 0),\n        cost: (gold: 50)",
     ));
 
     assert_eq!(
@@ -123,8 +124,8 @@ fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
 #[test]
 fn a_fraction_too_large_for_fixed_point_is_an_error_rather_than_wrapping() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n        cost: 50",
-        "radius: (100000, 1),\n        cost: 50",
+        "radius: (1, 4),\n        cost: (gold: 50)",
+        "radius: (100000, 1),\n        cost: (gold: 50)",
     ));
 
     // Wrapped, this would come out negative and be reported as "must be
@@ -143,4 +144,27 @@ fn a_missing_file_is_an_io_error() {
     let result = load_content(&path);
 
     assert!(matches!(result, Err(ContentFileError::Io(_))), "{result:?}");
+}
+
+#[test]
+fn a_resource_left_out_of_a_cost_reads_as_zero() {
+    let content = parse_content(DEFAULT_CONTENT).expect("default.ron should parse");
+
+    assert_eq!(
+        content.villager.cost,
+        Resources {
+            gold: 50,
+            ..Resources::default()
+        }
+    );
+}
+
+#[test]
+fn a_misspelled_resource_in_a_cost_is_an_error() {
+    let result = parse_content(&default_with("cost: (gold: 50)", "cost: (gld: 50)"));
+
+    assert!(
+        matches!(result, Err(ContentFileError::Malformed(_))),
+        "{result:?}"
+    );
 }

@@ -17,7 +17,7 @@ fn draw(renderer: &mut RecordingRenderer, camera: &Camera, world: &World) {
 
 fn plain_hud() -> Hud<'static> {
     Hud {
-        active_player: PlayerId::One,
+        active_player: PlayerId::ONE,
         selection: &[],
         drag_box: None,
         replaying: false,

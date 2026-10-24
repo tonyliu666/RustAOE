@@ -5,17 +5,30 @@
 
 use crate::pick::to_screen_space;
 use render::{Camera, Color, Renderer, Vec2};
-use sim::{FxVec2, PlayerId, TilePos, UnitId, UnitKind, WorldView};
+use sim::{FxVec2, Outcome, PlayerId, Resource, Resources, TilePos, UnitId, UnitKind, WorldView};
 use std::collections::HashMap;
 
 /// A passable tile.
 pub const TILE_OPEN: Color = Color::rgb(0.20, 0.36, 0.22);
 /// A tile a unit cannot walk on.
 pub const TILE_BLOCKED: Color = Color::rgb(0.32, 0.29, 0.26);
-/// Player one's units and buildings.
-pub const PLAYER_ONE: Color = Color::rgb(0.30, 0.55, 0.95);
-/// Player two's units and buildings.
-pub const PLAYER_TWO: Color = Color::rgb(0.90, 0.35, 0.30);
+/// Each player's units and buildings, players 1 to 8 in order.
+pub const PLAYER_COLORS: [Color; 8] = [
+    Color::rgb(0.30, 0.55, 0.95), // blue
+    Color::rgb(0.90, 0.35, 0.30), // red
+    Color::rgb(0.35, 0.80, 0.35), // green
+    Color::rgb(0.95, 0.85, 0.25), // yellow
+    Color::rgb(0.25, 0.80, 0.80), // cyan
+    Color::rgb(0.70, 0.40, 0.85), // purple
+    Color::rgb(0.75, 0.75, 0.75), // light grey
+    Color::rgb(0.95, 0.55, 0.15), // orange
+];
+/// Player one's colour.
+pub const PLAYER_ONE: Color = PLAYER_COLORS[0];
+/// Player two's colour.
+pub const PLAYER_TWO: Color = PLAYER_COLORS[1];
+/// Gaia's units and buildings: the map's neutral objects.
+pub const GAIA: Color = Color::rgb(0.45, 0.40, 0.35);
 /// A gold mine.
 pub const MINE: Color = Color::rgb(0.85, 0.72, 0.20);
 /// The outline around a selected unit and the drag rectangle.
@@ -73,10 +86,19 @@ pub fn draw_world<R: Renderer>(
 }
 
 fn player_color(player: PlayerId) -> Color {
-    match player {
-        PlayerId::One => PLAYER_ONE,
-        PlayerId::Two => PLAYER_TWO,
+    match player.number() {
+        0 => GAIA,
+        n => PLAYER_COLORS[usize::from(n - 1) % PLAYER_COLORS.len()],
     }
+}
+
+/// `food 0  wood 0  gold 200  stone 0`, in the fixed resource order.
+fn resource_line(stock: Resources) -> String {
+    Resource::ALL
+        .into_iter()
+        .map(|r| format!("{} {}", r.name(), stock.get(r)))
+        .collect::<Vec<_>>()
+        .join("  ")
 }
 
 /// Draws the debug readout.
@@ -97,24 +119,17 @@ fn draw_overlay<R: Renderer>(
             if hud.replaying { "replay" } else { "live" }
         ),
         format!(
-            "player {}  gold {}  selected {}",
-            match hud.active_player {
-                PlayerId::One => 1,
-                PlayerId::Two => 2,
-            },
-            view.gold(hud.active_player),
+            "player {}  {}  selected {}",
+            hud.active_player.number(),
+            resource_line(view.resources(hud.active_player)),
             hud.selection.len()
         ),
         "tab switch  1 villager  2 soldier  right-click order".to_string(),
     ];
-    if let Some(winner) = view.outcome() {
-        lines.push(format!(
-            "player {} wins",
-            match winner {
-                PlayerId::One => 1,
-                PlayerId::Two => 2,
-            }
-        ));
+    match view.outcome() {
+        Some(Outcome::Won(winner)) => lines.push(format!("player {} wins", winner.number())),
+        Some(Outcome::Draw) => lines.push("draw".to_string()),
+        None => {}
     }
 
     for (row, line) in lines.iter().enumerate() {

@@ -21,7 +21,7 @@ fn camera() -> Camera {
 }
 
 fn session() -> Session {
-    Session::new(camera(), 16, 16)
+    Session::new(camera(), 16, 16, 2)
 }
 
 /// A map with two villagers for player one and one for player two, plus a
@@ -29,14 +29,14 @@ fn session() -> Session {
 fn map() -> MapSpec {
     MapSpec::new(16, 16)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(0, 0))
-        .with_building(BuildingKind::Barracks, PlayerId::One, TilePos::new(0, 12))
-        .with_building(BuildingKind::TownCenter, PlayerId::Two, TilePos::new(12, 0))
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(0, 0))
+        .with_building(BuildingKind::Barracks, PlayerId::ONE, TilePos::new(0, 12))
+        .with_building(BuildingKind::TownCenter, PlayerId::TWO, TilePos::new(12, 0))
         .with_mine(TilePos::new(6, 12), 5000)
-        .with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(5, 5))
-        .with_unit(UnitKind::Soldier, PlayerId::One, TilePos::new(6, 5))
-        .with_unit(UnitKind::Villager, PlayerId::Two, TilePos::new(9, 9))
-        .with_unit(UnitKind::Soldier, PlayerId::Two, TilePos::new(5, 7))
+        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(5, 5))
+        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(6, 5))
+        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(9, 9))
+        .with_unit(UnitKind::Soldier, PlayerId::TWO, TilePos::new(5, 7))
 }
 
 fn world() -> World {
@@ -99,7 +99,7 @@ fn select_all(session: &mut Session, world: &World) {
 fn clicking_a_unit_selects_it() {
     let world = world();
     let mut session = session();
-    let expected = units_of(&world, PlayerId::One)[0];
+    let expected = units_of(&world, PlayerId::ONE)[0];
 
     click(
         &mut session,
@@ -135,7 +135,7 @@ fn a_box_selects_only_the_active_players_units() {
 
     select_all(&mut session, &world);
 
-    let mine = units_of(&world, PlayerId::One);
+    let mine = units_of(&world, PlayerId::ONE);
     let mut selected = session.selection().to_vec();
     selected.sort();
     let mut expected = mine;
@@ -166,17 +166,17 @@ fn a_dead_unit_falls_out_of_the_selection() {
     let villager = world
         .view()
         .units()
-        .find(|(_, u)| u.owner == PlayerId::One && u.kind == UnitKind::Villager)
+        .find(|(_, u)| u.owner == PlayerId::ONE && u.kind == UnitKind::Villager)
         .map(|(id, _)| id)
         .expect("player one has a villager");
     let enemy = world
         .view()
         .units()
-        .find(|(_, u)| u.owner == PlayerId::Two && u.kind == UnitKind::Soldier)
+        .find(|(_, u)| u.owner == PlayerId::TWO && u.kind == UnitKind::Soldier)
         .map(|(id, _)| id)
         .expect("player two has a soldier");
     world.step(&[Command::Attack {
-        player: PlayerId::Two,
+        player: PlayerId::TWO,
         units: [enemy].into_iter().collect(),
         target: EntityId::Unit(villager),
     }]);
@@ -212,7 +212,7 @@ fn right_clicking_open_ground_orders_a_move_there() {
 
     match commands.as_slice() {
         [Command::Move { player, target, .. }] => {
-            assert_eq!(*player, PlayerId::One);
+            assert_eq!(*player, PlayerId::ONE);
             assert_eq!(*target, TilePos::new(10, 13));
         }
         other => panic!("expected one move order, got {other:?}"),
@@ -234,7 +234,7 @@ fn right_clicking_a_mine_orders_the_villagers_to_gather() {
 
     match commands.as_slice() {
         [Command::Gather { player, units, .. }] => {
-            assert_eq!(*player, PlayerId::One);
+            assert_eq!(*player, PlayerId::ONE);
             // The soldier in the selection is not a gatherer and is dropped.
             assert_eq!(units.len(), 1);
         }
@@ -374,7 +374,7 @@ fn the_first_hotkey_trains_a_villager_at_the_town_centre() {
             unit,
             building,
         }] => {
-            assert_eq!(*player, PlayerId::One);
+            assert_eq!(*player, PlayerId::ONE);
             assert_eq!(*unit, UnitKind::Villager);
             assert_eq!(
                 world.view().building(*building).map(|b| b.kind),
@@ -425,16 +425,45 @@ fn a_hotkey_with_no_building_that_can_train_it_does_nothing() {
 // --- hotseat --------------------------------------------------------------
 
 #[test]
+fn tab_cycles_through_every_player_and_back_to_the_first() {
+    let map = map().with_players(3).with_building(
+        BuildingKind::TownCenter,
+        PlayerId::new(3),
+        TilePos::new(12, 12),
+    );
+    let world = World::new(3, map);
+    let mut session = Session::new(camera(), 16, 16, 3);
+    let mut tab = InputState::default();
+    tab.press_key(Key::Tab);
+
+    let mut seen = vec![session.active_player()];
+    for _ in 0..3 {
+        session.update(&tab, 0.0, world.view());
+        seen.push(session.active_player());
+    }
+
+    assert_eq!(
+        seen,
+        [
+            PlayerId::ONE,
+            PlayerId::TWO,
+            PlayerId::new(3),
+            PlayerId::ONE
+        ]
+    );
+}
+
+#[test]
 fn tab_hands_the_keyboard_to_the_other_player() {
     let world = world();
     let mut session = session();
-    assert_eq!(session.active_player(), PlayerId::One);
+    assert_eq!(session.active_player(), PlayerId::ONE);
 
     let mut input = InputState::default();
     input.press_key(Key::Tab);
     session.update(&input, 0.0, world.view());
 
-    assert_eq!(session.active_player(), PlayerId::Two);
+    assert_eq!(session.active_player(), PlayerId::TWO);
 }
 
 #[test]
@@ -503,7 +532,7 @@ fn orders_are_stamped_with_whoever_holds_the_keyboard() {
     );
 
     match commands.as_slice() {
-        [Command::Move { player, .. }] => assert_eq!(*player, PlayerId::Two),
+        [Command::Move { player, .. }] => assert_eq!(*player, PlayerId::TWO),
         other => panic!("expected a move order for player two, got {other:?}"),
     }
 }

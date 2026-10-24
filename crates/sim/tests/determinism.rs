@@ -44,20 +44,31 @@ fn action() -> impl Strategy<Value = Action> {
     ]
 }
 
-/// A script of `(ticks to wait, action)` pairs.
-fn script() -> impl Strategy<Value = Vec<(u8, Action)>> {
-    prop::collection::vec((0u8..12, action()), 0..24)
+/// One scripted step: ticks to wait, which player acts (taken modulo the
+/// player count), and what they do.
+type Step = (u8, u8, Action);
+
+fn script() -> impl Strategy<Value = Vec<Step>> {
+    prop::collection::vec((0u8..12, any::<u8>(), action()), 0..24)
 }
 
-/// A two-player map small enough to simulate a few hundred ticks quickly.
-fn map() -> MapSpec {
+/// How many players a scripted map has.
+fn players() -> impl Strategy<Value = u8> {
+    2u8..=3
+}
+
+/// A map small enough to simulate a few hundred ticks quickly, for two or
+/// three players. The third player, when present, has a town centre and
+/// villagers of its own.
+fn map(players: u8) -> MapSpec {
     let mut map = MapSpec::new(MAP_SIZE, MAP_SIZE)
+        .with_players(players)
         .with_starting_gold(300)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(2, 2))
-        .with_building(BuildingKind::Barracks, PlayerId::One, TilePos::new(8, 2))
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(2, 2))
+        .with_building(BuildingKind::Barracks, PlayerId::ONE, TilePos::new(8, 2))
         .with_building(
             BuildingKind::TownCenter,
-            PlayerId::Two,
+            PlayerId::TWO,
             TilePos::new(26, 26),
         )
         .with_mine(TilePos::new(14, 14), 200)
@@ -70,11 +81,30 @@ fn map() -> MapSpec {
         ]);
     for i in 0..3 {
         map = map
-            .with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(2 + i, 8))
-            .with_unit(UnitKind::Soldier, PlayerId::One, TilePos::new(5 + i, 8))
-            .with_unit(UnitKind::Villager, PlayerId::Two, TilePos::new(24 + i, 20));
+            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(2 + i, 8))
+            .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(5 + i, 8))
+            .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(24 + i, 20));
+    }
+    if players >= 3 {
+        map = map.with_building(
+            BuildingKind::TownCenter,
+            PlayerId::new(3),
+            TilePos::new(2, 26),
+        );
+        for i in 0..2 {
+            map = map.with_unit(
+                UnitKind::Villager,
+                PlayerId::new(3),
+                TilePos::new(8 + i, 24),
+            );
+        }
     }
     map
+}
+
+/// The player a scripted step acts as.
+fn issuer(players: u8, slot: u8) -> PlayerId {
+    PlayerId::new(1 + slot % players)
 }
 
 fn player_units(world: &World, owner: PlayerId) -> Vec<UnitId> {
@@ -91,8 +121,7 @@ fn player_units(world: &World, owner: PlayerId) -> Vec<UnitId> {
 /// Returns nothing when the action does not apply — no units left to move, no
 /// mine to gather from. Those are dropped rather than substituted, so that the
 /// same script means the same thing on every run.
-fn to_command(world: &World, action: Action) -> Option<Command> {
-    let player = PlayerId::One;
+fn to_command(world: &World, player: PlayerId, action: Action) -> Option<Command> {
     let mine = player_units(world, player);
     let all: SmallVec<[UnitId; 32]> = mine.iter().copied().collect();
     match action {
@@ -138,7 +167,7 @@ fn to_command(world: &World, action: Action) -> Option<Command> {
             let (target, _) = world
                 .view()
                 .units()
-                .find(|(_, u)| u.owner == player.other())?;
+                .find(|(_, u)| u.owner != player && u.owner != PlayerId::GAIA)?;
             Some(Command::Attack {
                 player,
                 units: all,
@@ -152,9 +181,9 @@ fn to_command(world: &World, action: Action) -> Option<Command> {
 
 /// Runs a script and records it, returning the recording and a checksum per
 /// tick.
-fn play(seed: u64, script: &[(u8, Action)]) -> (Replay, Vec<u64>) {
-    let mut world = World::new(seed, map());
-    let mut replay = Replay::new(seed, map());
+fn play(seed: u64, players: u8, script: &[Step]) -> (Replay, Vec<u64>) {
+    let mut world = World::new(seed, map(players));
+    let mut replay = Replay::new(seed, map(players));
     let mut checksums = Vec::new();
 
     let mut remaining = script.iter().copied().peekable();
@@ -164,11 +193,11 @@ fn play(seed: u64, script: &[(u8, Action)]) -> (Replay, Vec<u64>) {
     for tick in 0..600u64 {
         let mut commands = Vec::new();
         while wait == 0 {
-            let Some((gap, action)) = remaining.next() else {
+            let Some((gap, slot, action)) = remaining.next() else {
                 wait = u32::MAX;
                 break;
             };
-            commands.extend(to_command(&world, action));
+            commands.extend(to_command(&world, issuer(players, slot), action));
             wait = u32::from(gap);
         }
         wait = wait.saturating_sub(1);
@@ -185,9 +214,9 @@ proptest! {
     /// The test that protects the architecture: the same seed and the same
     /// commands must produce the same state, tick for tick.
     #[test]
-    fn the_same_script_run_twice_agrees_at_every_tick(seed in any::<u64>(), script in script()) {
-        let (_, first) = play(seed, &script);
-        let (_, second) = play(seed, &script);
+    fn the_same_script_run_twice_agrees_at_every_tick(seed in any::<u64>(), players in players(), script in script()) {
+        let (_, first) = play(seed, players, &script);
+        let (_, second) = play(seed, players, &script);
 
         prop_assert_eq!(first, second);
     }
@@ -195,27 +224,27 @@ proptest! {
     /// A recording replayed from scratch must reproduce the checksums it was
     /// recorded with. This is what makes a replay a usable bug report.
     #[test]
-    fn a_recording_plays_back_to_the_checksums_it_recorded(seed in any::<u64>(), script in script()) {
-        let (replay, _) = play(seed, &script);
+    fn a_recording_plays_back_to_the_checksums_it_recorded(seed in any::<u64>(), players in players(), script in script()) {
+        let (replay, _) = play(seed, players, &script);
 
         prop_assert!(verify(&replay).is_ok(), "{:?}", verify(&replay));
     }
 
     /// No unit ever ends a tick inside terrain it cannot walk on.
     #[test]
-    fn no_unit_ever_stands_in_a_blocked_tile(seed in any::<u64>(), script in script()) {
-        let mut world = World::new(seed, map());
+    fn no_unit_ever_stands_in_a_blocked_tile(seed in any::<u64>(), players in players(), script in script()) {
+        let mut world = World::new(seed, map(players));
         let mut remaining = script.iter().copied().peekable();
         let mut wait = 0u32;
 
         for _ in 0..600u64 {
             let mut commands = Vec::new();
             while wait == 0 {
-                let Some((gap, action)) = remaining.next() else {
+                let Some((gap, slot, action)) = remaining.next() else {
                     wait = u32::MAX;
                     break;
                 };
-                commands.extend(to_command(&world, action));
+                commands.extend(to_command(&world, issuer(players, slot), action));
                 wait = u32::from(gap);
             }
             wait = wait.saturating_sub(1);
@@ -236,8 +265,8 @@ proptest! {
     /// started in the ground and the treasury. Catches duplication bugs, which
     /// are otherwise invisible until an economy runs away.
     #[test]
-    fn gold_is_never_created_or_destroyed(seed in any::<u64>(), script in script()) {
-        let mut world = World::new(seed, map());
+    fn gold_is_never_created_or_destroyed(seed in any::<u64>(), players in players(), script in script()) {
+        let mut world = World::new(seed, map(players));
         let expected = world.view().total_gold();
         let mut spent = 0i64;
         let mut remaining = script.iter().copied().peekable();
@@ -246,11 +275,11 @@ proptest! {
         for _ in 0..600u64 {
             let mut commands = Vec::new();
             while wait == 0 {
-                let Some((gap, action)) = remaining.next() else {
+                let Some((gap, slot, action)) = remaining.next() else {
                     wait = u32::MAX;
                     break;
                 };
-                commands.extend(to_command(&world, action));
+                commands.extend(to_command(&world, issuer(players, slot), action));
                 wait = u32::from(gap);
             }
             wait = wait.saturating_sub(1);
@@ -275,11 +304,11 @@ proptest! {
 #[test]
 fn two_different_seeds_produce_different_games() {
     let script = [
-        (0u8, Action::MoveGroup { x: 20, y: 20 }),
-        (5, Action::Gather { unit: 0 }),
+        (0u8, 0u8, Action::MoveGroup { x: 20, y: 20 }),
+        (5, 0, Action::Gather { unit: 0 }),
     ];
-    let (_, first) = play(1, &script);
-    let (_, second) = play(2, &script);
+    let (_, first) = play(1, 2, &script);
+    let (_, second) = play(2, 2, &script);
 
     // The seed only shows up through the generator today, which is in the
     // checksum, so the two sessions must not be bit-identical.

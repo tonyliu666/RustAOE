@@ -4,7 +4,7 @@
 //! filesystem: a simulation that can fail on I/O is a simulation whose step
 //! function can fail, and that is the door determinism bugs walk through.
 
-use sim::{ContentError, Replay};
+use sim::{ContentError, MapError, Replay};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -18,6 +18,13 @@ pub enum ReplayError {
     /// A well-formed replay whose content holds a number the game cannot run
     /// with.
     Invalid(ContentError),
+    /// Written in a replay format this build does not play.
+    Version {
+        found: u32,
+        expected: u32,
+    },
+    /// A well-formed replay whose map cannot be played.
+    InvalidMap(MapError),
 }
 
 impl fmt::Display for ReplayError {
@@ -26,6 +33,11 @@ impl fmt::Display for ReplayError {
             ReplayError::Io(error) => write!(f, "replay file: {error}"),
             ReplayError::Malformed(detail) => write!(f, "replay is not readable: {detail}"),
             ReplayError::Invalid(error) => write!(f, "replay content is invalid: {error}"),
+            ReplayError::InvalidMap(error) => write!(f, "replay {error}"),
+            ReplayError::Version { found, expected } => write!(
+                f,
+                "replay is format version {found}; this build plays version {expected}"
+            ),
         }
     }
 }
@@ -56,8 +68,38 @@ pub fn save(path: &Path, replay: &Replay) -> Result<(), ReplayError> {
 /// could make playback misbehave instead of reporting an error.
 pub fn load(path: &Path) -> Result<Replay, ReplayError> {
     let text = fs::read_to_string(path)?;
+    let found = format_version(&text)?;
+    if found != Replay::FORMAT_VERSION {
+        return Err(ReplayError::Version {
+            found,
+            expected: Replay::FORMAT_VERSION,
+        });
+    }
     let replay: Replay =
         ron::from_str(&text).map_err(|error| ReplayError::Malformed(error.to_string()))?;
     replay.content.validate().map_err(ReplayError::Invalid)?;
+    replay.map.validate().map_err(ReplayError::InvalidMap)?;
     Ok(replay)
+}
+
+/// Only the version field of a replay file.
+///
+/// Read before the rest, so that a file from another build is refused by
+/// version even when the rest of it is in a shape this build cannot parse.
+/// Unknown fields are skipped, which is serde's default.
+#[derive(serde::Deserialize)]
+struct VersionProbe {
+    /// Files written before versions existed have no field: version 1.
+    #[serde(default = "version_one")]
+    version: u32,
+}
+
+const fn version_one() -> u32 {
+    1
+}
+
+fn format_version(text: &str) -> Result<u32, ReplayError> {
+    let probe: VersionProbe =
+        ron::from_str(text).map_err(|error| ReplayError::Malformed(error.to_string()))?;
+    Ok(probe.version)
 }

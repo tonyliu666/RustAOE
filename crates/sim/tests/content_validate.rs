@@ -102,7 +102,25 @@ fn range_cannot_be_negative() {
 #[test]
 fn cost_cannot_be_negative() {
     // A negative cost would hand the player gold for queueing a unit.
-    assert_rejects(|c| c.villager.cost = -50, "villager.cost", NOT_NEGATIVE);
+    assert_rejects(
+        |c| c.villager.cost.gold = -50,
+        "villager.cost.gold",
+        NOT_NEGATIVE,
+    );
+}
+
+#[test]
+fn no_part_of_a_cost_can_be_negative() {
+    assert_rejects(
+        |c| c.villager.cost.food = -1,
+        "villager.cost.food",
+        NOT_NEGATIVE,
+    );
+    assert_rejects(
+        |c| c.soldier.cost.stone = -1,
+        "soldier.cost.stone",
+        NOT_NEGATIVE,
+    );
 }
 
 #[test]

@@ -11,14 +11,12 @@ use serde::{Deserialize, Serialize};
 /// Everything needed to reproduce a session exactly.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct Replay {
+    /// The file format this replay was written in. See
+    /// [`Replay::FORMAT_VERSION`].
+    pub version: u32,
     pub seed: u64,
     pub map: MapSpec,
     /// The numbers the game was played by.
-    ///
-    /// Defaulted when absent: replays written before content became data
-    /// have no such field, and every one of them was played with the
-    /// default numbers.
-    #[serde(default)]
     pub content: Content,
     /// Tick to the commands issued on it, sparse and in ascending tick order.
     pub commands: Vec<(u64, Vec<Command>)>,
@@ -27,6 +25,13 @@ pub struct Replay {
 }
 
 impl Replay {
+    /// The replay format this build writes and plays.
+    ///
+    /// Bumped whenever a change alters how a recorded game plays back or how
+    /// the file is laid out. Version 1 is every file written before versions
+    /// existed, which have no `version` field. Version 2 adds the field.
+    pub const FORMAT_VERSION: u32 = 2;
+
     /// How often the checksum is sampled during recording.
     ///
     /// Every tick would make the file larger than the commands it exists to
@@ -42,6 +47,7 @@ impl Replay {
     /// A recording of a game played with `content`.
     pub fn with_content(seed: u64, map: MapSpec, content: Content) -> Replay {
         Replay {
+            version: Replay::FORMAT_VERSION,
             seed,
             map,
             content,

@@ -18,14 +18,14 @@ fn scratch(name: &str) -> PathBuf {
 fn map() -> MapSpec {
     MapSpec::new(24, 24)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(2, 2))
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(2, 2))
         .with_building(
             BuildingKind::TownCenter,
-            PlayerId::Two,
+            PlayerId::TWO,
             TilePos::new(18, 18),
         )
         .with_mine(TilePos::new(10, 10), 500)
-        .with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(6, 6))
+        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
 }
 
 /// Records a short session of a villager being sent to a mine.
@@ -38,7 +38,7 @@ fn recorded() -> Replay {
     for tick in 0..250u64 {
         let commands: Vec<Command> = if tick == 3 {
             vec![Command::Gather {
-                player: PlayerId::One,
+                player: PlayerId::ONE,
                 units: [villager]
                     .into_iter()
                     .collect::<smallvec::SmallVec<[UnitId; 32]>>(),
@@ -112,32 +112,81 @@ fn a_replay_keeps_the_content_it_was_recorded_with() {
     let _ = std::fs::remove_file(&path);
 }
 
-#[test]
-fn a_replay_from_before_content_was_recorded_loads_with_the_default_content() {
-    // The file format before Phase 1: no `content` field. Those games were
-    // all played with the default numbers.
-    let path = scratch("old-format");
-    let old = "(
-        seed: 7,
-        map: (
-            width: 8,
-            height: 8,
-            blocked: [],
-            buildings: [],
-            mines: [],
-            units: [],
-            starting_gold: 0,
-        ),
-        commands: [],
-        checksums: [],
-    )";
-    std::fs::write(&path, old).expect("the scratch file should write");
-
-    let loaded = app::load(&path).expect("an old replay should still read");
-
-    assert_eq!(loaded.seed, 7);
-    assert_eq!(loaded.content, Content::default());
+/// Writes `text` to a scratch file and loads it as a replay.
+fn load_text(name: &str, text: &str) -> Result<Replay, app::ReplayError> {
+    let path = scratch(name);
+    std::fs::write(&path, text).expect("the scratch file should write");
+    let result = app::load(&path);
     let _ = std::fs::remove_file(&path);
+    result
+}
+
+/// A replay file as written before format versions existed: no `version`
+/// field, and no `content` either. Version 1 by definition.
+const VERSION_ONE: &str = "(
+    seed: 7,
+    map: (
+        width: 8,
+        height: 8,
+        blocked: [],
+        buildings: [],
+        mines: [],
+        units: [],
+        starting_gold: 0,
+    ),
+    commands: [],
+    checksums: [],
+)";
+
+#[test]
+fn a_replay_is_written_with_the_current_format_version() {
+    let path = scratch("version");
+    app::save(&path, &recorded()).expect("the replay should write");
+
+    let loaded = app::load(&path).expect("the replay should read back");
+
+    assert_eq!(loaded.version, Replay::FORMAT_VERSION);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_replay_from_before_format_versions_is_refused_by_version() {
+    let error = load_text("version-one", VERSION_ONE);
+
+    match error {
+        Err(app::ReplayError::Version { found, expected }) => {
+            assert_eq!((found, expected), (1, Replay::FORMAT_VERSION));
+        }
+        other => panic!("expected a version error, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_version_error_names_both_versions() {
+    let error = load_text("version-message", VERSION_ONE).expect_err("refused");
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "replay is format version 1; this build plays version {}",
+            Replay::FORMAT_VERSION
+        )
+    );
+}
+
+#[test]
+fn a_replay_from_a_newer_build_is_refused_by_version() {
+    // Only the version is read before refusing, so the rest of the file may
+    // be in a shape this build does not know at all.
+    let error = load_text(
+        "version-future",
+        "(version: 99, something_new: (a: 1), seed: 1)",
+    );
+
+    assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 99, .. })),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -155,5 +204,20 @@ fn a_replay_carrying_content_the_game_cannot_run_with_is_refused() {
         Err(app::ReplayError::Invalid(error)) => assert_eq!(error.field, "villager.max_hp"),
         other => panic!("expected an invalid-content error, got {other:?}"),
     }
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_replay_whose_map_gives_an_entity_to_a_missing_player_is_refused() {
+    let path = scratch("invalid-map");
+    let map = map().with_unit(UnitKind::Villager, PlayerId::new(3), TilePos::new(4, 4));
+    app::save(&path, &Replay::new(5, map)).expect("the replay should write");
+
+    let error = app::load(&path);
+
+    assert!(
+        matches!(error, Err(app::ReplayError::InvalidMap(_))),
+        "{error:?}"
+    );
     let _ = std::fs::remove_file(&path);
 }

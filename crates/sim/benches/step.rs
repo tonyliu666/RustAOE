@@ -22,10 +22,10 @@ const UNITS_PER_SIDE: i32 = 100;
 fn crowded_map() -> MapSpec {
     let mut map = MapSpec::new(MAP_SIZE, MAP_SIZE)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(4, 4))
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(4, 4))
         .with_building(
             BuildingKind::TownCenter,
-            PlayerId::Two,
+            PlayerId::TWO,
             TilePos::new(MAP_SIZE - 8, MAP_SIZE - 8),
         );
 
@@ -34,12 +34,12 @@ fn crowded_map() -> MapSpec {
         map = map
             .with_unit(
                 UnitKind::Soldier,
-                PlayerId::One,
+                PlayerId::ONE,
                 TilePos::new(20 + x, 20 + y),
             )
             .with_unit(
                 UnitKind::Soldier,
-                PlayerId::Two,
+                PlayerId::TWO,
                 TilePos::new(20 + x, 100 + y),
             );
     }
@@ -53,16 +53,18 @@ fn crowded_map() -> MapSpec {
 /// A world with every unit walking towards the far corner.
 fn marching_world() -> World {
     let mut world = World::new(0xB0A7, crowded_map());
-    for player in [PlayerId::One, PlayerId::Two] {
+    for player in [PlayerId::ONE, PlayerId::TWO] {
         let units: SmallVec<[UnitId; 32]> = world
             .view()
             .units()
             .filter(|(_, u)| u.owner == player)
             .map(|(id, _)| id)
             .collect();
-        let target = match player {
-            PlayerId::One => TilePos::new(100, 110),
-            PlayerId::Two => TilePos::new(10, 10),
+        // Player one marches to the far corner, player two to the near one.
+        let target = if player == PlayerId::ONE {
+            TilePos::new(100, 110)
+        } else {
+            TilePos::new(10, 10)
         };
         world.step(&[Command::Move {
             player,
@@ -80,16 +82,18 @@ fn marching_world() -> World {
 
 /// Sends every unit of both sides to a fresh corner.
 fn march(world: &mut World, flip: bool) {
-    for player in [PlayerId::One, PlayerId::Two] {
+    for player in [PlayerId::ONE, PlayerId::TWO] {
         let units: SmallVec<[UnitId; 32]> = world
             .view()
             .units()
             .filter(|(_, u)| u.owner == player)
             .map(|(id, _)| id)
             .collect();
-        let target = match (player, flip) {
-            (PlayerId::One, false) | (PlayerId::Two, true) => TilePos::new(100, 110),
-            (PlayerId::One, true) | (PlayerId::Two, false) => TilePos::new(10, 10),
+        // Flipping swaps which corner each side heads for.
+        let target = if (player == PlayerId::ONE) != flip {
+            TilePos::new(100, 110)
+        } else {
+            TilePos::new(10, 10)
         };
         world.step(&[Command::Move {
             player,

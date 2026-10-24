@@ -6,7 +6,7 @@
 //! startup; the simulation only ever sees a checked `Content`.
 
 use serde::Deserialize;
-use sim::{BuildingStats, Content, ContentError, Fx, GatherStats, UnitKind, UnitStats};
+use sim::{BuildingStats, Content, ContentError, Fx, GatherStats, Resources, UnitKind, UnitStats};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -64,6 +64,23 @@ pub fn load_content(path: &Path) -> Result<Content, ContentFileError> {
     parse_content(&fs::read_to_string(path)?)
 }
 
+/// The content a new game starts with: `path` if given, otherwise the
+/// built-in file. `None` during playback, which uses the content the replay
+/// was recorded with.
+pub fn new_game_content(
+    playing: bool,
+    path: Option<&Path>,
+) -> Result<Option<Content>, ContentFileError> {
+    if playing {
+        return Ok(None);
+    }
+    let content = match path {
+        Some(path) => load_content(path)?,
+        None => parse_content(DEFAULT_CONTENT)?,
+    };
+    Ok(Some(content))
+}
+
 /// `(numerator, denominator)`.
 type Fraction = (i32, i32);
 
@@ -86,8 +103,18 @@ struct UnitFile {
     range: Fraction,
     attack_cooldown: u32,
     radius: Fraction,
-    cost: i32,
+    cost: ResourcesFile,
     train_ticks: u32,
+}
+
+/// `(food: 50)`: a resource left out is zero.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+struct ResourcesFile {
+    food: i32,
+    wood: i32,
+    gold: i32,
+    stone: i32,
 }
 
 #[derive(Deserialize)]
@@ -129,7 +156,12 @@ impl UnitFile {
             range: fraction(self.range, owner, "range")?,
             attack_cooldown: self.attack_cooldown,
             radius: fraction(self.radius, owner, "radius")?,
-            cost: self.cost,
+            cost: Resources {
+                food: self.cost.food,
+                wood: self.cost.wood,
+                gold: self.cost.gold,
+                stone: self.cost.stone,
+            },
             train_ticks: self.train_ticks,
         })
     }

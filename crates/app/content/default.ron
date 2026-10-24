@@ -7,8 +7,10 @@
 // Fractions are written `(numerator, denominator)`: `(1, 8)` is one eighth.
 // Distances are in tiles.
 //
-// Costs are in gold, the only resource so far. Phase 2 of the exe-parity plan
-// turns them into per-resource costs, with the villager costing food.
+// Costs list only the resources they use: `(food: 50, gold: 20)`; a resource
+// left out costs nothing. Only gold can be gathered so far, so every cost is
+// in gold until Phase 2 of the exe-parity plan, which makes the villager cost
+// food as it does in the original.
 (
     villager: (
         max_hp: 40,
@@ -17,7 +19,7 @@
         range: (0, 1),
         attack_cooldown: 0,
         radius: (1, 4),
-        cost: 50,
+        cost: (gold: 50),
         train_ticks: 100,       // 5 seconds
     ),
     soldier: (
@@ -27,7 +29,7 @@
         range: (3, 2),          // 1.5 tiles, centre to centre
         attack_cooldown: 20,    // one hit per second
         radius: (1, 4),
-        cost: 60,
+        cost: (gold: 60),
         train_ticks: 120,       // 6 seconds
     ),
     town_center: (

@@ -3,9 +3,11 @@
 //! Asserted against `RecordingRenderer` rather than by eye: this is the payoff
 //! of `render` not knowing what a unit is.
 
-use app::{draw_world, Hud, MINE, PLAYER_ONE, PLAYER_TWO, SELECTION};
+use app::{draw_world, Hud, GAIA, MINE, PLAYER_COLORS, PLAYER_ONE, PLAYER_TWO, SELECTION};
 use render::{Camera, Color, DrawCall, RecordingRenderer, Vec2};
-use sim::{BuildingKind, Command, FxVec2, MapSpec, PlayerId, TilePos, UnitId, UnitKind, World};
+use sim::{
+    BuildingKind, Command, FxVec2, MapSpec, PlayerId, Resources, TilePos, UnitId, UnitKind, World,
+};
 use smallvec::smallvec;
 use std::collections::HashMap;
 
@@ -15,7 +17,7 @@ fn camera() -> Camera {
 
 fn hud<'a>(selection: &'a [UnitId], drag_box: Option<(Vec2, Vec2)>) -> Hud<'a> {
     Hud {
-        active_player: PlayerId::One,
+        active_player: PlayerId::ONE,
         selection,
         drag_box,
         replaying: false,
@@ -31,10 +33,10 @@ fn draw(renderer: &mut RecordingRenderer, world: &World, hud: &Hud<'_>) {
 fn populated() -> World {
     let map = MapSpec::new(16, 16)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(1, 1))
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
         .with_mine(TilePos::new(12, 12), 5000)
-        .with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(6, 6))
-        .with_unit(UnitKind::Soldier, PlayerId::Two, TilePos::new(9, 9));
+        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::Soldier, PlayerId::TWO, TilePos::new(9, 9));
     World::new(7, map)
 }
 
@@ -91,7 +93,7 @@ fn a_selected_unit_gets_an_outline_the_others_do_not() {
     let (villager, _) = world
         .view()
         .units()
-        .find(|(_, u)| u.owner == PlayerId::One)
+        .find(|(_, u)| u.owner == PlayerId::ONE)
         .expect("the villager is on the map");
 
     draw(&mut renderer, &world, &hud(&[], None));
@@ -131,26 +133,26 @@ fn a_unit_at_full_health_has_no_health_bar() {
 #[test]
 fn a_wounded_unit_gets_a_health_bar() {
     let map = MapSpec::new(16, 16)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(1, 1))
-        .with_building(BuildingKind::TownCenter, PlayerId::Two, TilePos::new(12, 1))
-        .with_unit(UnitKind::Soldier, PlayerId::One, TilePos::new(6, 6))
-        .with_unit(UnitKind::Villager, PlayerId::Two, TilePos::new(6, 7));
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(BuildingKind::TownCenter, PlayerId::TWO, TilePos::new(12, 1))
+        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(6, 7));
     let mut world = World::new(7, map);
     let attacker = world
         .view()
         .units()
-        .find(|(_, u)| u.owner == PlayerId::One)
+        .find(|(_, u)| u.owner == PlayerId::ONE)
         .map(|(id, _)| id)
         .expect("the soldier is on the map");
     let victim = world
         .view()
         .units()
-        .find(|(_, u)| u.owner == PlayerId::Two)
+        .find(|(_, u)| u.owner == PlayerId::TWO)
         .map(|(id, _)| id)
         .expect("the villager is on the map");
 
     world.step(&[Command::Attack {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         units: smallvec![attacker],
         target: sim::EntityId::Unit(victim),
     }]);
@@ -163,7 +165,7 @@ fn a_wounded_unit_gets_a_health_bar() {
 
 #[test]
 fn a_unit_is_drawn_between_its_last_two_positions() {
-    let map = MapSpec::new(16, 16).with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(4, 4));
+    let map = MapSpec::new(16, 16).with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(4, 4));
     let world = World::new(7, map);
     let (id, unit) = world.view().units().next().expect("the villager");
     let now = app::to_screen_space(unit.pos);
@@ -210,10 +212,86 @@ fn the_overlay_names_the_active_player_and_their_gold() {
 }
 
 #[test]
+fn the_overlay_shows_every_resource_of_the_active_player() {
+    let mut renderer = RecordingRenderer::new();
+    let map = MapSpec::new(16, 16)
+        .with_starting_resources(Resources {
+            food: 11,
+            wood: 22,
+            gold: 33,
+            stone: 44,
+        })
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1));
+    let world = World::new(7, map);
+
+    draw(&mut renderer, &world, &hud(&[], None));
+
+    let overlay: Vec<String> = renderer.texts().map(|(text, _)| text.to_string()).collect();
+    assert!(
+        overlay.iter().any(|line| line.contains("food 11")
+            && line.contains("wood 22")
+            && line.contains("gold 33")
+            && line.contains("stone 44")),
+        "overlay was {overlay:?}"
+    );
+}
+
+#[test]
+fn every_player_and_gaia_has_a_colour_of_its_own() {
+    let mut colours: Vec<Color> = PLAYER_COLORS.to_vec();
+    colours.push(GAIA);
+
+    for (i, a) in colours.iter().enumerate() {
+        for b in &colours[i + 1..] {
+            assert_ne!(a, b);
+        }
+    }
+    assert_eq!(PLAYER_COLORS[0], PLAYER_ONE);
+    assert_eq!(PLAYER_COLORS[1], PLAYER_TWO);
+}
+
+#[test]
+fn a_third_players_and_gaias_units_are_drawn_in_their_own_colours() {
+    let mut renderer = RecordingRenderer::new();
+    let map = MapSpec::new(16, 16)
+        .with_players(3)
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
+        .with_unit(UnitKind::Villager, PlayerId::new(3), TilePos::new(6, 6))
+        .with_unit(UnitKind::Villager, PlayerId::GAIA, TilePos::new(9, 9));
+    let world = World::new(7, map);
+
+    draw(&mut renderer, &world, &hud(&[], None));
+
+    assert_eq!(quads_of_color(&renderer, PLAYER_COLORS[2]).len(), 1);
+    assert_eq!(quads_of_color(&renderer, GAIA).len(), 1);
+}
+
+#[test]
+fn the_overlay_names_a_player_beyond_the_second() {
+    let mut renderer = RecordingRenderer::new();
+    let map = MapSpec::new(16, 16).with_players(3).with_building(
+        BuildingKind::TownCenter,
+        PlayerId::new(3),
+        TilePos::new(1, 1),
+    );
+    let world = World::new(7, map);
+    let mut hud = hud(&[], None);
+    hud.active_player = PlayerId::new(3);
+
+    draw(&mut renderer, &world, &hud);
+
+    let overlay: Vec<String> = renderer.texts().map(|(text, _)| text.to_string()).collect();
+    assert!(
+        overlay.iter().any(|line| line.starts_with("player 3 ")),
+        "overlay was {overlay:?}"
+    );
+}
+
+#[test]
 fn the_overlay_announces_the_winner_once_the_game_is_decided() {
     let map = MapSpec::new(16, 16).with_building(
         BuildingKind::TownCenter,
-        PlayerId::One,
+        PlayerId::ONE,
         TilePos::new(1, 1),
     );
     let mut world = World::new(7, map);

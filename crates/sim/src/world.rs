@@ -6,9 +6,9 @@ use crate::entity::{
 };
 use crate::path::{astar, Dir8, FlowFieldCache, PathRequest};
 use crate::spatial::SpatialHash;
-use crate::{Content, Fx, FxVec2, Grid, Rng, TilePos};
+use crate::{Content, Fx, FxVec2, Grid, Resource, Resources, Rng, TilePos};
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
+use slotmap::{Key, SlotMap};
 use smallvec::SmallVec;
 use std::collections::VecDeque;
 
@@ -39,7 +39,32 @@ pub struct MapSpec {
     buildings: Vec<(BuildingKind, PlayerId, TilePos)>,
     mines: Vec<(TilePos, i32)>,
     units: Vec<(UnitKind, PlayerId, TilePos)>,
-    starting_gold: i32,
+    starting_resources: Resources,
+    /// Players, not counting Gaia.
+    players: u8,
+}
+
+/// A map that cannot be played.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct MapError(pub String);
+
+impl std::fmt::Display for MapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid map: {}", self.0)
+    }
+}
+
+impl std::error::Error for MapError {}
+
+/// How a game ended.
+///
+/// Derived from the players' defeated flags, so that teams (plan Phase 10)
+/// change only the derivation.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Outcome {
+    Won(PlayerId),
+    /// The last players standing were all defeated on the same tick.
+    Draw,
 }
 
 impl MapSpec {
@@ -49,7 +74,7 @@ impl MapSpec {
         MapSpec {
             width,
             height,
-            starting_gold: 0,
+            players: 2,
             ..MapSpec::default()
         }
     }
@@ -75,8 +100,55 @@ impl MapSpec {
         self
     }
 
+    /// How many players the map is for, not counting Gaia. Two by default.
+    pub fn with_players(mut self, players: u8) -> MapSpec {
+        self.players = players;
+        self
+    }
+
+    pub const fn players(&self) -> u8 {
+        self.players
+    }
+
+    /// Checks the map can be played: two to eight players, and no entity
+    /// owned by a player the map does not have. Gaia may own entities.
+    ///
+    /// Called by whoever builds a map from outside input, such as a replay
+    /// file, before the world is built from it.
+    pub fn validate(&self) -> Result<(), MapError> {
+        if !(2..=PlayerId::MAX_PLAYERS).contains(&self.players) {
+            return Err(MapError(format!(
+                "{} players; a map has 2 to {}",
+                self.players,
+                PlayerId::MAX_PLAYERS
+            )));
+        }
+        let owners = self
+            .buildings
+            .iter()
+            .map(|(_, owner, _)| *owner)
+            .chain(self.units.iter().map(|(_, owner, _)| *owner));
+        for owner in owners {
+            if owner.number() > self.players {
+                return Err(MapError(format!(
+                    "an entity belongs to player {} on a {}-player map",
+                    owner.number(),
+                    self.players
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// What every player starts with.
+    pub fn with_starting_resources(mut self, resources: Resources) -> MapSpec {
+        self.starting_resources = resources;
+        self
+    }
+
+    /// Sets the starting gold, leaving the other resources as they are.
     pub fn with_starting_gold(mut self, gold: i32) -> MapSpec {
-        self.starting_gold = gold;
+        self.starting_resources.gold = gold;
         self
     }
 
@@ -112,8 +184,8 @@ impl MapSpec {
         let mut map = MapSpec::new(SIZE, SIZE).with_starting_gold(200);
 
         for (player, base) in [
-            (PlayerId::One, TilePos::new(16, 16)),
-            (PlayerId::Two, TilePos::new(SIZE - 24, SIZE - 24)),
+            (PlayerId::ONE, TilePos::new(16, 16)),
+            (PlayerId::TWO, TilePos::new(SIZE - 24, SIZE - 24)),
         ] {
             map = map
                 .with_building(BuildingKind::TownCenter, player, base)
@@ -173,6 +245,19 @@ pub enum Command {
     },
 }
 
+impl Command {
+    /// The player who issued the command.
+    pub const fn player(&self) -> PlayerId {
+        match self {
+            Command::Move { player, .. }
+            | Command::Attack { player, .. }
+            | Command::Gather { player, .. }
+            | Command::Train { player, .. }
+            | Command::Stop { player, .. } => *player,
+        }
+    }
+}
+
 /// The whole simulation state.
 pub struct World {
     tick: u64,
@@ -181,10 +266,11 @@ pub struct World {
     units: SlotMap<UnitId, Unit>,
     buildings: SlotMap<BuildingId, Building>,
     mines: SlotMap<MineId, Mine>,
-    players: [Player; 2],
+    /// Slot 0 is Gaia, then one per player.
+    players: Vec<Player>,
     /// The numbers every system plays by. Fixed for the life of the world.
     content: Content,
-    outcome: Option<PlayerId>,
+    outcome: Option<Outcome>,
     spatial: SpatialHash,
     flow_fields: FlowFieldCache,
     path_queue: VecDeque<PathRequest>,
@@ -214,6 +300,7 @@ impl World {
     /// at startup, so that a bad file is an error message and not a world
     /// that misbehaves.
     pub fn with_content(seed: u64, map: MapSpec, content: Content) -> World {
+        debug_assert_eq!(map.validate(), Ok(()), "build worlds from validated maps");
         let mut terrain = Grid::new(map.width, map.height, Tile::OPEN);
         for pos in &map.blocked {
             if terrain.in_bounds(*pos) {
@@ -228,14 +315,17 @@ impl World {
             units: SlotMap::with_key(),
             buildings: SlotMap::with_key(),
             mines: SlotMap::with_key(),
-            players: [
-                Player {
-                    gold: map.starting_gold,
-                },
-                Player {
-                    gold: map.starting_gold,
-                },
-            ],
+            // Gaia starts with nothing; every player with the map's stock.
+            players: (0..=map.players)
+                .map(|slot| Player {
+                    resources: if slot == 0 {
+                        Resources::default()
+                    } else {
+                        map.starting_resources
+                    },
+                    defeated: false,
+                })
+                .collect(),
             content,
             outcome: None,
             spatial: SpatialHash::new(map.width, map.height, SpatialHash::DEFAULT_CELL_SIZE),
@@ -291,7 +381,7 @@ impl World {
     }
 
     /// The winner, once one side has lost every building.
-    pub const fn outcome(&self) -> Option<PlayerId> {
+    pub const fn outcome(&self) -> Option<Outcome> {
         self.outcome
     }
 
@@ -323,22 +413,40 @@ impl World {
         for word in self.rng.state() {
             eat(word);
         }
+        // Routes, stuck counters, the flow field cache, and the path queue are
+        // left out: they are planning detail that follows from the order and
+        // the position, both of which are hashed.
         for (_, unit) in &self.units {
+            eat(unit_kind_code(unit.kind));
+            eat(unit.owner.index() as u64);
             eat(unit.pos.x.to_bits() as u32 as u64);
             eat(unit.pos.y.to_bits() as u32 as u64);
             eat(unit.hp as u32 as u64);
             eat(unit.carrying as u32 as u64);
-            eat(unit.owner.index() as u64);
+            eat(u64::from(unit.mine_ticks));
+            eat(u64::from(unit.attack_cooldown));
+            for word in order_words(&unit.order) {
+                eat(word);
+            }
         }
         for (_, building) in &self.buildings {
+            eat(building_kind_code(building.kind));
+            eat(building.owner.index() as u64);
             eat(building.hp as u32 as u64);
+            eat(u64::from(building.train_ticks));
             eat(building.queue.len() as u64);
+            for kind in &building.queue {
+                eat(unit_kind_code(*kind));
+            }
         }
         for (_, mine) in &self.mines {
             eat(mine.remaining as u32 as u64);
         }
         for player in &self.players {
-            eat(player.gold as u32 as u64);
+            eat(u64::from(player.defeated));
+            for resource in Resource::ALL {
+                eat(player.resources.get(resource) as u32 as u64);
+            }
         }
         hash
     }
@@ -361,6 +469,9 @@ impl World {
     /// check that will keep it safe once commands arrive from the network.
     fn apply_commands(&mut self, cmds: &[Command]) {
         for cmd in cmds {
+            if !self.may_command(cmd.player()) {
+                continue;
+            }
             match cmd {
                 Command::Move {
                     player,
@@ -393,6 +504,16 @@ impl World {
 
     /// Filters an addressed unit list down to the ones that exist and belong
     /// to the issuing player.
+    /// Gaia, a player the map does not have, and a defeated player cannot
+    /// give orders. Dropped like any other invalid command.
+    fn may_command(&self, player: PlayerId) -> bool {
+        !player.is_gaia()
+            && self
+                .players
+                .get(player.index())
+                .is_some_and(|p| !p.defeated)
+    }
+
     fn owned(&self, player: PlayerId, units: &[UnitId]) -> Vec<UnitId> {
         units
             .iter()
@@ -473,12 +594,13 @@ impl World {
             return;
         }
         let cost = self.content.unit(unit).cost;
-        if self.players[player.index()].gold < cost {
+        let stock = &mut self.players[player.index()].resources;
+        if !stock.covers(&cost) {
             return;
         }
         // Charged on enqueue rather than on completion, so that queueing five
-        // units cannot spend the same gold five times.
-        self.players[player.index()].gold -= cost;
+        // units cannot spend the same resources five times.
+        *stock = stock.saturating_sub(cost);
         let target = &mut self.buildings[building];
         if target.queue.is_empty() {
             target.train_ticks = self.content.unit(unit).train_ticks;
@@ -676,7 +798,9 @@ impl World {
         let carried = std::mem::take(&mut unit.carrying);
         // Saturating for the same reason as `damage`: content decides how
         // much a load holds, so the sum must not differ between builds.
-        let gold = &mut self.players[owner.index()].gold;
+        let gold = self.players[owner.index()]
+            .resources
+            .get_mut(Resource::Gold);
         *gold = gold.saturating_add(carried);
 
         // Head back for another load, unless the seam is gone.
@@ -1075,16 +1199,25 @@ impl World {
     /// The simulation keeps ticking afterwards; announcing the result is the
     /// application's concern.
     fn check_win(&mut self) {
+        // The PoC's conquest rule, provisional until the original's is
+        // confirmed: a player with no buildings is out. Gaia never is.
+        for (slot, player) in self.players.iter_mut().enumerate().skip(1) {
+            let id = PlayerId::new(slot as u8);
+            if !player.defeated && !self.buildings.values().any(|b| b.owner == id) {
+                player.defeated = true;
+            }
+        }
         if self.outcome.is_some() {
             return;
         }
-        for player in PlayerId::ALL {
-            let alive = self.buildings.values().any(|b| b.owner == player);
-            if !alive {
-                self.outcome = Some(player.other());
-                return;
-            }
-        }
+        let mut standing = (1..self.players.len())
+            .filter(|slot| !self.players[*slot].defeated)
+            .map(|slot| PlayerId::new(slot as u8));
+        self.outcome = match (standing.next(), standing.next()) {
+            (None, _) => Some(Outcome::Draw),
+            (Some(winner), None) => Some(Outcome::Won(winner)),
+            (Some(_), Some(_)) => None,
+        };
     }
 }
 
@@ -1129,8 +1262,21 @@ impl<'a> WorldView<'a> {
         self.world.terrain.height()
     }
 
-    pub const fn outcome(&self) -> Option<PlayerId> {
+    pub const fn outcome(&self) -> Option<Outcome> {
         self.world.outcome
+    }
+
+    /// Players, not counting Gaia.
+    pub fn player_count(&self) -> u8 {
+        (self.world.players.len() - 1) as u8
+    }
+
+    /// Whether `player` is out of the game. Gaia never is.
+    pub fn defeated(&self, player: PlayerId) -> bool {
+        self.world
+            .players
+            .get(player.index())
+            .is_some_and(|p| p.defeated)
     }
 
     /// The tile at `pos`, or `None` if it is off the map.
@@ -1138,8 +1284,13 @@ impl<'a> WorldView<'a> {
         self.world.terrain.get(pos).copied()
     }
 
+    pub fn resources(&self, player: PlayerId) -> Resources {
+        self.world.players[player.index()].resources
+    }
+
+    /// Shorthand for the gold part of [`WorldView::resources`].
     pub fn gold(&self, player: PlayerId) -> i32 {
-        self.world.players[player.index()].gold
+        self.resources(player).gold
     }
 
     /// The numbers the world plays by, for anything drawn from them, such as
@@ -1177,7 +1328,12 @@ impl<'a> WorldView<'a> {
     /// Exposed for the conservation property test, which is the only cheap
     /// defence against a resource duplication bug.
     pub fn total_gold(&self) -> i64 {
-        let banked: i64 = self.world.players.iter().map(|p| i64::from(p.gold)).sum();
+        let banked: i64 = self
+            .world
+            .players
+            .iter()
+            .map(|p| i64::from(p.resources.gold))
+            .sum();
         let carried: i64 = self
             .world
             .units
@@ -1196,5 +1352,218 @@ impl<'a> WorldView<'a> {
     /// Unit positions, for the renderer to interpolate between ticks.
     pub fn snapshot(&self) -> Vec<(UnitId, FxVec2)> {
         self.world.units.iter().map(|(id, u)| (id, u.pos)).collect()
+    }
+}
+
+const fn unit_kind_code(kind: UnitKind) -> u64 {
+    match kind {
+        UnitKind::Villager => 0,
+        UnitKind::Soldier => 1,
+    }
+}
+
+const fn building_kind_code(kind: BuildingKind) -> u64 {
+    match kind {
+        BuildingKind::TownCenter => 0,
+        BuildingKind::Barracks => 1,
+    }
+}
+
+/// An entity as two words: which table, and its key's bits.
+fn entity_words(entity: EntityId) -> [u64; 2] {
+    match entity {
+        EntityId::Unit(id) => [0, id.data().as_ffi()],
+        EntityId::Building(id) => [1, id.data().as_ffi()],
+        EntityId::Mine(id) => [2, id.data().as_ffi()],
+    }
+}
+
+/// An order as a fixed number of words, so that two different orders can
+/// never hash as the same byte stream.
+fn order_words(order: &Order) -> [u64; 5] {
+    match order {
+        Order::Idle => [0; 5],
+        Order::Move { goal, .. } => [1, goal.x as u32 as u64, goal.y as u32 as u64, 0, 0],
+        Order::Attack { target, .. } => {
+            let [table, key] = entity_words(*target);
+            [2, table, key, 0, 0]
+        }
+        Order::Gather { mine, phase, .. } => {
+            let (phase, building) = match phase {
+                GatherPhase::ToMine => (0, 0),
+                GatherPhase::Mining => (1, 0),
+                GatherPhase::ToDropOff { building } => (2, building.data().as_ffi()),
+            };
+            [3, mine.data().as_ffi(), phase, building, 0]
+        }
+    }
+}
+
+/// The checksum covers every piece of state a desync could hide in.
+///
+/// Inside the crate so that each test can change exactly one private field:
+/// through the public interface an order also moves the unit, so position
+/// would differ too and the test would not show the order is hashed.
+#[cfg(test)]
+mod checksum_tests {
+    use super::*;
+
+    /// One villager, one town centre each, and a mine.
+    fn world() -> World {
+        let map = MapSpec::new(16, 16)
+            .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
+            .with_building(
+                BuildingKind::TownCenter,
+                PlayerId::TWO,
+                TilePos::new(10, 10),
+            )
+            .with_mine(TilePos::new(6, 1), 100)
+            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6));
+        World::new(1, map)
+    }
+
+    fn unit(world: &World) -> UnitId {
+        world.units.keys().next().expect("a unit")
+    }
+
+    fn building(world: &World) -> BuildingId {
+        world.buildings.keys().next().expect("a building")
+    }
+
+    fn mine(world: &World) -> MineId {
+        world.mines.keys().next().expect("a mine")
+    }
+
+    /// Whether two otherwise identical worlds, one changed by `a` and one by
+    /// `b`, have different checksums.
+    fn differs(a: impl FnOnce(&mut World), b: impl FnOnce(&mut World)) -> bool {
+        let (mut left, mut right) = (world(), world());
+        a(&mut left);
+        b(&mut right);
+        left.checksum() != right.checksum()
+    }
+
+    fn untouched(_: &mut World) {}
+
+    #[test]
+    fn unit_kind_is_hashed() {
+        assert!(differs(untouched, |w| {
+            let id = unit(w);
+            w.units[id].kind = UnitKind::Soldier;
+        }));
+    }
+
+    #[test]
+    fn unit_order_is_hashed() {
+        assert!(differs(untouched, |w| {
+            let id = unit(w);
+            w.units[id].order = Order::Move {
+                goal: TilePos::new(2, 2),
+                route: Route::Arrived,
+            };
+        }));
+    }
+
+    #[test]
+    fn the_goal_of_an_order_is_hashed() {
+        let move_to = |goal| {
+            move |w: &mut World| {
+                let id = unit(w);
+                w.units[id].order = Order::Move {
+                    goal,
+                    route: Route::Arrived,
+                };
+            }
+        };
+        assert!(differs(
+            move_to(TilePos::new(2, 2)),
+            move_to(TilePos::new(3, 2))
+        ));
+    }
+
+    #[test]
+    fn the_target_of_an_attack_is_hashed() {
+        let attack = |pick: fn(&World) -> EntityId| {
+            move |w: &mut World| {
+                let (id, target) = (unit(w), pick(w));
+                w.units[id].order = Order::Attack {
+                    target,
+                    route: Route::Arrived,
+                };
+            }
+        };
+        assert!(differs(
+            attack(|w| EntityId::Building(building(w))),
+            attack(|w| EntityId::Mine(mine(w))),
+        ));
+    }
+
+    #[test]
+    fn the_gather_phase_is_hashed() {
+        let gather = |phase| {
+            move |w: &mut World| {
+                let (id, mine) = (unit(w), mine(w));
+                w.units[id].order = Order::Gather {
+                    mine,
+                    phase,
+                    route: Route::Arrived,
+                };
+            }
+        };
+        assert!(differs(
+            gather(GatherPhase::ToMine),
+            gather(GatherPhase::Mining)
+        ));
+    }
+
+    #[test]
+    fn mine_ticks_are_hashed() {
+        assert!(differs(untouched, |w| {
+            let id = unit(w);
+            w.units[id].mine_ticks = 7;
+        }));
+    }
+
+    #[test]
+    fn attack_cooldown_is_hashed() {
+        assert!(differs(untouched, |w| {
+            let id = unit(w);
+            w.units[id].attack_cooldown = 3;
+        }));
+    }
+
+    #[test]
+    fn building_kind_is_hashed() {
+        assert!(differs(untouched, |w| {
+            let id = building(w);
+            w.buildings[id].kind = BuildingKind::Barracks;
+        }));
+    }
+
+    #[test]
+    fn building_owner_is_hashed() {
+        assert!(differs(untouched, |w| {
+            let id = building(w);
+            w.buildings[id].owner = PlayerId::TWO;
+        }));
+    }
+
+    #[test]
+    fn the_contents_of_a_training_queue_are_hashed() {
+        let queue = |kind| {
+            move |w: &mut World| {
+                let id = building(w);
+                w.buildings[id].queue = vec![kind];
+            }
+        };
+        assert!(differs(queue(UnitKind::Villager), queue(UnitKind::Soldier)));
+    }
+
+    #[test]
+    fn training_progress_is_hashed() {
+        assert!(differs(untouched, |w| {
+            let id = building(w);
+            w.buildings[id].train_ticks = 9;
+        }));
     }
 }

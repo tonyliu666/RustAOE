@@ -5,7 +5,7 @@
 //! balance change is a data change. Parsing text is the application's job:
 //! this module holds plain structs and never touches the filesystem.
 
-use crate::{BuildingKind, Fx, UnitKind};
+use crate::{BuildingKind, Fx, Resource, Resources, UnitKind};
 use serde::{Deserialize, Serialize};
 
 /// Every table the simulation reads.
@@ -35,8 +35,8 @@ pub struct UnitStats {
     pub attack_cooldown: u32,
     /// Collision radius used by local avoidance, in tiles.
     pub radius: Fx,
-    /// Gold charged when the unit is queued.
-    pub cost: i32,
+    /// Charged when the unit is queued.
+    pub cost: Resources,
     /// Ticks of training time.
     pub train_ticks: u32,
 }
@@ -121,7 +121,10 @@ impl UnitStats {
         )?;
         check(self.radius > Fx::ZERO, owner, "radius", POSITIVE)?;
         // A negative cost would pay the player for queueing a unit.
-        check(self.cost >= 0, owner, "cost", NOT_NEGATIVE)?;
+        for resource in Resource::ALL {
+            let name = format!("cost.{}", resource.name());
+            check(self.cost.get(resource) >= 0, owner, &name, NOT_NEGATIVE)?;
+        }
         check(self.train_ticks > 0, owner, "train_ticks", POSITIVE)
     }
 }
@@ -192,7 +195,10 @@ impl Default for Content {
                 range: Fx::ZERO,
                 attack_cooldown: 0,
                 radius: Fx::from_frac(1, 4),
-                cost: 50,
+                cost: Resources {
+                    gold: 50,
+                    ..Resources::default()
+                },
                 train_ticks: 100,
             },
             soldier: UnitStats {
@@ -202,7 +208,10 @@ impl Default for Content {
                 range: Fx::from_frac(3, 2),
                 attack_cooldown: 20,
                 radius: Fx::from_frac(1, 4),
-                cost: 60,
+                cost: Resources {
+                    gold: 60,
+                    ..Resources::default()
+                },
                 train_ticks: 120,
             },
             town_center: BuildingStats {

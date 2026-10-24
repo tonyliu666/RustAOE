@@ -6,8 +6,8 @@
 //! prove nothing about where the number comes from.
 
 use sim::{
-    BuildingId, BuildingKind, Command, Content, EntityId, Fx, MapSpec, PlayerId, Replay, TilePos,
-    UnitId, UnitKind, World,
+    BuildingId, BuildingKind, Command, Content, EntityId, Fx, MapSpec, PlayerId, Replay, Resources,
+    TilePos, UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
 
@@ -18,11 +18,11 @@ const SEED: u64 = 0xC0DE;
 fn base_map() -> MapSpec {
     MapSpec::new(32, 32)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::One, TilePos::new(4, 4))
-        .with_building(BuildingKind::Barracks, PlayerId::One, TilePos::new(12, 4))
+        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(4, 4))
+        .with_building(BuildingKind::Barracks, PlayerId::ONE, TilePos::new(12, 4))
         .with_building(
             BuildingKind::TownCenter,
-            PlayerId::Two,
+            PlayerId::TWO,
             TilePos::new(24, 24),
         )
 }
@@ -55,17 +55,17 @@ fn run(world: &mut World, ticks: u64) {
 #[test]
 fn training_charges_the_cost_from_content() {
     let mut content = Content::default();
-    content.villager.cost = 30;
+    content.villager.cost.gold = 30;
     let mut world = World::with_content(SEED, base_map(), content);
-    let town_center = building(&world, PlayerId::One, BuildingKind::TownCenter);
+    let town_center = building(&world, PlayerId::ONE, BuildingKind::TownCenter);
 
     world.step(&[Command::Train {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         building: town_center,
         unit: UnitKind::Villager,
     }]);
 
-    assert_eq!(world.view().gold(PlayerId::One), 170);
+    assert_eq!(world.view().gold(PlayerId::ONE), 170);
 }
 
 #[test]
@@ -73,10 +73,10 @@ fn training_takes_the_time_from_content() {
     let mut content = Content::default();
     content.villager.train_ticks = 10;
     let mut world = World::with_content(SEED, base_map(), content);
-    let town_center = building(&world, PlayerId::One, BuildingKind::TownCenter);
+    let town_center = building(&world, PlayerId::ONE, BuildingKind::TownCenter);
 
     world.step(&[Command::Train {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         building: town_center,
         unit: UnitKind::Villager,
     }]);
@@ -84,7 +84,7 @@ fn training_takes_the_time_from_content() {
 
     // The default is 100 ticks, so the unit only exists this early if the
     // building read the content's number.
-    assert_eq!(unit_count(&world, PlayerId::One), 1);
+    assert_eq!(unit_count(&world, PlayerId::ONE), 1);
 }
 
 // --- units ----------------------------------------------------------------
@@ -105,17 +105,17 @@ fn hp(world: &World, unit: UnitId) -> Option<i32> {
 /// A soldier of player one and a villager of player two, `gap` tiles apart.
 fn duel(content: Content, gap: i32) -> (World, UnitId, UnitId) {
     let map = base_map()
-        .with_unit(UnitKind::Soldier, PlayerId::One, TilePos::new(20, 10))
+        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(20, 10))
         .with_unit(
             UnitKind::Villager,
-            PlayerId::Two,
+            PlayerId::TWO,
             TilePos::new(20, 10 + gap),
         );
     let mut world = World::with_content(SEED, map, content);
-    let soldier = only_unit_of(&world, PlayerId::One);
-    let victim = only_unit_of(&world, PlayerId::Two);
+    let soldier = only_unit_of(&world, PlayerId::ONE);
+    let victim = only_unit_of(&world, PlayerId::TWO);
     world.step(&[Command::Attack {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         units: smallvec![soldier],
         target: EntityId::Unit(victim),
     }]);
@@ -126,10 +126,10 @@ fn duel(content: Content, gap: i32) -> (World, UnitId, UnitId) {
 fn a_unit_starts_with_the_hit_points_from_content() {
     let mut content = Content::default();
     content.villager.max_hp = 7;
-    let map = base_map().with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(20, 20));
+    let map = base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(20, 20));
     let world = World::with_content(SEED, map, content);
 
-    assert_eq!(hp(&world, only_unit_of(&world, PlayerId::One)), Some(7));
+    assert_eq!(hp(&world, only_unit_of(&world, PlayerId::ONE)), Some(7));
 }
 
 #[test]
@@ -168,11 +168,11 @@ fn a_hit_lands_from_the_range_in_content() {
 #[test]
 fn a_unit_moves_at_the_speed_from_content() {
     let walked = |content: Content| {
-        let map = base_map().with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(2, 20));
+        let map = base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(2, 20));
         let mut world = World::with_content(SEED, map, content);
-        let unit = only_unit_of(&world, PlayerId::One);
+        let unit = only_unit_of(&world, PlayerId::ONE);
         world.step(&[Command::Move {
-            player: PlayerId::One,
+            player: PlayerId::ONE,
             units: smallvec![unit],
             target: TilePos::new(30, 20),
         }]);
@@ -192,14 +192,14 @@ fn a_villager_armed_by_content_can_be_ordered_to_attack() {
     content.villager.range = Fx::from_frac(3, 2);
     content.villager.attack_cooldown = 20;
     let map = base_map()
-        .with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(20, 10))
-        .with_unit(UnitKind::Villager, PlayerId::Two, TilePos::new(20, 11));
+        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(20, 10))
+        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(20, 11));
     let mut world = World::with_content(SEED, map, content);
-    let attacker = only_unit_of(&world, PlayerId::One);
-    let victim = only_unit_of(&world, PlayerId::Two);
+    let attacker = only_unit_of(&world, PlayerId::ONE);
+    let victim = only_unit_of(&world, PlayerId::TWO);
 
     world.step(&[Command::Attack {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         units: smallvec![attacker],
         target: EntityId::Unit(victim),
     }]);
@@ -224,7 +224,7 @@ fn a_building_starts_with_the_hit_points_from_content() {
     let mut content = Content::default();
     content.town_center.max_hp = 123;
     let world = World::with_content(SEED, base_map(), content);
-    let town_center = building(&world, PlayerId::One, BuildingKind::TownCenter);
+    let town_center = building(&world, PlayerId::ONE, BuildingKind::TownCenter);
 
     assert_eq!(world.view().building(town_center).map(|b| b.hp), Some(123));
 }
@@ -234,16 +234,16 @@ fn a_building_trains_what_content_says_it_trains() {
     let mut content = Content::default();
     content.barracks.trains = vec![UnitKind::Soldier, UnitKind::Villager];
     let mut world = World::with_content(SEED, base_map(), content);
-    let barracks = building(&world, PlayerId::One, BuildingKind::Barracks);
+    let barracks = building(&world, PlayerId::ONE, BuildingKind::Barracks);
 
     world.step(&[Command::Train {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         building: barracks,
         unit: UnitKind::Villager,
     }]);
 
     // By default a barracks refuses villagers and no gold is spent.
-    assert_eq!(world.view().gold(PlayerId::One), 200 - 50);
+    assert_eq!(world.view().gold(PlayerId::ONE), 200 - 50);
 }
 
 // --- gathering ------------------------------------------------------------
@@ -253,14 +253,14 @@ fn a_building_trains_what_content_says_it_trains() {
 fn gathering(content: Content) -> World {
     let map = base_map().with_mine(TilePos::new(10, 4), 5000).with_unit(
         UnitKind::Villager,
-        PlayerId::One,
+        PlayerId::ONE,
         TilePos::new(9, 8),
     );
     let mut world = World::with_content(SEED, map, content);
-    let villager = only_unit_of(&world, PlayerId::One);
+    let villager = only_unit_of(&world, PlayerId::ONE);
     let mine = world.view().mines().next().map(|(id, _)| id).expect("mine");
     world.step(&[Command::Gather {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         units: smallvec![villager],
         mine,
     }]);
@@ -280,7 +280,7 @@ fn gold_is_only_banked_at_a_building_content_marks_as_a_drop_off() {
     run(&mut world, 700);
 
     assert!(mine_remaining(&world) < 5000, "the villager never mined");
-    assert_eq!(world.view().gold(PlayerId::One), 200, "gold was banked");
+    assert_eq!(world.view().gold(PlayerId::ONE), 200, "gold was banked");
 }
 
 #[test]
@@ -319,15 +319,15 @@ fn gold_is_mined_at_the_rate_in_content() {
 #[test]
 fn a_recording_made_with_custom_content_verifies_against_that_content() {
     let mut content = Content::default();
-    content.villager.cost = 30;
+    content.villager.cost.gold = 30;
     let mut world = World::with_content(SEED, base_map(), content.clone());
     let mut replay = Replay::with_content(SEED, base_map(), content);
-    let town_center = building(&world, PlayerId::One, BuildingKind::TownCenter);
+    let town_center = building(&world, PlayerId::ONE, BuildingKind::TownCenter);
 
     for tick in 0..=200u64 {
         let commands = if tick == 1 {
             vec![Command::Train {
-                player: PlayerId::One,
+                player: PlayerId::ONE,
                 building: town_center,
                 unit: UnitKind::Villager,
             }]
@@ -354,20 +354,20 @@ fn the_largest_damage_content_allows_kills_rather_than_overflowing() {
     let mut content = Content::default();
     content.soldier.damage = i32::MAX;
     let map = base_map()
-        .with_unit(UnitKind::Soldier, PlayerId::One, TilePos::new(20, 10))
-        .with_unit(UnitKind::Soldier, PlayerId::One, TilePos::new(21, 10))
-        .with_unit(UnitKind::Villager, PlayerId::Two, TilePos::new(20, 11));
+        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(20, 10))
+        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(21, 10))
+        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(20, 11));
     let mut world = World::with_content(SEED, map, content);
     let soldiers: smallvec::SmallVec<[UnitId; 32]> = world
         .view()
         .units()
-        .filter(|(_, u)| u.owner == PlayerId::One)
+        .filter(|(_, u)| u.owner == PlayerId::ONE)
         .map(|(id, _)| id)
         .collect();
-    let victim = only_unit_of(&world, PlayerId::Two);
+    let victim = only_unit_of(&world, PlayerId::TWO);
 
     world.step(&[Command::Attack {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         units: soldiers,
         target: EntityId::Unit(victim),
     }]);
@@ -381,18 +381,91 @@ fn banking_a_load_into_a_full_treasury_saturates_rather_than_overflowing() {
     let map = base_map()
         .with_starting_gold(i32::MAX - 5)
         .with_mine(TilePos::new(10, 4), 5000)
-        .with_unit(UnitKind::Villager, PlayerId::One, TilePos::new(9, 8));
+        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(9, 8));
     let mut world = World::with_content(SEED, map, Content::default());
-    let villager = only_unit_of(&world, PlayerId::One);
+    let villager = only_unit_of(&world, PlayerId::ONE);
     let mine = world.view().mines().next().map(|(id, _)| id).expect("mine");
 
     world.step(&[Command::Gather {
-        player: PlayerId::One,
+        player: PlayerId::ONE,
         units: smallvec![villager],
         mine,
     }]);
     // Long enough at the default numbers to bank a full ten-gold load.
     run(&mut world, 700);
 
-    assert_eq!(world.view().gold(PlayerId::One), i32::MAX);
+    assert_eq!(world.view().gold(PlayerId::ONE), i32::MAX);
+}
+
+// --- resources ------------------------------------------------------------
+
+/// A villager costing 20 food and 30 gold, on a map where each player starts
+/// with `food` food and 100 gold.
+fn mixed_cost_world(food: i32) -> World {
+    let mut content = Content::default();
+    content.villager.cost = Resources {
+        food: 20,
+        gold: 30,
+        ..Resources::default()
+    };
+    let map = base_map().with_starting_resources(Resources {
+        food,
+        gold: 100,
+        ..Resources::default()
+    });
+    World::with_content(SEED, map, content)
+}
+
+fn train_villager(world: &mut World) {
+    let town_center = building(world, PlayerId::ONE, BuildingKind::TownCenter);
+    world.step(&[Command::Train {
+        player: PlayerId::ONE,
+        building: town_center,
+        unit: UnitKind::Villager,
+    }]);
+}
+
+#[test]
+fn training_charges_every_part_of_a_mixed_cost() {
+    let mut world = mixed_cost_world(100);
+    train_villager(&mut world);
+
+    assert_eq!(
+        world.view().resources(PlayerId::ONE),
+        Resources {
+            food: 80,
+            gold: 70,
+            ..Resources::default()
+        }
+    );
+}
+
+#[test]
+fn training_is_refused_when_any_one_resource_is_short() {
+    // Plenty of gold, not enough food.
+    let mut world = mixed_cost_world(10);
+    train_villager(&mut world);
+
+    assert_eq!(
+        world.view().resources(PlayerId::ONE),
+        Resources {
+            food: 10,
+            gold: 100,
+            ..Resources::default()
+        },
+        "something was charged for a refused order"
+    );
+}
+
+#[test]
+fn the_checksum_covers_every_resource() {
+    let world_with_wood = |wood| {
+        let map = base_map().with_starting_resources(Resources {
+            wood,
+            ..Resources::default()
+        });
+        World::with_content(SEED, map, Content::default()).checksum()
+    };
+
+    assert_ne!(world_with_wood(0), world_with_wood(1));
 }

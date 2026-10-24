@@ -58,16 +58,6 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     Ok(options)
 }
 
-/// The numbers a new game plays by: `--content FILE` if given, otherwise the
-/// file built into the binary.
-#[cfg(feature = "window")]
-fn content(path: Option<&std::path::Path>) -> Result<sim::Content, app::ContentFileError> {
-    match path {
-        Some(path) => app::load_content(path),
-        None => app::parse_content(app::DEFAULT_CONTENT),
-    }
-}
-
 /// Replays a recording with no window and reports the first divergence.
 ///
 /// This is the determinism regression test in binary form: it is what a bug
@@ -107,8 +97,9 @@ mod game {
 
     pub struct Config {
         pub seed: u64,
-        /// Numbers for a new game. Ignored during playback.
-        pub content: Content,
+        /// Numbers for a new game. `None` during playback, which uses the
+        /// replay's own.
+        pub content: Option<Content>,
         pub record: Option<PathBuf>,
         pub play: Option<PathBuf>,
     }
@@ -118,9 +109,10 @@ mod game {
         // must use them rather than whatever this invocation was configured
         // with.
         let playback = config.play.as_deref().map(app::load).transpose()?;
-        let (seed, map, content) = match &playback {
-            Some(replay) => (replay.seed, replay.map.clone(), replay.content.clone()),
-            None => (config.seed, MapSpec::proof_of_concept(), config.content),
+        let (seed, map, content) = match (&playback, config.content) {
+            (Some(replay), _) => (replay.seed, replay.map.clone(), replay.content.clone()),
+            (None, Some(content)) => (config.seed, MapSpec::proof_of_concept(), content),
+            (None, None) => return Err("no content for a new game".into()),
         };
 
         let mut world = World::with_content(seed, map.clone(), content.clone());
@@ -135,9 +127,10 @@ mod game {
             Camera::new(Vec2::ZERO, START_ZOOM, MacroquadRenderer::viewport()),
             map.width(),
             map.height(),
+            map.players(),
         );
 
-        for player in [sim::PlayerId::One, sim::PlayerId::Two] {
+        for player in (1..=map.players()).map(sim::PlayerId::new) {
             if let Some(home) = map.home(player) {
                 session.look_at(player, Vec2::new(home.x as f32, home.y as f32));
             }
@@ -224,7 +217,7 @@ async fn main() {
 
     let result = match &options.verify {
         Some(path) => verify(path),
-        None => match content(options.content.as_deref()) {
+        None => match app::new_game_content(options.play.is_some(), options.content.as_deref()) {
             Err(error) => Err(error.into()),
             Ok(content) => {
                 game::run(game::Config {
