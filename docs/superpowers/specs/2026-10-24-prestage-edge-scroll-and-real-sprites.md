@@ -254,3 +254,9 @@ ID in the first open archive that has it, `FUN_00543580` closes them.
     the nearest body centre wins, so enlarged targets never take a click from
     a body the player clicked.
   - Drag boxes count the enlarged targets too.
+- **No void beyond the map** (user report: zooming out showed growing dark
+  areas). The grass tiles were checked and are fully opaque, so the dark was
+  the empty space beyond the map's edge. The camera now stops zooming out
+  once the map fills the window, and stops scrolling where the window's edge
+  meets the map's; resizing the window and looking at a corner keep to the
+  same rule. A map smaller than the window at the closest zoom is centred.

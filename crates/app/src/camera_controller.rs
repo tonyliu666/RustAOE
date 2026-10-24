@@ -29,7 +29,8 @@ impl CameraController {
     pub const ZOOM_PER_SCROLL: f32 = 1.1;
     /// Zoom factor per second of held zoom key.
     pub const ZOOM_PER_SECOND: f32 = 4.0;
-    /// Screen pixels per tile at the widest view.
+    /// Screen pixels per tile at the widest view, at most: the view also
+    /// stops zooming out once the map fills the window.
     pub const MIN_ZOOM: f32 = 4.0;
     /// Screen pixels per tile at the closest view.
     pub const MAX_ZOOM: f32 = 64.0;
@@ -55,6 +56,7 @@ impl CameraController {
     /// Matches the viewport to a resized window.
     pub fn resize(&mut self, viewport: Vec2) {
         self.camera.viewport = viewport;
+        self.clamp_to_map();
     }
 
     /// Applies one frame of input over `dt` seconds.
@@ -70,7 +72,8 @@ impl CameraController {
         if input.key_down(Key::Q) {
             zoom_factor /= Self::ZOOM_PER_SECOND.powf(dt);
         }
-        self.camera.zoom = (self.camera.zoom * zoom_factor).clamp(Self::MIN_ZOOM, Self::MAX_ZOOM);
+        self.camera.zoom *= zoom_factor;
+        self.clamp_to_map();
 
         // Only the mouse at a screen edge pans, as in the original; there are
         // no pan keys. Not while dragging a selection box, which would slide
@@ -114,13 +117,28 @@ impl CameraController {
         from_centre * (1.0 / length)
     }
 
-    /// Keeps the camera centre on the map.
+    /// Keeps the window full of map: nothing beyond the map's edge is ever
+    /// shown.
     ///
-    /// Clamping the centre rather than the visible rectangle means the view can
-    /// overhang the map edge, which is what lets a unit standing in the corner
-    /// be centred and inspected.
+    /// The zoom stops where the map fills the window, and the view stops
+    /// where its edge meets the map's. A map smaller than the window even at
+    /// the closest zoom is centred instead.
     fn clamp_to_map(&mut self) {
-        self.camera.center.x = self.camera.center.x.clamp(0.0, self.map_width as f32);
-        self.camera.center.y = self.camera.center.y.clamp(0.0, self.map_height as f32);
+        let (width, height) = (self.map_width as f32, self.map_height as f32);
+        let viewport = self.camera.viewport;
+        let fill = (viewport.x / width).max(viewport.y / height);
+        let widest = Self::MIN_ZOOM.max(fill);
+        self.camera.zoom = self.camera.zoom.clamp(widest, Self::MAX_ZOOM.max(widest));
+
+        let half = viewport * (0.5 / self.camera.zoom);
+        let clamp_axis = |centre: f32, half: f32, size: f32| {
+            if half * 2.0 >= size {
+                size / 2.0
+            } else {
+                centre.clamp(half, size - half)
+            }
+        };
+        self.camera.center.x = clamp_axis(self.camera.center.x, half.x, width);
+        self.camera.center.y = clamp_axis(self.camera.center.y, half.y, height);
     }
 }

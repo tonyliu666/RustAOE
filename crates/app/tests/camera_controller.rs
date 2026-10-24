@@ -95,8 +95,13 @@ fn panning_stops_at_the_map_edge() {
         cam.update(&cursor_at(799.0, 599.0), 0.1);
     }
 
-    assert_eq!(cam.camera().center.x, MAP as f32);
-    assert_eq!(cam.camera().center.y, MAP as f32);
+    // The window's far corner sits on the map's far corner: nothing beyond
+    // the map is ever shown.
+    let far = cam.camera().screen_to_world(cam.camera().viewport);
+    assert!(
+        close(far, Vec2::new(MAP as f32, MAP as f32)),
+        "view ends at {far:?}"
+    );
 }
 
 #[test]
@@ -107,8 +112,8 @@ fn panning_stops_at_the_map_origin() {
         cam.update(&cursor_at(0.0, 0.0), 0.1);
     }
 
-    assert_eq!(cam.camera().center.x, 0.0);
-    assert_eq!(cam.camera().center.y, 0.0);
+    let near = cam.camera().screen_to_world(Vec2::ZERO);
+    assert!(close(near, Vec2::ZERO), "view starts at {near:?}");
 }
 
 #[test]
@@ -151,7 +156,13 @@ fn zoom_is_clamped_to_a_usable_range() {
     }
 
     assert_eq!(close.camera().zoom, CameraController::MAX_ZOOM);
-    assert_eq!(far.camera().zoom, CameraController::MIN_ZOOM);
+    // Zoomed all the way out, the 128-tile map exactly fills the 800-pixel
+    // window's width: 6.25 pixels per tile, and no further.
+    assert!(
+        (far.camera().zoom - 800.0 / MAP as f32).abs() < 1e-4,
+        "zoom {}",
+        far.camera().zoom
+    );
 }
 
 #[test]
@@ -300,4 +311,65 @@ fn a_cursor_at_the_centre_of_a_tiny_window_does_not_break_the_camera() {
     cam.update(&cursor_at(5.0, 5.0), 0.1);
 
     assert_eq!(cam.camera().center, Vec2::new(64.0, 64.0));
+}
+
+// --- never show beyond the map ------------------------------------------------
+
+/// The part of the world the window shows, as (top-left, bottom-right).
+fn shown(cam: &CameraController) -> (Vec2, Vec2) {
+    let camera = cam.camera();
+    (
+        camera.screen_to_world(Vec2::ZERO),
+        camera.screen_to_world(camera.viewport),
+    )
+}
+
+fn inside_map(cam: &CameraController) -> bool {
+    let (near, far) = shown(cam);
+    let eps = 1e-3;
+    near.x >= -eps && near.y >= -eps && far.x <= MAP as f32 + eps && far.y <= MAP as f32 + eps
+}
+
+#[test]
+fn zoomed_all_the_way_out_in_a_corner_nothing_beyond_the_map_shows() {
+    let mut cam = controller();
+
+    for _ in 0..500 {
+        cam.update(&scrolling(-1.0), 0.016);
+        cam.update(&cursor_at(0.0, 0.0), 0.1);
+    }
+
+    assert!(inside_map(&cam), "shows {:?}", shown(&cam));
+}
+
+#[test]
+fn looking_at_a_corner_shows_the_corner_without_the_void_beyond_it() {
+    let mut cam = controller();
+
+    cam.look_at(Vec2::new(0.0, 0.0));
+
+    assert!(inside_map(&cam), "shows {:?}", shown(&cam));
+    assert!(close(shown(&cam).0, Vec2::ZERO));
+}
+
+#[test]
+fn a_window_grown_larger_than_the_map_zooms_in_to_fill_it() {
+    let mut cam = controller();
+    for _ in 0..500 {
+        cam.update(&scrolling(-1.0), 0.016);
+    }
+
+    cam.resize(Vec2::new(1600.0, 1200.0));
+
+    assert!(inside_map(&cam), "shows {:?}", shown(&cam));
+}
+
+#[test]
+fn zooming_out_from_near_an_edge_pulls_the_view_back_onto_the_map() {
+    let mut cam = controller();
+    cam.look_at(Vec2::new(10.0, 10.0));
+
+    cam.update(&holding(&[Key::Q]), 0.25);
+
+    assert!(inside_map(&cam), "shows {:?}", shown(&cam));
 }

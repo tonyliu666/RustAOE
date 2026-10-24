@@ -93,6 +93,9 @@ One quirk while the mouse is free: the window is not told when the mouse
 leaves it, so if you leave slowly through an edge the map keeps scrolling
 until the mouse comes back. Lock the mouse with `F10` to avoid it.
 
+The view always stays on the map: zooming out stops once the map fills the
+window, and scrolling stops at the map's edge.
+
 Units are easy to click at any zoom: zoomed out, a click within a few pixels
 of a unit selects it, and a small wobble of the hand still counts as a click.
 

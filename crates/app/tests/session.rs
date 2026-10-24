@@ -7,17 +7,14 @@ use app::Session;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
 use sim::{BuildingKind, Command, EntityId, MapSpec, PlayerId, TilePos, UnitId, UnitKind, World};
 
-/// A camera showing the whole 16x16 map.
+/// A camera showing the middle 8x8 tiles of the 16x16 map, with room to
+/// scroll either way.
 ///
-/// The zoom is [`CameraController::MIN_ZOOM`] because the controller clamps to
-/// that on the first frame; picking anything below it would make the camera the
-/// tests convert with differ from the one the session actually uses.
+/// The view lies inside the map, so the controller leaves it as it is on the
+/// first frame; a camera it had to move would make the one the tests convert
+/// with differ from the one the session actually uses.
 fn camera() -> Camera {
-    Camera::new(
-        Vec2::new(8.0, 8.0),
-        app::CameraController::MIN_ZOOM,
-        Vec2::new(64.0, 64.0),
-    )
+    Camera::new(Vec2::new(8.0, 8.0), 8.0, Vec2::new(64.0, 64.0))
 }
 
 fn session() -> Session {
@@ -628,7 +625,14 @@ fn villager_bodies() -> app::Bodies {
 /// selected.
 fn click_and_release(zoom: f32, from: Vec2, to: Vec2) -> usize {
     let world = world();
-    let camera = Camera::new(Vec2::new(8.0, 8.0), zoom, Vec2::new(800.0, 600.0));
+    // A window exactly the 16x16 map's size at this zoom, so that the
+    // controller keeps the zoom asked for: a larger window would make it zoom
+    // in until the map filled it.
+    let camera = Camera::new(
+        Vec2::new(8.0, 8.0),
+        zoom,
+        Vec2::new(16.0 * zoom, 16.0 * zoom),
+    );
     let mut session = Session::new(camera, 16, 16, 2);
     session.set_bodies(villager_bodies());
     let screen = |w: Vec2| camera.world_to_screen(w);
