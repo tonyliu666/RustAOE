@@ -4,7 +4,7 @@
 //! free to use floating point. In hotseat play each player has their own
 //! controller: where someone is looking is not part of the simulation.
 
-use render::{Camera, InputState, Key, Vec2};
+use render::{Camera, InputState, Key, MouseButton, Vec2};
 
 /// A camera plus the keyboard and wheel bindings that move it.
 #[derive(Clone, PartialEq, Debug)]
@@ -16,12 +16,14 @@ pub struct CameraController {
 
 impl CameraController {
     /// Pan speed in tiles per second, at any zoom.
-    pub const PAN_TILES_PER_SECOND: f32 = 24.0;
+    pub const PAN_TILES_PER_SECOND: f32 = 48.0;
     /// Longest frame that may drive camera motion, in seconds.
     ///
     /// A stalled frame — a breakpoint, a disk hitch, a window drag — would
     /// otherwise pan the camera across the whole map in one step.
     pub const MAX_FRAME_SECONDS: f32 = 0.25;
+    /// How close to a window edge, in screen pixels, the cursor pans the map.
+    pub const EDGE_SCROLL_PIXELS: f32 = 8.0;
     /// Zoom factor per unit of wheel scroll.
     pub const ZOOM_PER_SCROLL: f32 = 1.1;
     /// Zoom factor per second of held zoom key.
@@ -83,9 +85,51 @@ impl CameraController {
             pan.x += 1.0;
         }
 
+        // The mouse at a screen edge pans too, as in the original. Not while
+        // dragging a selection box, which would slide the map out from under
+        // the box, and not before the cursor has really been seen, which would
+        // drift the view towards the corner the backend reports by default.
+        if input.cursor_seen && !input.is_down(MouseButton::Left) {
+            pan = pan + self.edge_direction(input.cursor);
+        }
+        // One direction per axis, then unit length: a key and an edge pushing
+        // the same way, or a corner, never pan faster than one key.
+        pan.x = pan.x.clamp(-1.0, 1.0);
+        pan.y = pan.y.clamp(-1.0, 1.0);
+        let length = (pan.x * pan.x + pan.y * pan.y).sqrt();
+        if length > 0.0 {
+            pan = pan * (1.0 / length);
+        }
+
         let step = Self::PAN_TILES_PER_SECOND * dt;
         self.camera.center = self.camera.center + pan * step;
         self.clamp_to_map();
+    }
+
+    /// Which way the cursor's position pushes the view, as a unit vector, or
+    /// zero when the cursor is not at an edge.
+    ///
+    /// The direction runs from the screen centre to the cursor, so the upper
+    /// part of the left edge pans left and up, and a corner pans diagonally.
+    ///
+    /// Only inside the window. In a window, a cursor outside it means the
+    /// player is using another program; in full screen the cursor cannot
+    /// leave, so pushing against the border stays inside the band.
+    fn edge_direction(&self, cursor: Vec2) -> Vec2 {
+        let viewport = self.camera.viewport;
+        let inside = (0.0..viewport.x).contains(&cursor.x) && (0.0..viewport.y).contains(&cursor.y);
+        let band = Self::EDGE_SCROLL_PIXELS;
+        let at_edge = cursor.x < band
+            || cursor.y < band
+            || cursor.x >= viewport.x - band
+            || cursor.y >= viewport.y - band;
+        let from_centre = cursor - viewport * 0.5;
+        let length = (from_centre.x * from_centre.x + from_centre.y * from_centre.y).sqrt();
+        // A window too small to have a middle puts its centre in the band.
+        if !inside || !at_edge || length == 0.0 {
+            return Vec2::ZERO;
+        }
+        from_centre * (1.0 / length)
     }
 
     /// Keeps the camera centre on the map.

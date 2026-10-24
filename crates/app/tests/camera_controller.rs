@@ -1,7 +1,7 @@
 //! Camera panning and zooming, driven by synthesised input.
 
 use app::CameraController;
-use render::{Camera, InputState, Key, Vec2};
+use render::{Camera, InputState, Key, MouseButton, Vec2};
 
 const MAP: i32 = 128;
 
@@ -10,8 +10,19 @@ fn controller() -> CameraController {
     CameraController::new(camera, MAP, MAP)
 }
 
-fn holding(keys: &[Key]) -> InputState {
+/// The middle of the 800x600 viewport, well away from every edge.
+const MIDDLE: Vec2 = Vec2::new(400.0, 300.0);
+
+/// Input with the cursor resting mid-screen, so that only what the test
+/// adds can move the camera.
+fn idle() -> InputState {
     let mut input = InputState::default();
+    input.cursor = MIDDLE;
+    input
+}
+
+fn holding(keys: &[Key]) -> InputState {
+    let mut input = idle();
     for key in keys {
         input.hold_key(*key);
     }
@@ -19,7 +30,7 @@ fn holding(keys: &[Key]) -> InputState {
 }
 
 fn scrolling(amount: f32) -> InputState {
-    let mut input = InputState::default();
+    let mut input = idle();
     input.scroll = amount;
     input
 }
@@ -175,4 +186,155 @@ fn the_viewport_follows_the_window_size() {
     cam.resize(Vec2::new(1280.0, 720.0));
 
     assert_eq!(cam.camera().viewport, Vec2::new(1280.0, 720.0));
+}
+
+// --- edge scrolling -------------------------------------------------------
+
+/// Input with the cursor at `cursor`, in screen pixels.
+fn cursor_at(x: f32, y: f32) -> InputState {
+    let mut input = InputState::default();
+    input.cursor = Vec2::new(x, y);
+    input.cursor_seen = true;
+    input
+}
+
+/// How far the camera centre moves in one 0.1 s frame of `input`.
+fn pan(input: &InputState) -> Vec2 {
+    let mut cam = controller();
+    let before = cam.camera().center;
+    cam.update(input, 0.1);
+    cam.camera().center - before
+}
+
+/// One frame of panning at full speed, in tiles.
+const STEP: f32 = CameraController::PAN_TILES_PER_SECOND * 0.1;
+
+fn close(a: Vec2, b: Vec2) -> bool {
+    (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+}
+
+#[test]
+fn the_cursor_at_each_edge_pans_that_way() {
+    for (cursor, expected) in [
+        (cursor_at(0.0, 300.0), Vec2::new(-STEP, 0.0)),
+        (cursor_at(799.0, 300.0), Vec2::new(STEP, 0.0)),
+        (cursor_at(400.0, 0.0), Vec2::new(0.0, -STEP)),
+        (cursor_at(400.0, 599.0), Vec2::new(0.0, STEP)),
+    ] {
+        let moved = pan(&cursor);
+        assert!(
+            close(moved, expected),
+            "cursor {:?} panned {moved:?}",
+            cursor.cursor
+        );
+    }
+}
+
+#[test]
+fn the_cursor_a_few_pixels_from_an_edge_still_pans() {
+    let moved = pan(&cursor_at(
+        CameraController::EDGE_SCROLL_PIXELS - 1.0,
+        300.0,
+    ));
+
+    assert!(close(moved, Vec2::new(-STEP, 0.0)), "panned {moved:?}");
+}
+
+#[test]
+fn the_cursor_in_the_middle_does_not_pan() {
+    assert_eq!(pan(&idle()), Vec2::ZERO);
+}
+
+#[test]
+fn the_cursor_in_a_corner_pans_diagonally_at_normal_speed() {
+    let moved = pan(&cursor_at(0.0, 0.0));
+
+    assert!(moved.x < 0.0 && moved.y < 0.0, "panned {moved:?}");
+    let length = (moved.x * moved.x + moved.y * moved.y).sqrt();
+    assert!((length - STEP).abs() < 1e-4, "panned {moved:?}");
+}
+
+#[test]
+fn a_cursor_outside_the_window_does_not_pan() {
+    // In a window, the mouse leaving it means the player is using another
+    // program, not asking to scroll.
+    for (x, y) in [
+        (-40.0, 300.0),
+        (840.0, 300.0),
+        (400.0, -10.0),
+        (400.0, 650.0),
+    ] {
+        assert_eq!(
+            pan(&cursor_at(x, y)),
+            Vec2::ZERO,
+            "cursor at ({x}, {y}) panned"
+        );
+    }
+}
+
+#[test]
+fn an_edge_and_a_key_together_are_no_faster_than_the_key() {
+    let mut both = cursor_at(0.0, 300.0);
+    both.hold_key(Key::A);
+
+    assert!(
+        close(pan(&both), Vec2::new(-STEP, 0.0)),
+        "panned {:?}",
+        pan(&both)
+    );
+}
+
+#[test]
+fn dragging_a_selection_to_the_edge_does_not_pan() {
+    let mut dragging = cursor_at(0.0, 300.0);
+    dragging.hold(MouseButton::Left);
+
+    assert_eq!(pan(&dragging), Vec2::ZERO);
+}
+
+#[test]
+fn the_edges_do_nothing_until_the_cursor_has_been_seen() {
+    // Before the mouse first moves over the window the backend reports the
+    // cursor at (0, 0), a corner, which would drift the camera on its own.
+    let mut unseen = cursor_at(0.0, 0.0);
+    unseen.cursor_seen = false;
+
+    assert_eq!(pan(&unseen), Vec2::ZERO);
+}
+
+#[test]
+fn the_upper_part_of_the_left_edge_pans_left_and_up() {
+    let moved = pan(&cursor_at(0.0, 100.0));
+
+    assert!(moved.x < 0.0 && moved.y < 0.0, "panned {moved:?}");
+}
+
+#[test]
+fn the_left_part_of_the_top_edge_pans_up_and_left() {
+    let moved = pan(&cursor_at(150.0, 0.0));
+
+    assert!(moved.x < 0.0 && moved.y < 0.0, "panned {moved:?}");
+}
+
+#[test]
+fn an_edge_pans_along_the_line_from_the_screen_centre_to_the_cursor() {
+    // From the centre (400, 300) to (0, 100) is (-400, -200): twice as far
+    // across as up, so the pan should be too, at full speed.
+    let moved = pan(&cursor_at(0.0, 100.0));
+
+    assert!((moved.x / moved.y - 2.0).abs() < 1e-3, "panned {moved:?}");
+    let length = (moved.x * moved.x + moved.y * moved.y).sqrt();
+    assert!((length - STEP).abs() < 1e-4, "panned {moved:?}");
+}
+
+#[test]
+fn a_cursor_at_the_centre_of_a_tiny_window_does_not_break_the_camera() {
+    // A window under 16 pixels across, as while it is being minimised, puts
+    // its centre inside the edge band, where the direction would be 0 / 0.
+    let camera = Camera::new(Vec2::new(64.0, 64.0), 16.0, Vec2::new(10.0, 10.0));
+    let mut cam = CameraController::new(camera, MAP, MAP);
+
+    cam.update(&cursor_at(5.0, 5.0), 0.1);
+
+    assert_eq!(cam.camera().center, Vec2::new(64.0, 64.0));
 }

@@ -56,6 +56,10 @@ pub enum Key {
 pub struct InputState {
     /// Cursor position in screen pixels.
     pub cursor: Vec2,
+    /// Whether the cursor position has ever been real. Backends report (0, 0)
+    /// until the mouse first moves over the window, which is indistinguishable
+    /// from the cursor sitting in the top-left corner.
+    pub cursor_seen: bool,
     /// Accumulated scroll wheel movement this frame; positive is zoom in.
     pub scroll: f32,
     mouse_down: [bool; 3],

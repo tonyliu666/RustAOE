@@ -28,16 +28,24 @@ impl MacroquadRenderer {
     }
 
     fn apply_camera(camera: &Camera) {
-        // The y component of the zoom is negated so that world y increases
-        // downwards, matching tile coordinates in `sim`.
-        mq::set_camera(&mq::Camera2D {
-            target: mq::vec2(camera.center.x, camera.center.y),
-            zoom: mq::vec2(
-                2.0 * camera.zoom / camera.viewport.x,
-                -2.0 * camera.zoom / camera.viewport.y,
-            ),
-            ..Default::default()
-        });
+        mq::set_camera(&to_mq_camera(camera));
+    }
+}
+
+/// The macroquad camera for one of ours.
+fn to_mq_camera(camera: &Camera) -> mq::Camera2D {
+    // Both zoom components positive. macroquad 0.4 already flips y when
+    // drawing to the window (`invert_y` in `Camera2D::matrix`), so world y
+    // increases downwards, matching tile coordinates in `sim` and the mouse.
+    // Negating y here as well, as an earlier version did, drew the world
+    // upside down while picking stayed the right way up.
+    mq::Camera2D {
+        target: mq::vec2(camera.center.x, camera.center.y),
+        zoom: mq::vec2(
+            2.0 * camera.zoom / camera.viewport.x,
+            2.0 * camera.zoom / camera.viewport.y,
+        ),
+        ..Default::default()
     }
 }
 
@@ -117,6 +125,11 @@ impl InputSource for MacroquadInput {
 
         let (x, y) = mq::mouse_position();
         self.state.cursor = Vec2::new(x, y);
+        // Sticky: once the mouse has moved, or sits anywhere but the (0, 0)
+        // macroquad reports before its first mouse event, the position is real.
+        if (x, y) != (0.0, 0.0) || mq::mouse_delta_position() != mq::Vec2::ZERO {
+            self.state.cursor_seen = true;
+        }
         // macroquad reports the wheel as (x, y); only vertical movement zooms,
         // and it is scaled to roughly one notch per event across platforms.
         let (_, wheel) = mq::mouse_wheel();
@@ -141,5 +154,63 @@ impl InputSource for MacroquadInput {
         }
 
         self.state.clone()
+    }
+}
+
+/// Drawing and picking must agree on where a world point is on screen.
+///
+/// Picking uses [`Camera::world_to_screen`], which puts world y downwards.
+/// These tests push world points through the matrix macroquad actually draws
+/// with, and check they land on the same pixels. They need no window: the
+/// matrix is plain arithmetic.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use macroquad::camera::Camera as _;
+
+    /// Where macroquad draws a world point, in window pixels with y down.
+    ///
+    /// The matrix produces normalised device coordinates, in which +1 y is
+    /// the top of the window.
+    fn drawn_at(camera: &Camera, world: Vec2) -> Vec2 {
+        let ndc = to_mq_camera(camera)
+            .matrix()
+            .project_point3(mq::vec3(world.x, world.y, 0.0));
+        Vec2::new(
+            (ndc.x + 1.0) * 0.5 * camera.viewport.x,
+            (1.0 - ndc.y) * 0.5 * camera.viewport.y,
+        )
+    }
+
+    #[test]
+    fn drawing_puts_world_points_where_picking_expects_them() {
+        let camera = Camera::new(Vec2::new(18.0, 18.0), 16.0, Vec2::new(800.0, 600.0));
+
+        for world in [
+            Vec2::new(18.0, 18.0),
+            Vec2::new(16.0, 16.0),
+            Vec2::new(18.0, 21.0),
+            Vec2::new(40.0, 2.0),
+        ] {
+            let drawn = drawn_at(&camera, world);
+            let picked = camera.world_to_screen(world);
+            assert!(
+                (drawn.x - picked.x).abs() < 1e-3 && (drawn.y - picked.y).abs() < 1e-3,
+                "world {world:?} is drawn at {drawn:?} but picked at {picked:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_larger_world_y_is_drawn_lower_on_screen() {
+        let camera = Camera::new(Vec2::new(18.0, 18.0), 16.0, Vec2::new(800.0, 600.0));
+
+        let above = drawn_at(&camera, Vec2::new(18.0, 16.0));
+        let below = drawn_at(&camera, Vec2::new(18.0, 21.0));
+
+        assert!(
+            below.y > above.y,
+            "y=21 drawn at {below:?}, y=16 at {above:?}"
+        );
     }
 }
