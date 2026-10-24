@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
 **Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
-**Status:** Phases 0 and 1 done. Phase 1.5 next.
+**Status:** Phases 0 and 1 done; the pre-stage is done; Phase 1.5 steps 1, 2, 2b, and 3 done, step 4 next.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
@@ -56,19 +56,24 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
   2b. Widen the checksum to unit and building kinds, owners, orders, and production and gather timers, inside the same replay break.
   3. Up to 8 players plus Gaia, with a per-player defeated flag from which the outcome is derived.
   4. Content keyed by ID, so a new unit or building type is a RON entry, not a code change.
+     Each entry also names its sprite (a graphic ID, as the original's `.dat` does), because drawing is required since the pre-stage: a unit type added only in RON must have something to draw. The app's sprite and picking tables become keyed by kind ID.
+  - **Replay format:** commits were made partway through this phase, so version 2 exists in two layouts. Step 4 moves to **version 3**, final when the phase ends; version-2 files are refused by version.
 - **Reference:** `FUN_0040bdf0` (world creation: player count at `param_2 + 0x294`; teams and diplomacy in its `< 9` loops), `FUN_00555380`/`FUN_00555440`/`FUN_00555510` (per-player attribute table; resources are entries 0 to 3).
 - **Gate:** A 4-player map plays to a single winner. A unit type added only in RON can be trained and fights. An old-format replay is refused with a version error that names both versions. The tick benchmark stays under budget.
 
-### Pre-stage: edge scrolling and real sprites (inserted before Phase 1.5 step 4)
+### Pre-stage: edge scrolling and real sprites (done, inserted before Phase 1.5 step 4)
 
-- **Goal:** Pan the map by moving the mouse to the screen edge, as in the original, and draw terrain, units, and buildings with the original sprites read from the user's own installer payload.
-- **Spec:** [`2026-10-24-prestage-edge-scroll-and-real-sprites.md`](../specs/2026-10-24-prestage-edge-scroll-and-real-sprites.md).
+- **Goal:** Pan the map with the mouse at the screen edge, as in the original, and draw everything with the original sprites read from the user's own installer payload.
+- **Spec:** [`2026-10-24-prestage-edge-scroll-and-real-sprites.md`](../specs/2026-10-24-prestage-edge-scroll-and-real-sprites.md), including its follow-up and review-fix sections.
 - **Pulls forward** the DRS, SLP, and palette readers from Phase 12. The isometric view stays in Phase 12.
-- **Gate:** Edge scrolling works; with `--assets DIR` the main entities use the original sprites, checked by eye; without it the game runs as before. No asset file is committed.
+- **Gate (as revised by the user):** only the mouse pans (no W, A, S, D); the mouse is locked to the window, with F10 to free it; every map object is a sprite, with health bars the only filled rectangles; the game requires an install (`--assets DIR` or `AOE_ASSETS`) and says how to give it one; clicks select what is drawn. No asset file is committed.
+- **Reference:** the original opens its archives with `FUN_00543370` (eight calls from `FUN_0043ae90`), finds a file by walking the open archives in order and taking the first match (`FUN_00543630`, list head `DAT_006b59e4`), and closes them with `FUN_00543580`.
 
 ### Phase 1.6: `.dat` converter
 
 - **Goal:** Take game numbers from the original's data instead of from memory.
+- **Archive order:** the original searches its open archives in order and takes the first match (`FUN_00543630`). Some sprite IDs appear in more than one archive (`gamedata_x1_p1.drs` duplicates a few in `graphics.drs`), so the game's sprite loader must search an ordered list of archives, by type and ID, rather than one named archive per ID. The order of the eight `FUN_00543370` calls is not recoverable from the decompile and must be confirmed.
+- **Fractional values:** the original stores resources, gather rates, speeds, and reload times as `float`. The spec for this phase must fix how each converts: amounts to `i32`, rates to ticks per unit, speeds and ranges to `Fx`, times to ticks, with the rounding rule for each.
 - **Work:** A dev-only Rust tool, a workspace member so its tests run under `cargo test --workspace`, reads `data/empires2_x1_p1.dat` from a user-supplied install and writes the fields our schema has into RON. Resources map by name, not position (the original orders them food, wood, stone, gold), and float amounts round to integers; see the Phase 1.5 spec. The game itself reads only our RON; it never opens a `.dat`. Track `reverse/README.md` and `reverse/tools/` in git; keep decompiled output and extracted data ignored.
 - **Reference:** `FUN_00586b20` names the `.dat` path. The file is zlib-compressed and community-documented.
 - **Gate:** The tool reproduces known values (villager 25 HP and 50 food in the original). A test compares the tool's output for a few units against values recorded in the phase spec.
@@ -172,6 +177,23 @@ These apply to every phase.
 
 ## Deferred findings
 
+From the pre-stage review, accepted as minor:
+
+- One draw call per grass tile when zoomed out (textures are not batched); measure at `MIN_ZOOM` and try `build_textures_atlas`.
+- A `HashSet` and per-building `Vec`s are allocated every frame to keep trees off footprints.
+- Trees, buildings, and units are not depth-sorted together; a unit just north of a forest edge draws over trees in front of it.
+- No test fixes the draw order (terrain before entities).
+- `Archive::get` re-parses the whole archive on every call at startup.
+- Install errors show only after the window has opened.
+- Test scratch directories under `temp_dir()` use fixed names in some tests.
+- The `ground()` test helper treats any 1x1 sprite as ground.
+
+From the pre-stage direction check:
+
+- The "no buildings" defeat rule is provisional; research the original's conquest rule before Phases 10 and 11 build on it.
+- The top-down view means picking, scrolling, and drawing will need rework for the isometric view in Phase 12.
+
+
 From the Phase 1 review, accepted as minor and not yet fixed:
 
 - `radius` has no upper bound; above about 1/2 tile a unit cannot pass a one-tile gap. Fix with Phase 3 or Phase 6.
@@ -181,5 +203,5 @@ From the Phase 1 review, accepted as minor and not yet fixed:
 
 ## Open questions
 
-- Is the Phase 12 asset read in scope for this repository, or a separate project?
+- ~~Is the Phase 12 asset read in scope for this repository?~~ Yes: decided by the pre-stage. The game reads the original's sprites from the user's own install at runtime and requires one; nothing from the game is committed.
 - Is the scenario editor in scope at all?

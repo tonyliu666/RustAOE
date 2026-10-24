@@ -1,14 +1,17 @@
 # Quickstart
 
-A playable hotseat real-time strategy slice in Rust: gather gold, train units,
-fight, win. Two players share one keyboard. There is no AI opponent and no art —
-everything is drawn as coloured boxes on purpose, because the point of this
-build is to prove the simulation, not to look good.
+A playable hotseat real-time strategy game in Rust: gather gold, train units,
+fight, win. Up to eight players share one keyboard. There is no AI opponent
+yet. Terrain, units, and buildings are drawn with the original Age of Empires
+II: The Conquerors sprites, read at runtime from your own copy of the game.
+Nothing from the game is in this repository.
 
-This is the proof of concept described in
-[`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](docs/superpowers/specs/2026-08-04-rts-poc-design.md).
-Read that if you want to know *why* something is the way it is; read this to get
-it running in five minutes.
+This started as the proof of concept described in
+[`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](docs/superpowers/specs/2026-08-04-rts-poc-design.md)
+and is growing towards the original game along
+[`docs/superpowers/plans/2026-10-24-exe-parity-plan.md`](docs/superpowers/plans/2026-10-24-exe-parity-plan.md).
+Read those to know *why* something is the way it is; read this to get it
+running.
 
 ## 1. Prerequisites
 
@@ -24,24 +27,52 @@ it running in five minutes.
   ```
 
   macOS and Windows need nothing extra.
+- Python 3, to unpack the game's installer.
+- Your own Age of Empires II: The Conquerors installer
+  (`AgeOfEmpires-TheConquerors.exe`).
 
-## 2. Run it
+## 2. Unpack the game's data
+
+The game reads the original sprites from the installer's `data/` folder. The
+installer is a program with a 7z archive attached; `reverse/tools/extract.py`
+unpacks it without running anything. Unpack into a new, empty folder outside
+this repository:
 
 ```sh
+mkdir ~/aoe2-install
+python3 -I reverse/tools/extract.py path/to/AgeOfEmpires-TheConquerors.exe ~/aoe2-install
+```
+
+It should end with `wrote 240 files, 0 empty files, 18 directories; refused 0`
+and leave `~/aoe2-install/data/graphics.drs` among others. Treat the unpacked
+files as untrusted: the game only reads its `.drs` archives, and you should not
+run anything from that folder.
+
+## 3. Run it
+
+```sh
+cargo run --release -- --assets ~/aoe2-install
+# or, once and for all:
+export AOE_ASSETS=~/aoe2-install
 cargo run --release
 ```
+
+Without an install the game stops with a message saying how to give it one;
+there is nothing to draw otherwise.
 
 The first build takes a couple of minutes; after that it is seconds. `--release`
 matters: a debug build simulates fine but the window feels sluggish.
 
-You should see a green field, a blue base in the top-left of the map, and a red
-base far to the bottom-right, with a grey wall running between them.
+You should see grass, a town centre and a barracks with blue trim, three
+villagers, and a gold mine. The other base is far to the bottom-right, behind a
+band of forest.
 
-## 3. Controls
+## 4. Controls
 
 | Input | Does |
 | --- | --- |
-| `W` `A` `S` `D` | Pan the camera |
+| Mouse at a screen edge | Scroll the map that way, diagonally in corners |
+| `F10` | Free the mouse from the window (and lock it again) |
 | `Q` / `E`, or mouse wheel | Zoom out / in |
 | Left click a unit | Select it |
 | Left drag | Box-select your units |
@@ -51,42 +82,50 @@ base far to the bottom-right, with a grey wall running between them.
 | Right click an enemy | Attack it |
 | `1` | Train a villager at your town centre (50 gold) |
 | `2` | Train a soldier at your barracks (60 gold) |
-| `Tab` | Hand the keyboard to the other player |
+| `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit |
 
-The overlay in the top-left always tells you whose turn it is, how much gold
-they have, and how many units they have selected.
+The mouse is held inside the window while you play, so pushing against an edge
+scrolls the map, as in the original. Press `F10` to reach other programs; edge
+scrolling stops until you press it again.
+
+The overlay in the top-left always tells you whose turn it is, their food,
+wood, gold, and stone, and how many units they have selected.
 
 Each player has their own camera and their own selection, so `Tab` really is a
-handover: your view and your selected units are still there when you `Tab` back.
+handover: your view and your selected units are still there when you come back.
 
-## 4. Play the first game in three minutes
+## 5. Play the first game in three minutes
 
-1. **Gather.** Box-select your three villagers. Right click the yellow 2x2 gold
-   mine near your base. They will walk over, mine a load of ten gold, carry it
-   back to the town centre, deposit it, and go again — one order, no
-   micromanagement. A villager carrying gold shows a small yellow nugget.
+1. **Gather.** Box-select your three villagers. Right click the gold mine near
+   your base. They walk over, mine a load of ten gold, carry it back to the
+   town centre, deposit it, and go again: one order, no micromanagement.
 2. **Grow.** Once you are above 50 gold, press `1` a few times to queue
-   villagers. Gold is charged when you queue, not when the unit pops, so you
+   villagers. Gold is charged when you queue, not when the unit appears, so you
    cannot queue five units on one unit's worth of gold.
-3. **Build an army.** Press `2` to train soldiers at the barracks (the smaller
-   3x3 building next to your town centre).
-4. **Switch sides.** Press `Tab` and do the same for the red player.
+3. **Build an army.** Press `2` to train soldiers at the barracks.
+4. **Switch sides.** Press `Tab` and do the same for the other player.
 5. **Fight.** Select some soldiers, right click an enemy unit or building. They
-   will walk into range and start hitting it. Health bars appear above anything
-   that has taken damage.
-6. **Win.** A player loses when all of their buildings are destroyed. The
-   overlay announces the winner, and the simulation keeps running afterwards so
-   you can watch the mopping up.
+   walk into range and start hitting it. Health bars appear above anything that
+   has taken damage.
+6. **Win.** A player is out when all of their buildings are destroyed; the last
+   player left wins. The overlay announces the winner, and the simulation keeps
+   running afterwards.
 
-The wall across the middle of the map has two gaps in it. Ordering a group of
+The forest across the middle of the map has two gaps in it. Ordering a group of
 units to the far side is the fastest way to see the pathfinding work: one order
 to twenty units builds one flow field, not twenty paths.
 
-## 5. Record and replay a game
+## 6. Change the numbers
 
-The simulation is deterministic, so a recording is just the seed, the map, and
-the commands — nothing about positions is stored.
+Unit and building numbers come from `crates/app/content/default.ron`, built into
+the binary. Copy it, change a number, and run with `--content my.ron`. A broken
+file is an error message, never a crash.
+
+## 7. Record and replay a game
+
+The simulation is deterministic, so a recording is just the seed, the map, the
+content, and the commands; nothing about positions is stored.
 
 ```sh
 # Play, and write everything you did to a file.
@@ -95,47 +134,44 @@ cargo run --release -- --record my-game.replay
 # Watch it back. Camera controls still work; your clicks do not.
 cargo run --release -- --play my-game.replay
 
-# Check a recording without opening a window. Prints the first divergence,
-# if any, and exits non-zero.
+# Check a recording without opening a window or needing the game's data.
+# Prints the first divergence, if any, and exits non-zero.
 cargo run --release -- --verify my-game.replay
 ```
 
 `--seed N` starts a specific game; the default is 24065.
 
 Quit with `Esc` rather than closing the window: the recording is written on the
-way out, so killing the process loses it.
+way out, so killing the process loses it. A replay from an older build is
+refused with a message naming both format versions.
 
 If `--verify` ever reports a desync, that is a real bug and the replay file is
 the whole bug report. Attach it to the issue.
 
-## 6. Run the tests
+## 8. Run the tests
 
 ```sh
-# Everything, headless — no window, no GPU. This is what CI runs.
+# Everything, headless: no window, no GPU, no game data. This is what CI runs.
 cargo test --workspace --no-default-features
 
 # The tick budget: 200 units on a 128x128 map, target under 5 ms.
 cargo bench -p sim
 ```
 
-The `--no-default-features` flag turns off the `window` feature, which is what
-lets the whole test suite — including the drawing code — run on a machine with
-no display. The drawing tests assert against a `RecordingRenderer` that captures
-draw calls into a vector instead of putting pixels on a screen.
+The drawing tests assert against a `RecordingRenderer` that captures draw calls
+instead of putting pixels on a screen, with fake sprites. The asset readers are
+tested with archives and sprites built byte by byte in the tests.
 
-Current benchmark numbers on a developer laptop, for reference: about 45 µs per
-tick with 200 units moving, and about 275 µs to build one flow field. Both are
-comfortably inside budget.
+Benchmark numbers are recorded in [`docs/benchmarks.md`](docs/benchmarks.md).
 
-## 7. Where the code lives
-
-Three crates, and the boundaries between them are enforced by the compiler:
+## 9. Where the code lives
 
 ```
 crates/
   sim/      the simulation. No floats, no I/O, no clock, no threads.
-  render/   quads, lines, text, camera, input. Does not know what a unit is.
-  app/      the binary. The only place sim and render meet.
+  render/   sprites, lines, text, camera, input. Does not know what a unit is.
+  assets/   readers for the original's DRS archives, palette, and SLP sprites.
+  app/      the binary. The only place sim, render, and assets meet.
 ```
 
 - **`sim`** is a pure state machine: `World::new(seed, map)`, then
@@ -145,20 +181,20 @@ crates/
 - **`render`** deliberately cannot see `sim`. That is why translating game state
   into draw calls happens in `app/src/draw.rs`, and why the draw logic is
   testable without a window.
+- **`assets`** parses byte slices and nothing else: no files, no game logic.
 - **`app`** owns the fixed-timestep loop, the camera, selection, hotseat
-  switching, and replay files.
+  switching, loading the sprites, and replay and content files.
 
 Good places to start reading, in order: `crates/sim/src/world.rs` (the tick and
 its phases), `crates/sim/src/path.rs` (flow fields and A*), then
 `crates/app/src/session.rs` (clicks into commands).
 
-## 8. Known limits
+## 10. Known limits
 
-These are deferred on purpose, each to its own spec — they are not bugs:
+These are planned, each in its own phase of the plan; they are not bugs:
 
 no AI opponent, no fog of war, no building construction in game, no networking,
-no sound, two unit types only, no tech tree, no save/load, no map editor.
-
-Unit statistics live in `crates/sim/src/entity.rs` as plain tables rather than
-RON data files. They are shaped so that loading them from RON later changes
-where the table comes from and nothing else.
+no sound, two unit types only, only gold can be gathered, no tech tree, no
+save/load, no map editor. Units show one still frame facing south, the town
+centre is only its upper section, and the view is top-down rather than the
+original's isometric one.

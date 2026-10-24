@@ -2,4 +2,7 @@
 **/*.rs.bk
 *.replay
 reverse/*
+# Our notes and tools are tracked; decompiled output and game data are not.
+!reverse/README.md
+!reverse/tools/
 sample/*

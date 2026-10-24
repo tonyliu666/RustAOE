@@ -172,7 +172,7 @@ direction, sound, other terrain types, and the isometric view.
 | 1. Edge scrolling | `crates/app/tests/camera_controller.rs` (edges, corners, centre-to-cursor direction, outside window, unseen cursor, drag); screenshots show no drift with the mouse outside the window |
 | 2. Original sprites | Screenshot with `--assets /tmp/aoe2-install`: real grass in 16 variations, town centre (901) and barracks (131) with player 1's blue trim, male villagers (1473), all upright; start zoom 48 px per tile, one screen pixel per sprite pixel for units |
 | 3. Without `--assets` | Runs as before (shapes); `--assets` on a missing folder exits 1 with `.../data/interfac.drs: No such file or directory` |
-| 4. Tests and clippy | `cargo test --workspace`: 309 passed, 0 failed; clippy clean with and without the window feature. No asset file is committed |
+| 4. Tests and clippy | `cargo test --workspace`: 309 passed at that point (305 after the follow-up, 328 after the review fixes), 0 failed; clippy clean with and without the window feature. No asset file is committed |
 
 Also fixed on the way: ground under buildings and mines is drawn as grass,
 not rock (`ground_under_a_building_is_grass_not_rock`).
@@ -205,3 +205,32 @@ is a rectangle behind the sprite.
   player).
 - **Kept, as in the original:** health bars (the only filled rectangles,
   checked by `the_only_filled_rectangles_are_health_bars`) and the drag box.
+
+## Review fixes (2026-10-24)
+
+From the end-of-stage code review and direction check:
+
+- **Mouse locked to the window** (user's choice). macroquad 0.4 never updates
+  the cursor when it leaves the window (`mouse_leave_event` only releases
+  buttons), so a mouse that left through an edge kept scrolling the map. The
+  cursor is now grabbed while playing, as AoE2's "lock mouse to window" does;
+  F10 frees it, and edge scrolling is off while it is free
+  (`Session::mouse_locked`, `CameraController::set_edge_scroll`).
+- **Damaged sprites cannot crash or exhaust memory.** `Slp::parse` rejects
+  frames over `MAX_FRAME_SIDE` (4096) a side and row tables that run past the
+  end of the file, before anything is allocated; `load_texture` asserts its
+  size instead of truncating it. All 1,768 real sprites still decode.
+- **Damaged terrain cannot crash.** No grass frames, an empty frame, or a
+  zero-width unit sprite is `AssetError::EmptySprite` at startup;
+  `unskew_tile` returns a transparent square for an empty input.
+- **Clicks select what is drawn.** Picking tests against each kind's drawn
+  body (`pick::Bodies`, built by `Sprites::bodies` with the drawing's own
+  placement); where bodies overlap, the one in front wins; a drag box selects
+  units whose bodies it touches.
+- **Loading is tested end to end** with a fake install written by the tests
+  (`tests/common`, `tests/install.rs`): player N's slot holds player N's
+  colours, neutral objects use Gaia's.
+
+The original's archive functions, as promised in the reference note:
+`FUN_00543370` opens a DRS archive, `FUN_00543630` finds a file by type and
+ID in the first open archive that has it, `FUN_00543580` closes them.

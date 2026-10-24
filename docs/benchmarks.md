@@ -31,5 +31,5 @@ Property tests from the spec's testing section, all present:
 | Gold conservation | `determinism.rs::gold_is_never_created_or_destroyed` |
 | Fixed-point round-trip | `fx_properties.rs::multiplication_then_division_round_trips` |
 
-Re-run this benchmark at the end of Phase 5 (larger roster), as the plan
-requires.
+Re-run this benchmark at the end of Phase 6 (unit roster and combat), as the
+plan requires.
