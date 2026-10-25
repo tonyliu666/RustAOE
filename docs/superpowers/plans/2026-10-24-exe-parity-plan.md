@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
 **Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
-**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 done (steps 1 to 6, with 5b, drawing in parts, and 5c, range between edges, and its end-of-phase review fixes). Next: split presentation-only fields out of replayed content, then Phase 2. Phase 1.6 finishes before more interface work.
+**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 done (steps 1 to 6, with 5b, drawing in parts, and 5c, range between edges, and its end-of-phase review fixes). Presentation-only fields are split out of replayed content (replay format 8). Phase 2 next. Phase 1.6 finishes before more interface work.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
@@ -244,7 +244,7 @@ From the Phase 1 review, accepted as minor and not yet fixed:
 
 ## Open questions
 
-- ~~Split presentation-only fields out of replayed content?~~ Yes, decided by the user on 2026-10-25: `sprite`, `parts`, and `icon` live in the `Content` every replay embeds, so each new one is a replay break, and Phase 2 and Phase 8 will add more. Split them out as a step of its own before Phase 2.
+- ~~Split presentation-only fields out of replayed content?~~ Yes, decided by the user on 2026-10-25, and done: `sim::Content` holds only how a type plays; how it looks (`sprite`, `parts`, `icon`) is `app::Looks`, read from the same content file and matched to a replay's types by name, so a picture change never breaks a recording. Replay format 8.
 - **The train queue's limit:** today 5. It is not in the `.dat` and was not found among the strings; find it in the decompile.
 - **Fixed button positions:** the `.dat` gives each trainable unit a button (the militia 1, the spearman 2 in the barracks); `datconv` reads it to order `trains`, but content has no button field and the panel fills buttons in list order. With Phase 8, or with the presentation-field split.
 - **Annex offsets:** a building's annex sprites are drawn at the building's point without the annexes' tile offsets, judged by eye (Phase 1.6 step 5b). Confirm from the decompile.

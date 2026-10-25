@@ -34,8 +34,10 @@ impl Replay {
     /// Version 3 was the first with unit and building types as data;
     /// version 4 adds each type's interface `icon`; version 5 each type's
     /// `parts`; version 6 measures attack range between edges; version 7
-    /// gives each part a pixel offset.
-    pub const FORMAT_VERSION: u32 = 7;
+    /// gives each part a pixel offset; version 8 leaves how each type looks
+    /// (sprite, parts, icon) out of the content a replay carries, so that
+    /// changing a picture never breaks a recording again.
+    pub const FORMAT_VERSION: u32 = 8;
 
     /// How often the checksum is sampled during recording.
     ///

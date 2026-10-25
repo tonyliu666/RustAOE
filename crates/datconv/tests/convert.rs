@@ -30,8 +30,8 @@ fn placed_graphic(id: i16, slp: i32, pieces: &[(i16, i16, i16)]) -> Option<Graph
 }
 
 /// The SLPs of a type's parts, all at one point, as `Part`s.
-fn at_one_point(slps: &[u32]) -> Vec<sim::Part> {
-    slps.iter().map(|&slp| sim::Part::new(slp, 0, 0)).collect()
+fn at_one_point(slps: &[u32]) -> Vec<app::Part> {
+    slps.iter().map(|&slp| app::Part::new(slp, 0, 0)).collect()
 }
 
 /// SLPs the fake install lacks, as the real one lacks the villager's idle
@@ -232,31 +232,33 @@ fn the_default_conversion_writes_the_four_types_the_game_has_under_its_names() {
 fn each_field_is_converted_by_its_rule() {
     let converted = convert_with(&dat(), Selection::Default).expect("converts");
     let content = app::parse_content(&converted.ron).expect("loads and validates");
+    let looks = app::parse_looks(&converted.ron).expect("loads");
     let villager = &content.units[0];
     let soldier = &content.units[1];
+    let unit_look = |name| looks.unit(name).expect("a look");
+    let building_look = |name| looks.building(name).expect("a look");
 
+    assert_eq!(villager.max_hp, 25);
     assert_eq!(
-        (villager.max_hp, villager.sprite, villager.icon),
-        (25, 1479, 15)
+        (unit_look("villager").sprite, unit_look("villager").icon),
+        (1479, 15)
     );
     assert_eq!(villager.train_ticks, 500);
     assert_eq!(villager.cost.food, 50);
     assert_eq!(villager.speed, sim::Fx::from_frac(1, 8));
     assert_eq!((villager.damage, villager.attack_cooldown), (3, 40));
     assert_eq!(villager.radius, sim::Fx::from_frac(1, 4));
-    assert_eq!((soldier.max_hp, soldier.sprite, soldier.icon), (40, 993, 8));
+    assert_eq!(soldier.max_hp, 40);
+    assert_eq!(
+        (unit_look("soldier").sprite, unit_look("soldier").icon),
+        (993, 8)
+    );
     assert_eq!((soldier.cost.food, soldier.cost.gold), (60, 20));
     assert_eq!((soldier.damage, soldier.train_ticks), (4, 420));
     let town_centre = &content.buildings[0];
-    assert_eq!(
-        (
-            town_centre.max_hp,
-            town_centre.sprite,
-            town_centre.icon,
-            town_centre.size
-        ),
-        (2400, 3596, 28, 4)
-    );
+    assert_eq!((town_centre.max_hp, town_centre.size), (2400, 4));
+    let look = building_look("town_center");
+    assert_eq!((look.sprite, look.icon), (3596, 28));
     assert_eq!(content.buildings[1].size, 3);
 }
 
@@ -365,7 +367,7 @@ fn every_value_that_was_rounded_is_reported() {
 fn a_type_drawn_in_pieces_gets_its_pieces_and_annexes_as_parts() {
     // The town centre: its graphic's pieces in order (the piece the install
     // lacks left out, -1 its own SLP), then its annex's.
-    let content = app::parse_content(
+    let looks = app::parse_looks(
         &convert_with(&dat(), Selection::Default)
             .expect("converts")
             .ron,
@@ -373,7 +375,7 @@ fn a_type_drawn_in_pieces_gets_its_pieces_and_annexes_as_parts() {
     .expect("loads");
 
     assert_eq!(
-        content.buildings[0].parts,
+        looks.building("town_center").expect("a look").parts,
         at_one_point(&[889, 3596, 4612, 891])
     );
 }
@@ -382,19 +384,16 @@ fn a_type_drawn_in_pieces_gets_its_pieces_and_annexes_as_parts() {
 fn a_type_that_is_only_its_own_sprite_has_no_parts() {
     // The villager's other pieces are in no archive, and the barracks names
     // only itself: each is drawn with its sprite alone.
-    let content = app::parse_content(
+    let looks = app::parse_looks(
         &convert_with(&dat(), Selection::Default)
             .expect("converts")
             .ron,
     )
     .expect("loads");
 
-    assert!(
-        content.units[0].parts.is_empty(),
-        "{:?}",
-        content.units[0].parts
-    );
-    assert!(content.buildings[1].parts.is_empty());
+    let villager = &looks.unit("villager").expect("a look").parts;
+    assert!(villager.is_empty(), "{villager:?}");
+    assert!(looks.building("barracks").expect("a look").parts.is_empty());
 }
 
 #[test]
@@ -514,7 +513,7 @@ fn a_pieces_pixel_offset_is_kept_and_a_nested_piece_followed() {
         .push(placed_graphic(16, 889, &[(-1, 0, 0), (17, 1, 0)]));
     dat.graphics.push(placed_graphic(17, 4612, &[]));
 
-    let content = app::parse_content(
+    let looks = app::parse_looks(
         &convert_with(&dat, Selection::Default)
             .expect("converts")
             .ron,
@@ -522,11 +521,11 @@ fn a_pieces_pixel_offset_is_kept_and_a_nested_piece_followed() {
     .expect("loads");
 
     assert_eq!(
-        content.buildings[1].parts,
+        looks.building("barracks").expect("a look").parts,
         [
-            sim::Part::new(2683, 0, 0),
-            sim::Part::new(889, -2, 5),
-            sim::Part::new(4612, -1, 5),
+            app::Part::new(2683, 0, 0),
+            app::Part::new(889, -2, 5),
+            app::Part::new(4612, -1, 5),
         ]
     );
 }

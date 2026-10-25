@@ -27,8 +27,9 @@ usage: aoe [--record FILE] [--play FILE] [--verify FILE] [--content FILE] [--ass
   --record FILE  write this session's commands to FILE
   --play FILE    replay FILE instead of reading input
   --verify FILE  replay FILE without a window and check its checksums
-  --content FILE read unit and building numbers from FILE (RON); a
-                 replay always uses the numbers it was recorded with
+  --content FILE read unit and building numbers and pictures from FILE
+                 (RON); a replay always plays by the numbers it was
+                 recorded with, and is drawn with FILE's pictures
   --assets DIR   the extracted Age of Empires II install to draw with (the
                  folder holding data/graphics.drs); defaults to $AOE_ASSETS
   --seed N       seed the simulation (default 24065)
@@ -107,6 +108,10 @@ mod game {
         /// Numbers for a new game. `None` during playback, which uses the
         /// replay's own.
         pub content: Option<Content>,
+        /// How each type looks, by name: from `--content` or the built-in
+        /// file, in a new game and in playback alike, since a replay carries
+        /// no pictures.
+        pub looks: app::Looks,
         pub record: Option<PathBuf>,
         pub play: Option<PathBuf>,
         /// The extracted install to take sprites from.
@@ -138,7 +143,8 @@ mod game {
         // Decoded once and uploaded now that the window, and with it the
         // graphics context, exists. A bad install is an error at startup,
         // not a crash mid-game.
-        let sprites = app::load_images(&config.assets, &content)?.upload(&mut renderer);
+        let sprites =
+            app::load_images(&config.assets, &content, &config.looks)?.upload(&mut renderer);
         let mut input_source = MacroquadInput::new();
         let mut session = Session::new(
             Camera::new(Vec2::ZERO, START_ZOOM, MacroquadRenderer::viewport()),
@@ -242,9 +248,11 @@ mod game {
 async fn start(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
     let assets = app::assets_dir(options.assets.as_deref(), std::env::var_os("AOE_ASSETS"))?;
     let content = app::new_game_content(options.play.is_some(), options.content.as_deref())?;
+    let looks = app::game_looks(options.content.as_deref())?;
     game::run(game::Config {
         seed: options.seed,
         content,
+        looks,
         record: options.record.clone(),
         play: options.play.clone(),
         assets,

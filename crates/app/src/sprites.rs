@@ -6,12 +6,13 @@
 //! textures. See `docs/superpowers/specs/2026-10-24-prestage-edge-scroll-and-real-sprites.md`
 //! for how the sprite IDs below were chosen.
 
+use crate::looks::{Looks, Part};
 use crate::pick::{Bodies, Body};
 use assets::{
     Drs, DrsError, Image, Palette, PaletteError, Slp, SlpError, ARCHIVE_ORDER, MAX_FRAME_SIDE,
 };
 use render::{Renderer, TextureId, Vec2};
-use sim::{BuildingKind, Content, Part, PlayerId, UnitKind};
+use sim::{BuildingKind, Content, PlayerId, UnitKind};
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
@@ -255,6 +256,11 @@ pub enum AssetError {
         entry: String,
         frame: u32,
     },
+    /// A type has no look: a replay's type the content the game was started
+    /// with does not have, by name.
+    NoLook {
+        entry: String,
+    },
     /// A content entry's parts are placed so far apart that together they
     /// would make a sprite larger than any may be: a damaged hotspot.
     PartsTooFarApart {
@@ -291,6 +297,10 @@ impl fmt::Display for AssetError {
             AssetError::EmptyIcon { entry, frame } => write!(
                 f,
                 "content entry `{entry}` names icon {frame}, which has no pixels to draw"
+            ),
+            AssetError::NoLook { entry } => write!(
+                f,
+                "type `{entry}` has no sprite or icon in the content the game was started with"
             ),
             AssetError::PartsTooFarApart { entry } => write!(
                 f,
@@ -389,7 +399,7 @@ impl Archives {
 /// `data/terrain.drs`, plus the original's other archives where present,
 /// searched in the original's order. Each unit and building type is drawn with the sprite
 /// its `content` entry names.
-pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetError> {
+pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameImages, AssetError> {
     let archives = Archives::read(dir)?;
     let palette = Palette::parse(archives.get("bina", PALETTE)?).map_err(AssetError::Palette)?;
 
@@ -500,31 +510,52 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Each type's look, found by its name, in the content's order.
+    let no_look = |entry: &str| AssetError::NoLook {
+        entry: entry.to_string(),
+    };
+    let unit_looks = content
+        .units
+        .iter()
+        .map(|u| {
+            looks
+                .unit(&u.name)
+                .map(|l| (u.name.as_str(), l))
+                .ok_or_else(|| no_look(&u.name))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let building_looks = content
+        .buildings
+        .iter()
+        .map(|b| {
+            looks
+                .building(&b.name)
+                .map(|l| (b.name.as_str(), l))
+                .ok_or_else(|| no_look(&b.name))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(GameImages {
         grass,
         tree: neutral(TREE)?,
         gold_mine: neutral(GOLD_MINE)?,
         interface: neutral(INTERFACE)?,
-        unit_icons: content
-            .units
+        unit_icons: unit_looks
             .iter()
-            .map(|u| icon(&unit_icons, UNIT_ICONS, &u.name, u.icon))
+            .map(|(name, look)| icon(&unit_icons, UNIT_ICONS, name, look.icon))
             .collect::<Result<_, _>>()?,
-        building_icons: content
-            .buildings
+        building_icons: building_looks
             .iter()
-            .map(|b| icon(&building_icons, BUILDING_ICONS, &b.name, b.icon))
+            .map(|(name, look)| icon(&building_icons, BUILDING_ICONS, name, look.icon))
             .collect::<Result<_, _>>()?,
         progress,
-        units: content
-            .units
+        units: unit_looks
             .iter()
-            .map(|u| per_player(&u.name, u.sprite, &u.parts))
+            .map(|(name, look)| per_player(name, look.sprite, &look.parts))
             .collect::<Result<_, _>>()?,
-        buildings: content
-            .buildings
+        buildings: building_looks
             .iter()
-            .map(|b| per_player(&b.name, b.sprite, &b.parts))
+            .map(|(name, look)| per_player(name, look.sprite, &look.parts))
             .collect::<Result<_, _>>()?,
     })
 }

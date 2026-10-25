@@ -617,31 +617,6 @@ fn the_built_in_map_needs_a_town_centre_and_says_so() {
 // --- icons ------------------------------------------------------------------
 
 #[test]
-fn the_default_types_carry_the_originals_icons() {
-    // Frames in the original's icon sprites: units in interfac.drs 50730,
-    // buildings in 50705. Picked by eye; Phase 1.6 confirms them against the
-    // .dat's icon IDs.
-    let content = Content::default();
-
-    assert_eq!(content.unit(UnitKind::VILLAGER).icon, 15);
-    assert_eq!(content.unit(UnitKind::SOLDIER).icon, 8);
-    assert_eq!(content.building(BuildingKind::TOWN_CENTER).icon, 28);
-    assert_eq!(content.building(BuildingKind::BARRACKS).icon, 2);
-}
-
-#[test]
-fn the_default_soldier_looks_like_the_militia_in_the_world_and_on_its_button() {
-    // Read from the militia's entry in the .dat (unit 74): standing graphic
-    // 1102, SPRMN_FN, whose SLP is 993; icon 8. The names mislead: SWDMN_FN
-    // (SLP 1044) is the man-at-arms, and SLP 1181, used before, is the
-    // two-handed swordsman, so the button and the unit it trained did not
-    // match.
-    let soldier = Content::default().unit(UnitKind::SOLDIER).clone();
-
-    assert_eq!((soldier.sprite, soldier.icon), (993, 8));
-}
-
-#[test]
 fn the_default_villager_costs_food_as_the_originals_does() {
     // 50 food, as the original's .dat (unit 83) has it; the soldier keeps
     // its 60 gold until Phase 2.
@@ -655,29 +630,4 @@ fn the_default_villager_costs_food_as_the_originals_does() {
         }
     );
     assert_eq!(content.unit(UnitKind::SOLDIER).cost.gold, 60);
-}
-
-#[test]
-fn the_default_buildings_are_drawn_as_the_originals_dark_age_british_ones() {
-    // From the .dat: the barracks (unit 12) stands with SLP 2683, one piece;
-    // the town centre (unit 109) is its own graphic's pieces (889, 3596,
-    // 4612; 890 is in no archive) and its three annexes' (891; 3595, 4611;
-    // 3594, 4610), drawn at one point in that order.
-    let content = Content::default();
-    let barracks = content.building(BuildingKind::BARRACKS);
-    let town_centre = content.building(BuildingKind::TOWN_CENTER);
-
-    assert_eq!(
-        (barracks.sprite, barracks.parts.as_slice()),
-        (2683, &[][..])
-    );
-    assert_eq!(town_centre.sprite, 3596);
-    let at_one_point = |slps: &[u32]| -> Vec<sim::Part> {
-        slps.iter().map(|&slp| sim::Part::new(slp, 0, 0)).collect()
-    };
-    assert_eq!(
-        town_centre.parts,
-        at_one_point(&[889, 3596, 4612, 891, 3595, 4611, 3594, 4610])
-    );
-    assert!(content.unit(UnitKind::VILLAGER).parts.is_empty());
 }

@@ -26,19 +26,6 @@ pub struct Content {
 pub struct UnitStats {
     /// Unique among unit types; how content files refer to this one.
     pub name: String,
-    /// The sprite the application draws it with: an SLP ID in the
-    /// original's `data/graphics.drs`. Not an entry in the original's `.dat`
-    /// graphics table, which names an SLP plus extra pieces; the Phase 1.6
-    /// converter resolves those to SLP IDs.
-    pub sprite: u32,
-    /// When not empty, the SLPs drawn instead of `sprite` alone, in order,
-    /// as the original draws a graphic's pieces and a building's annexes:
-    /// each at the unit's ground point plus its offset, placed by its own
-    /// hotspot.
-    pub parts: Vec<Part>,
-    /// Its button in the interface: a frame in the original's unit icons,
-    /// `interfac.drs` 50730.
-    pub icon: u32,
     /// May take a gather order and carry a load.
     pub gathers: bool,
     pub max_hp: i32,
@@ -59,34 +46,11 @@ pub struct UnitStats {
     pub train_ticks: u32,
 }
 
-/// One sprite of a type drawn in parts: an SLP, and how far from the unit's
-/// ground point it is drawn, in sprite pixels, right and down.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct Part {
-    pub slp: u32,
-    pub offset: [i32; 2],
-}
-
-impl Part {
-    pub const fn new(slp: u32, x: i32, y: i32) -> Part {
-        Part {
-            slp,
-            offset: [x, y],
-        }
-    }
-}
-
 /// Numbers for a building type.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct BuildingStats {
     /// Unique among building types.
     pub name: String,
-    /// SLP ID in the original's `data/graphics.drs`, as for units.
-    pub sprite: u32,
-    /// The SLPs drawn instead of `sprite` alone, as for units.
-    pub parts: Vec<Part>,
-    /// A frame in the original's building icons, `interfac.drs` 50705.
-    pub icon: u32,
     /// Footprint side in tiles; the footprint is square.
     pub size: i32,
     pub max_hp: i32,
@@ -351,9 +315,6 @@ impl Default for Content {
                 // 2.5 tiles per second at 20 Hz.
                 UnitStats {
                     name: "villager".to_string(),
-                    sprite: 1473,
-                    parts: Vec::new(),
-                    icon: 15,
                     gathers: true,
                     max_hp: 40,
                     speed: Fx::from_frac(1, 8),
@@ -368,13 +329,8 @@ impl Default for Content {
                     },
                     train_ticks: 100,
                 },
-                // The militia (unit 74 in the .dat): graphic SPRMN_FN standing,
-                // and its icon.
                 UnitStats {
                     name: "soldier".to_string(),
-                    sprite: 993,
-                    parts: Vec::new(),
-                    icon: 8,
                     gathers: false,
                     max_hp: 60,
                     speed: Fx::from_frac(1, 8),
@@ -393,15 +349,6 @@ impl Default for Content {
             buildings: vec![
                 BuildingStats {
                     name: "town_center".to_string(),
-                    // The Dark Age British town centre, unit 109 in the .dat: its
-                    // graphic's pieces (890 is in no archive) and its three
-                    // annexes', drawn at one point.
-                    sprite: 3596,
-                    parts: [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]
-                        .into_iter()
-                        .map(|slp| Part::new(slp, 0, 0))
-                        .collect(),
-                    icon: 28,
                     size: 4,
                     max_hp: 1000,
                     drop_off: true,
@@ -409,10 +356,6 @@ impl Default for Content {
                 },
                 BuildingStats {
                     name: "barracks".to_string(),
-                    // The Dark Age British barracks, unit 12: one piece.
-                    sprite: 2683,
-                    parts: Vec::new(),
-                    icon: 2,
                     size: 3,
                     max_hp: 600,
                     drop_off: false,

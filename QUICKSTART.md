@@ -255,6 +255,12 @@ Quit with `Esc` rather than closing the window: the recording is written on the
 way out, so killing the process loses it. A replay from an older build is
 refused with a message naming both format versions.
 
+A replay holds how the game plays (every number in the content), not how it
+looks: it is drawn with the sprites and icons of the content you start it
+with (`--content`, or the built-in one), matched by type name. Changing a
+picture never breaks a recording; a recorded type your content has no picture
+for is an error naming it.
+
 If `--verify` ever reports a desync, that is a real bug and the replay file is
 the whole bug report. Attach it to the issue.
 

@@ -5,10 +5,9 @@
 //! patterns. Parsing, conversion, and validation all happen here, once, at
 //! startup; the simulation only ever sees a checked `Content`.
 
+use crate::looks::{Look, Looks, Part};
 use serde::Deserialize;
-use sim::{
-    BuildingStats, Content, ContentError, Fx, GatherStats, Part, Resources, UnitKind, UnitStats,
-};
+use sim::{BuildingStats, Content, ContentError, Fx, GatherStats, Resources, UnitKind, UnitStats};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -64,6 +63,30 @@ pub fn parse_content(text: &str) -> Result<Content, ContentFileError> {
 /// Reads a content file from disk. See [`parse_content`].
 pub fn load_content(path: &Path) -> Result<Content, ContentFileError> {
     parse_content(&fs::read_to_string(path)?)
+}
+
+/// How each type in RON text looks, by name. The same file as
+/// [`parse_content`] reads: a content file says both how a type plays and
+/// how it looks, and the two are kept apart once read (see `looks`).
+pub fn parse_looks(text: &str) -> Result<Looks, ContentFileError> {
+    let file: ContentFile =
+        ron::from_str(text).map_err(|error| ContentFileError::Malformed(error.to_string()))?;
+    Ok(file.looks())
+}
+
+/// How each type in the built-in content looks.
+pub fn default_looks() -> Looks {
+    parse_looks(DEFAULT_CONTENT).expect("the built-in content parses")
+}
+
+/// How the game draws each type: from `path` if given, otherwise the
+/// built-in file. The same in a new game and in playback, which draws a
+/// replay's types with these looks, matched by name.
+pub fn game_looks(path: Option<&Path>) -> Result<Looks, ContentFileError> {
+    match path {
+        Some(path) => parse_looks(&fs::read_to_string(path)?),
+        None => Ok(default_looks()),
+    }
 }
 
 /// The content a new game starts with: `path` if given, otherwise the
@@ -153,6 +176,26 @@ struct GatherFile {
 }
 
 impl ContentFile {
+    fn looks(&self) -> Looks {
+        let look = |sprite: u32, file: &[PartFile], icon: u32| Look {
+            sprite,
+            parts: parts(file.to_vec()),
+            icon,
+        };
+        Looks {
+            units: self
+                .units
+                .iter()
+                .map(|u| (u.name.clone(), look(u.sprite, &u.parts, u.icon)))
+                .collect(),
+            buildings: self
+                .buildings
+                .iter()
+                .map(|b| (b.name.clone(), look(b.sprite, &b.parts, b.icon)))
+                .collect(),
+        }
+    }
+
     fn into_content(self) -> Result<Content, ContentError> {
         let units = self
             .units
@@ -202,9 +245,6 @@ impl UnitFile {
             },
             train_ticks: self.train_ticks,
             gathers: self.gathers,
-            sprite: self.sprite,
-            parts: parts(self.parts),
-            icon: self.icon,
             name: self.name,
         })
     }
@@ -227,9 +267,6 @@ impl BuildingFile {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(BuildingStats {
             name: self.name,
-            sprite: self.sprite,
-            parts: parts(self.parts),
-            icon: self.icon,
             size: self.size,
             max_hp: self.max_hp,
             drop_off: self.drop_off,

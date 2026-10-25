@@ -11,7 +11,8 @@ use sim::{BuildingKind, Content, PlayerId, UnitKind};
 #[test]
 fn each_player_slot_holds_that_players_colours() {
     let dir = install("colours", graphics(&[]), slp(2, 2, &TWO_PIXELS));
-    let images = load_images(&dir, &Content::default()).expect("a complete install loads");
+    let images =
+        load_images(&dir, &Content::default(), &looks()).expect("a complete install loads");
     let mut renderer = RecordingRenderer::new();
 
     let sprites = images.upload(&mut renderer);
@@ -37,7 +38,7 @@ fn neutral_objects_are_drawn_in_gaias_colours() {
     let dir = install("neutral", graphics(&[]), slp(1, 2, &TWO_PIXELS));
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &Content::default())
+    let sprites = load_images(&dir, &Content::default(), &looks())
         .expect("loads")
         .upload(&mut renderer);
 
@@ -52,7 +53,7 @@ fn neutral_objects_are_drawn_in_gaias_colours() {
 fn grass_with_no_frames_is_an_error_rather_than_a_crash_while_drawing() {
     let dir = install("no-grass", graphics(&[]), slp(0, 2, &TWO_PIXELS));
 
-    let result = load_images(&dir, &Content::default());
+    let result = load_images(&dir, &Content::default(), &looks());
 
     assert!(
         matches!(result, Err(AssetError::EmptySprite { id: 15001 })),
@@ -66,7 +67,7 @@ fn grass_with_no_frames_is_an_error_rather_than_a_crash_while_drawing() {
 fn an_empty_grass_frame_is_an_error_rather_than_a_crash() {
     let dir = install("empty-grass", graphics(&[]), slp(1, 0, &[0x0F]));
 
-    let result = load_images(&dir, &Content::default());
+    let result = load_images(&dir, &Content::default(), &looks());
 
     assert!(
         matches!(result, Err(AssetError::EmptySprite { id: 15001 })),
@@ -84,7 +85,7 @@ fn a_unit_sprite_with_no_width_is_an_error_rather_than_an_infinite_scale() {
         slp(1, 2, &TWO_PIXELS),
     );
 
-    let result = load_images(&dir, &Content::default());
+    let result = load_images(&dir, &Content::default(), &looks());
 
     assert!(
         matches!(result, Err(AssetError::EmptySprite { id: 1473 })),
@@ -94,31 +95,40 @@ fn a_unit_sprite_with_no_width_is_an_error_rather_than_an_infinite_scale() {
     remove(&dir);
 }
 
-/// The default content plus an archer drawn with sprite 7777.
-fn with_archer() -> (Content, UnitKind) {
+/// How the default content looks.
+fn looks() -> app::Looks {
+    app::default_looks()
+}
+
+/// The default content plus an archer, and its look: drawn with sprite
+/// 7777.
+fn with_archer() -> (Content, app::Looks, UnitKind) {
     let mut content = Content::default();
     let mut archer = content.unit(UnitKind::SOLDIER).clone();
     archer.name = "archer".to_string();
-    archer.sprite = 7777;
     content.units.push(archer);
     let kind = content.unit_named("archer").expect("added");
     content
         .building_mut(BuildingKind::BARRACKS)
         .trains
         .push(kind);
-    (content, kind)
+    let mut looks = looks();
+    let mut look = looks.unit("soldier").expect("the soldier's look").clone();
+    look.sprite = 7777;
+    looks.units.insert("archer".to_string(), look);
+    (content, looks, kind)
 }
 
 #[test]
 fn a_unit_type_added_in_content_is_drawn_with_the_sprite_its_entry_names() {
-    let (content, archer) = with_archer();
+    let (content, looks, archer) = with_archer();
     let mut files = graphics(&[]);
     // Three pixels wide, so it cannot be mistaken for the two-pixel default.
     files.push((common::SLP, 7777, slp(1, 3, &[3 << 2, 9, 9, 9, 0x0F])));
     let dir = install("archer", files, slp(1, 2, &TWO_PIXELS));
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &content)
+    let sprites = load_images(&dir, &content, &looks)
         .expect("loads")
         .upload(&mut renderer);
 
@@ -129,10 +139,10 @@ fn a_unit_type_added_in_content_is_drawn_with_the_sprite_its_entry_names() {
 
 #[test]
 fn a_sprite_the_install_does_not_have_is_an_error_naming_the_entry() {
-    let (content, _) = with_archer();
+    let (content, looks, _) = with_archer();
     let dir = install("no-archer", graphics(&[]), slp(1, 2, &TWO_PIXELS));
 
-    let result = load_images(&dir, &content);
+    let result = load_images(&dir, &content, &looks);
 
     assert!(
         matches!(&result, Err(AssetError::MissingGraphic { entry, id: 7777 }) if entry == "archer"),
@@ -165,7 +175,7 @@ fn a_sprite_in_an_expansion_archive_overrides_the_base_games_copy() {
     );
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &Content::default())
+    let sprites = load_images(&dir, &Content::default(), &looks())
         .expect("loads")
         .upload(&mut renderer);
 
@@ -189,7 +199,7 @@ fn a_sound_with_a_sprites_id_does_not_hide_the_sprite() {
     );
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &Content::default())
+    let sprites = load_images(&dir, &Content::default(), &looks())
         .expect("loads")
         .upload(&mut renderer);
 
@@ -209,7 +219,7 @@ fn the_interface_image_is_loaded() {
     );
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &Content::default())
+    let sprites = load_images(&dir, &Content::default(), &looks())
         .expect("loads")
         .upload(&mut renderer);
 
@@ -228,7 +238,7 @@ fn an_install_without_the_interface_image_is_an_error() {
         .collect();
     let dir = install("no-interface", files, slp(1, 2, &TWO_PIXELS));
 
-    let result = load_images(&dir, &Content::default());
+    let result = load_images(&dir, &Content::default(), &looks());
 
     assert!(
         matches!(result, Err(AssetError::Missing { id: 51101, .. })),
@@ -249,7 +259,7 @@ fn each_unit_types_icon_is_its_frame_of_the_unit_icons() {
     );
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &Content::default())
+    let sprites = load_images(&dir, &Content::default(), &looks())
         .expect("loads")
         .upload(&mut renderer);
 
@@ -270,11 +280,16 @@ fn each_unit_types_icon_is_its_frame_of_the_unit_icons() {
 
 #[test]
 fn an_icon_frame_the_install_does_not_have_is_an_error_naming_the_entry() {
-    let mut content = Content::default();
-    content.unit_mut(UnitKind::SOLDIER).icon = 99;
+    let mut looks = looks();
+    looks
+        .units
+        .get_mut("soldier")
+        .expect("the soldier's look")
+        .icon = 99;
+    let content = Content::default();
     let dir = install("icon-missing", graphics(&[]), slp(1, 2, &TWO_PIXELS));
 
-    let result = load_images(&dir, &content);
+    let result = load_images(&dir, &content, &looks);
 
     assert!(
         matches!(&result, Err(AssetError::MissingIcon { entry, frame: 99 }) if entry == "soldier"),
@@ -294,7 +309,7 @@ fn each_building_types_icon_is_its_frame_of_the_building_icons() {
     );
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &Content::default())
+    let sprites = load_images(&dir, &Content::default(), &looks())
         .expect("loads")
         .upload(&mut renderer);
 
@@ -310,15 +325,20 @@ fn each_building_types_icon_is_its_frame_of_the_building_icons() {
 
 #[test]
 fn a_building_icon_the_install_does_not_have_is_an_error_naming_the_entry() {
-    let mut content = Content::default();
-    content.building_mut(BuildingKind::BARRACKS).icon = 99;
+    let mut looks = looks();
+    looks
+        .buildings
+        .get_mut("barracks")
+        .expect("the barracks' look")
+        .icon = 99;
+    let content = Content::default();
     let dir = install(
         "building-icon-missing",
         graphics(&[]),
         slp(1, 2, &TWO_PIXELS),
     );
 
-    let result = load_images(&dir, &content);
+    let result = load_images(&dir, &content, &looks);
 
     assert!(
         matches!(&result, Err(AssetError::MissingIcon { entry, frame: 99 }) if entry == "barracks"),
@@ -333,7 +353,7 @@ fn every_frame_of_the_progress_bar_is_loaded_in_order() {
     let dir = install("progress", graphics(&[]), slp(1, 2, &TWO_PIXELS));
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &Content::default())
+    let sprites = load_images(&dir, &Content::default(), &looks())
         .expect("loads")
         .upload(&mut renderer);
 
@@ -357,7 +377,7 @@ fn an_icon_frame_with_no_pixels_is_an_error_naming_the_entry() {
         slp(1, 2, &TWO_PIXELS),
     );
 
-    let result = load_images(&dir, &Content::default());
+    let result = load_images(&dir, &Content::default(), &looks());
 
     assert!(
         matches!(&result, Err(AssetError::EmptyIcon { entry, frame: 15 }) if entry == "villager"),
@@ -369,18 +389,23 @@ fn an_icon_frame_with_no_pixels_is_an_error_naming_the_entry() {
 
 // --- buildings drawn in parts -----------------------------------------------------
 
-fn town_centre_in_parts(parts: Vec<u32>) -> Content {
+fn town_centre_in_parts(parts: Vec<u32>) -> app::Looks {
     let at_one_point = parts
         .into_iter()
-        .map(|slp| sim::Part::new(slp, 0, 0))
+        .map(|slp| app::Part::new(slp, 0, 0))
         .collect();
     town_centre_in_placed_parts(at_one_point)
 }
 
-fn town_centre_in_placed_parts(parts: Vec<sim::Part>) -> Content {
-    let mut content = Content::default();
-    content.building_mut(BuildingKind::TOWN_CENTER).parts = parts;
-    content
+/// How the default content looks with the town centre drawn in `parts`.
+fn town_centre_in_placed_parts(parts: Vec<app::Part>) -> app::Looks {
+    let mut looks = looks();
+    looks
+        .buildings
+        .get_mut("town_center")
+        .expect("the town centre's look")
+        .parts = parts;
+    looks
 }
 
 #[test]
@@ -396,10 +421,11 @@ fn a_type_drawn_in_parts_is_composed_into_one_sprite_around_their_shared_point()
         ]),
         slp(1, 2, &TWO_PIXELS),
     );
-    let content = town_centre_in_parts(vec![7001, 7002]);
+    let looks = town_centre_in_parts(vec![7001, 7002]);
+    let content = Content::default();
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &content)
+    let sprites = load_images(&dir, &content, &looks)
         .expect("loads")
         .upload(&mut renderer);
 
@@ -428,10 +454,11 @@ fn a_later_part_is_drawn_over_an_earlier_one() {
         ]),
         slp(1, 2, &TWO_PIXELS),
     );
-    let content = town_centre_in_parts(vec![7001, 7002]);
+    let looks = town_centre_in_parts(vec![7001, 7002]);
+    let content = Content::default();
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &content)
+    let sprites = load_images(&dir, &content, &looks)
         .expect("loads")
         .upload(&mut renderer);
 
@@ -450,9 +477,10 @@ fn a_later_part_is_drawn_over_an_earlier_one() {
 #[test]
 fn a_part_the_install_does_not_have_is_an_error_naming_the_entry() {
     let dir = install("parts-missing", graphics(&[]), slp(1, 2, &TWO_PIXELS));
-    let content = town_centre_in_parts(vec![3596, 7777]);
+    let looks = town_centre_in_parts(vec![3596, 7777]);
+    let content = Content::default();
 
-    let result = load_images(&dir, &content);
+    let result = load_images(&dir, &content, &looks);
 
     assert!(
         matches!(&result, Err(AssetError::MissingGraphic { entry, id: 7777 }) if entry == "town_center"),
@@ -474,10 +502,11 @@ fn a_later_parts_transparent_pixels_leave_the_earlier_part_showing() {
         ]),
         slp(1, 2, &TWO_PIXELS),
     );
-    let content = town_centre_in_parts(vec![7001, 7002]);
+    let looks = town_centre_in_parts(vec![7001, 7002]);
+    let content = Content::default();
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &content)
+    let sprites = load_images(&dir, &content, &looks)
         .expect("loads")
         .upload(&mut renderer);
 
@@ -502,10 +531,11 @@ fn a_later_parts_shadow_darkens_the_earlier_part_rather_than_replacing_it() {
         ]),
         slp(1, 2, &TWO_PIXELS),
     );
-    let content = town_centre_in_parts(vec![7001, 7002]);
+    let looks = town_centre_in_parts(vec![7001, 7002]);
+    let content = Content::default();
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &content)
+    let sprites = load_images(&dir, &content, &looks)
         .expect("loads")
         .upload(&mut renderer);
 
@@ -538,9 +568,10 @@ fn parts_placed_absurdly_far_apart_are_an_error_rather_than_a_huge_image() {
         ]),
         slp(1, 2, &TWO_PIXELS),
     );
-    let content = town_centre_in_parts(vec![7001, 7002]);
+    let looks = town_centre_in_parts(vec![7001, 7002]);
+    let content = Content::default();
 
-    let result = load_images(&dir, &content);
+    let result = load_images(&dir, &content, &looks);
 
     assert!(
         matches!(&result, Err(AssetError::PartsTooFarApart { entry }) if entry == "town_center"),
@@ -562,11 +593,12 @@ fn a_parts_offset_moves_it_that_many_pixels_from_the_shared_point() {
         ]),
         slp(1, 2, &TWO_PIXELS),
     );
-    let content =
-        town_centre_in_placed_parts(vec![sim::Part::new(7001, 0, 0), sim::Part::new(7002, 3, 0)]);
+    let looks =
+        town_centre_in_placed_parts(vec![app::Part::new(7001, 0, 0), app::Part::new(7002, 3, 0)]);
+    let content = Content::default();
     let mut renderer = RecordingRenderer::new();
 
-    let sprites = load_images(&dir, &content)
+    let sprites = load_images(&dir, &content, &looks)
         .expect("loads")
         .upload(&mut renderer);
 
@@ -577,5 +609,23 @@ fn a_parts_offset_moves_it_that_many_pixels_from_the_shared_point() {
         .expect("uploaded");
     assert_eq!(pixels[2 * 4 + 3], 0, "between the parts");
     assert_eq!(&pixels[12..16], colour(7), "the moved part");
+    remove(&dir);
+}
+
+#[test]
+fn a_type_with_no_look_is_an_error_naming_it() {
+    // A replay's types are drawn with the looks of the content the game was
+    // started with, matched by name; one it lacks cannot be drawn.
+    let dir = install("no-look", graphics(&[]), slp(1, 2, &TWO_PIXELS));
+    let mut looks = app::default_looks();
+    looks.units.remove("soldier");
+
+    let result = load_images(&dir, &Content::default(), &looks);
+
+    assert!(
+        matches!(&result, Err(AssetError::NoLook { entry }) if entry == "soldier"),
+        "{:?}",
+        result.err()
+    );
     remove(&dir);
 }

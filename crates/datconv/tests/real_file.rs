@@ -37,23 +37,18 @@ fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers()
     assert!(content.buildings[0].drop_off, "the town centre takes gold");
     // Drawn as the original draws them: the town centre from its pieces and
     // annexes, the barracks and the units from their own sprites.
-    let slps: Vec<u32> = content.buildings[0].parts.iter().map(|p| p.slp).collect();
+    let looks = app::parse_looks(&converted.ron).expect("its looks load");
+    let town_centre = looks.building("town_center").expect("a look");
+    let slps: Vec<u32> = town_centre.parts.iter().map(|p| p.slp).collect();
     assert_eq!(slps, [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]);
-    assert!(content.buildings[0]
-        .parts
-        .iter()
-        .all(|p| p.offset == [0, 0]));
-    assert_eq!(
-        (
-            content.buildings[1].sprite,
-            content.buildings[1].parts.len()
-        ),
-        (2683, 0)
-    );
-    assert!(content.units.iter().all(|u| u.parts.is_empty()));
+    assert!(town_centre.parts.iter().all(|p| p.offset == [0, 0]));
+    let barracks = looks.building("barracks").expect("a look");
+    assert_eq!((barracks.sprite, barracks.parts.len()), (2683, 0));
+    assert!(looks.units.values().all(|l| l.parts.is_empty()));
     // The game can draw it: every sprite and icon it names is in the install.
     let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
-    app::load_images(std::path::Path::new(&dir), &content).expect("the install draws it");
+    let looks = app::parse_looks(&converted.ron).expect("its looks load");
+    app::load_images(std::path::Path::new(&dir), &content, &looks).expect("the install draws it");
     println!("{}", converted.ron);
     for line in &converted.report {
         println!("report: {line}");
@@ -80,5 +75,6 @@ fn every_unit_and_building_of_a_civilisation_converts_to_content_the_game_loads(
     assert!(content.buildings.len() > 20, "{}", content.buildings.len());
     // And the game can draw every one of them: sprites, parts, and icons.
     let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
-    app::load_images(std::path::Path::new(&dir), &content).expect("the install draws it");
+    let looks = app::parse_looks(&converted.ron).expect("its looks load");
+    app::load_images(std::path::Path::new(&dir), &content, &looks).expect("the install draws it");
 }

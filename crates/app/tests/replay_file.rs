@@ -288,11 +288,37 @@ fn a_replay_from_before_placed_parts_is_refused_by_version() {
     let error = load_text("version-six", "(version: 6, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 6, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_file_holds_no_pictures() {
+    // Sprites, parts, and icons are how the game looks, not how it plays:
+    // a replay leaves them to whoever plays it back, so changing one never
+    // breaks a recording.
+    let path = scratch("no-pictures");
+    app::save(&path, &recorded()).expect("the replay should write");
+
+    let text = std::fs::read_to_string(&path).expect("the replay should read back");
+
+    for field in ["sprite", "parts", "icon"] {
+        assert!(!text.contains(field), "the replay holds `{field}`");
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_replay_from_before_pictures_left_the_replay_is_refused_by_version() {
+    let error = load_text("version-seven", "(version: 7, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 6,
-                expected: 7
+                found: 7,
+                expected: 8
             })
         ),
         "{error:?}"

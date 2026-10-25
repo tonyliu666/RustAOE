@@ -276,7 +276,7 @@ fn scratch(name: &str) -> std::path::PathBuf {
 fn a_folder_without_the_game_files_is_an_error_naming_the_file() {
     let dir = scratch("missing");
 
-    match load_images(&dir, &sim::Content::default()) {
+    match load_images(&dir, &sim::Content::default(), &app::default_looks()) {
         Err(AssetError::Io { path, .. }) => assert!(path.ends_with("interfac.drs"), "{path:?}"),
         other => panic!("expected a missing-file error, got {:?}", other.err()),
     }
@@ -288,7 +288,7 @@ fn a_damaged_archive_is_an_error_rather_than_a_crash() {
     let dir = scratch("damaged");
     std::fs::write(dir.join("data/interfac.drs"), b"not an archive at all").expect("write");
 
-    match load_images(&dir, &sim::Content::default()) {
+    match load_images(&dir, &sim::Content::default(), &app::default_looks()) {
         Err(AssetError::Drs { path, .. }) => assert!(path.ends_with("interfac.drs"), "{path:?}"),
         other => panic!("expected a damaged-archive error, got {:?}", other.err()),
     }

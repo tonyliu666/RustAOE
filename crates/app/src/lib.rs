@@ -9,6 +9,7 @@
 mod camera_controller;
 mod content_file;
 mod draw;
+mod looks;
 mod pick;
 mod replay_file;
 mod session;
@@ -17,9 +18,11 @@ mod ui;
 
 pub use camera_controller::CameraController;
 pub use content_file::{
-    load_content, new_game_content, parse_content, ContentFileError, DEFAULT_CONTENT,
+    default_looks, game_looks, load_content, new_game_content, parse_content, parse_looks,
+    ContentFileError, DEFAULT_CONTENT,
 };
 pub use draw::{draw_world, Hud, HEALTH, HEALTH_LOST, SELECTION};
+pub use looks::{Look, Looks, Part};
 pub use pick::{
     building_at, entity_at, mine_at, tile_at, to_screen_space, unit_at, units_in_box, Bodies, Body,
 };
