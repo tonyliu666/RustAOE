@@ -281,7 +281,7 @@ fn mine_remaining(world: &World) -> i32 {
 #[test]
 fn gold_is_only_banked_at_a_building_content_marks_as_a_drop_off() {
     let mut content = Content::default();
-    content.building_mut(BuildingKind::TOWN_CENTER).drop_off = false;
+    content.building_mut(BuildingKind::TOWN_CENTER).drop_off = Vec::new();
     let mut world = gathering(content);
     // Long enough at the default numbers to mine and bank a full load.
     run(&mut world, 700);

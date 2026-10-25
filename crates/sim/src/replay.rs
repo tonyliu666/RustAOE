@@ -39,8 +39,9 @@ impl Replay {
     /// changing a picture never breaks a recording again; version 9 (Phase 2)
     /// mines and deposits only on touch and adds the `Deposit` command;
     /// version 10 gives sites and loads a resource and the gather numbers one
-    /// set per resource.
-    pub const FORMAT_VERSION: u32 = 10;
+    /// set per resource; version 11 lets a building take only some
+    /// resources.
+    pub const FORMAT_VERSION: u32 = 11;
 
     /// How often the checksum is sampled during recording.
     ///

@@ -1137,3 +1137,46 @@ fn right_clicking_your_drop_off_with_a_loaded_villager_drops_the_load_off() {
         other => panic!("expected a drop-off, got {other:?}"),
     }
 }
+
+#[test]
+fn right_clicking_a_building_that_does_not_take_the_load_is_no_drop_off() {
+    // The barracks takes nothing: a loaded villager is told to walk there.
+    let mut world = World::new(3, map().with_mine(TilePos::new(8, 5), 500));
+    let villager = units_of(&world, PlayerId::ONE)
+        .into_iter()
+        .find(|id| {
+            world
+                .view()
+                .unit(*id)
+                .is_some_and(|u| u.kind == UnitKind::VILLAGER)
+        })
+        .expect("the villager");
+    let (site, _) = world
+        .view()
+        .sites()
+        .find(|(_, m)| m.origin == TilePos::new(8, 5))
+        .expect("the near mine");
+    world.step(&[Command::Gather {
+        player: PlayerId::ONE,
+        units: [villager].into_iter().collect(),
+        site,
+    }]);
+    while world.view().unit(villager).is_some_and(|u| u.carrying == 0) {
+        world.step(&[]);
+    }
+    let mut session = session();
+    let feet = app::to_screen_space(world.view().unit(villager).expect("the villager").pos);
+    click(&mut session, &world, MouseButton::Left, at(feet));
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(BARRACKS_MIDDLE),
+    );
+
+    assert!(
+        matches!(commands.as_slice(), [Command::Move { .. }]),
+        "{commands:?}"
+    );
+}

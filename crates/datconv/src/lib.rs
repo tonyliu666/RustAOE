@@ -12,7 +12,7 @@
 
 use assets::dat::{Cost, Dat, Unit};
 use assets::{Drs, ARCHIVE_ORDER};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -242,7 +242,8 @@ struct BuildingEntry {
     sprite: i32,
     parts: Vec<Piece>,
     size: i32,
-    drop_off: bool,
+    /// The resources it takes, by name.
+    drop_off: Vec<&'static str>,
 }
 
 /// What the whole file says about gathering, for the per-unit rules.
@@ -255,8 +256,10 @@ struct Facts<'a> {
     /// The classes of units that have a gather task: a villager has none of
     /// its own, but the gold miner it turns into has.
     gathering_classes: BTreeSet<i16>,
-    /// Units a gatherer may drop its load at.
-    drop_offs: BTreeSet<i16>,
+    /// The resources each building takes: those whose job unit lists it
+    /// among its drop sites (the lumberjack the lumber camp, and so on), in
+    /// food, wood, gold, stone order.
+    drop_offs: BTreeMap<i16, Vec<&'static str>>,
 }
 
 impl<'a> Facts<'a> {
@@ -273,14 +276,20 @@ impl<'a> Facts<'a> {
             })
             .map(|u| u.class)
             .collect();
-        let drop_offs = units
-            .iter()
-            .flatten()
-            .filter(|u| gathering_classes.contains(&u.class))
-            .filter_map(|u| u.drop_sites)
-            .flatten()
-            .filter(|id| *id >= 0)
-            .collect();
+        let mut drop_offs: BTreeMap<i16, Vec<&'static str>> = BTreeMap::new();
+        for (resource, job, _) in JOBS {
+            let sites = usize::try_from(job)
+                .ok()
+                .and_then(|id| units.get(id))
+                .and_then(|u| u.as_ref())
+                .and_then(|u| u.drop_sites);
+            for site in sites.into_iter().flatten().filter(|id| *id >= 0) {
+                let takes = drop_offs.entry(site).or_default();
+                if !takes.contains(&resource) {
+                    takes.push(resource);
+                }
+            }
+        }
         Facts {
             dat,
             units,
@@ -310,17 +319,32 @@ fn sprite_of(
     name: &str,
     report: &mut Vec<String>,
 ) -> Result<(i32, Vec<Piece>), String> {
-    let sprite = facts
-        .dat
-        .slp_of(unit.standing_graphic)
-        .filter(|slp| facts.install.has(*slp as u32))
-        .ok_or_else(|| {
-            format!(
-                "its standing graphic {} has no sprite in the install",
-                unit.standing_graphic
-            )
-        })?;
     let mut parts = pieces(facts, unit.standing_graphic, name, report);
+    // A graphic with pieces is drawn by them alone (its own SLP only where a
+    // piece names it, -1), so its sprite is its own SLP if a piece draws it
+    // and the first piece otherwise; one with no pieces is its own SLP,
+    // which the install must have.
+    let has_pieces = usize::try_from(unit.standing_graphic)
+        .ok()
+        .and_then(|g| facts.dat.graphics.get(g))
+        .and_then(|g| g.as_ref())
+        .is_some_and(|g| !g.deltas.is_empty());
+    let own = facts.dat.slp_of(unit.standing_graphic);
+    let sprite = if has_pieces {
+        own.filter(|slp| parts.iter().any(|p| p.slp == *slp as u32))
+            .or_else(|| parts.first().map(|p| p.slp as i32))
+    } else {
+        facts
+            .dat
+            .slp_of(unit.standing_graphic)
+            .filter(|slp| facts.install.has(*slp as u32))
+    }
+    .ok_or_else(|| {
+        format!(
+            "its standing graphic {} has no sprite in the install",
+            unit.standing_graphic
+        )
+    })?;
     for annex in &unit.annexes {
         let annex_unit = usize::try_from(annex.unit)
             .ok()
@@ -526,7 +550,7 @@ fn convert_building(
     }
     report.extend(notes);
     Ok(BuildingEntry {
-        drop_off: facts.drop_offs.contains(&unit.id),
+        drop_off: facts.drop_offs.get(&unit.id).cloned().unwrap_or_default(),
         name,
         unit: unit.clone(),
         sprite,
@@ -688,7 +712,7 @@ fn write_ron(
         let trains: Vec<String> = trained.iter().map(|u| format!("\"{}\"", u.name)).collect();
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: {},\n            trains: [{}],\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: [{}],\n            trains: [{}],\n        ),\n",
             b.name,
             b.unit.id,
             b.unit.name,
@@ -697,7 +721,7 @@ fn write_ron(
             b.unit.icon,
             b.size,
             b.unit.hit_points,
-            b.drop_off,
+            b.drop_off.join(", "),
             trains.join(", "),
         );
     }

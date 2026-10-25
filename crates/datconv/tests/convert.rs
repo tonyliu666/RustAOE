@@ -301,8 +301,14 @@ fn a_building_a_gatherer_drops_at_is_a_drop_off() {
     )
     .expect("loads");
 
-    assert!(content.buildings[0].drop_off, "town centre");
-    assert!(!content.buildings[1].drop_off, "barracks");
+    // Every job here drops at the town centre; none at the barracks, though
+    // the militia (no gatherer) lists it.
+    assert_eq!(
+        content.buildings[0].drop_off,
+        sim::Resource::ALL,
+        "town centre"
+    );
+    assert!(content.buildings[1].drop_off.is_empty(), "barracks");
 }
 
 #[test]
@@ -622,4 +628,44 @@ fn a_range_longer_than_the_game_allows_is_left_out_rather_than_clamped() {
 #[test]
 fn a_radius_wider_than_the_game_allows_is_left_out() {
     assert!(spearman_left_out(|u| u.collision[0] = 20.0));
+}
+
+#[test]
+fn a_building_takes_the_resources_whose_jobs_drop_off_there() {
+    // A camp that only the lumberjack lists takes wood and nothing else.
+    let mut dat = dat();
+    let mut camp = dat.civs[1].units[12].clone().expect("the barracks");
+    camp.id = 562;
+    camp.name = "SMIL".to_string();
+    dat.civs[1].units[562] = Some(camp);
+    dat.civs[1].units[123]
+        .as_mut()
+        .expect("the lumberjack")
+        .drop_sites = Some([109, 562]);
+
+    let content = app::parse_content(&convert_with(&dat, Selection::All).expect("converts").ron)
+        .expect("loads");
+
+    let camp = content
+        .buildings
+        .iter()
+        .find(|b| b.name == "smil_562")
+        .expect("the camp");
+    assert_eq!(camp.drop_off, [sim::Resource::Wood]);
+}
+
+#[test]
+fn a_graphic_drawn_only_by_its_pieces_needs_no_sprite_of_its_own() {
+    // As the original's lumber camp (graphic 3118): pieces 889 and 4612,
+    // none of them -1, so its own SLP (here 777, which no archive holds) is
+    // never drawn. The type converts, drawn with the pieces.
+    let mut dat = dat();
+    dat.graphics[4] = placed_graphic(4, 777, &[(12, 0, 0), (14, 0, 0)]);
+
+    let converted = convert_with(&dat, Selection::Default).expect("converts");
+    let looks = app::parse_looks(&converted.ron).expect("loads");
+
+    let barracks = looks.building("barracks").expect("a look");
+    assert_eq!(barracks.sprite, 889);
+    assert_eq!(barracks.parts, at_one_point(&[889, 4612]));
 }

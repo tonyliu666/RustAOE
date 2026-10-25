@@ -54,10 +54,19 @@ pub struct BuildingStats {
     /// Footprint side in tiles; the footprint is square.
     pub size: i32,
     pub max_hp: i32,
-    /// Whether villagers may deposit gold here.
-    pub drop_off: bool,
+    /// The resources villagers may deposit here: in the original, the
+    /// town centre takes all four, a mill food, a lumber camp wood, and a
+    /// mining camp gold and stone.
+    pub drop_off: Vec<Resource>,
     /// Unit types this building can train.
     pub trains: Vec<UnitKind>,
+}
+
+impl BuildingStats {
+    /// Whether villagers may deposit `resource` here.
+    pub fn takes(&self, resource: Resource) -> bool {
+        self.drop_off.contains(&resource)
+    }
 }
 
 /// How a villager gathers one resource: in the original, the job unit it
@@ -389,14 +398,14 @@ impl Default for Content {
                     name: "town_center".to_string(),
                     size: 4,
                     max_hp: 1000,
-                    drop_off: true,
+                    drop_off: Resource::ALL.to_vec(),
                     trains: vec![UnitKind::VILLAGER],
                 },
                 BuildingStats {
                     name: "barracks".to_string(),
                     size: 3,
                     max_hp: 600,
-                    drop_off: false,
+                    drop_off: Vec::new(),
                     trains: vec![UnitKind::SOLDIER],
                 },
             ],

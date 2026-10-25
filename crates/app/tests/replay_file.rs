@@ -336,11 +336,21 @@ fn a_replay_from_before_four_resources_is_refused_by_version() {
     let error = load_text("version-nine", "(version: 9, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 9, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_drop_offs_by_resource_is_refused_by_version() {
+    let error = load_text("version-ten", "(version: 10, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 9,
-                expected: 10
+                found: 10,
+                expected: 11
             })
         ),
         "{error:?}"

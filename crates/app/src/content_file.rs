@@ -8,8 +8,8 @@
 use crate::looks::{Look, Looks, Part};
 use serde::Deserialize;
 use sim::{
-    BuildingStats, Content, ContentError, Fx, GatherStats, Gathering, Resources, UnitKind,
-    UnitStats,
+    BuildingStats, Content, ContentError, Fx, GatherStats, Gathering, Resource, Resources,
+    UnitKind, UnitStats,
 };
 use std::fmt;
 use std::fs;
@@ -112,6 +112,27 @@ pub fn new_game_content(
 /// `(numerator, denominator)`.
 type Fraction = (i32, i32);
 
+/// A resource as written in a content file: `food`, `wood`, `gold`, `stone`.
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum ResourceFile {
+    Food,
+    Wood,
+    Gold,
+    Stone,
+}
+
+impl ResourceFile {
+    fn resource(self) -> Resource {
+        match self {
+            ResourceFile::Food => Resource::Food,
+            ResourceFile::Wood => Resource::Wood,
+            ResourceFile::Gold => Resource::Gold,
+            ResourceFile::Stone => Resource::Stone,
+        }
+    }
+}
+
 /// `(slp, x, y)`: a part's SLP and its offset in pixels.
 type PartFile = (u32, i32, i32);
 
@@ -166,7 +187,8 @@ struct BuildingFile {
     icon: u32,
     size: i32,
     max_hp: i32,
-    drop_off: bool,
+    /// The resources villagers may deposit here: `[food, wood, gold, stone]`.
+    drop_off: Vec<ResourceFile>,
     /// Unit types by name; turned into IDs when loaded.
     trains: Vec<String>,
 }
@@ -292,7 +314,7 @@ impl BuildingFile {
             name: self.name,
             size: self.size,
             max_hp: self.max_hp,
-            drop_off: self.drop_off,
+            drop_off: self.drop_off.iter().map(|r| r.resource()).collect(),
             trains,
         })
     }

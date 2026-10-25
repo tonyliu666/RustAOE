@@ -34,7 +34,11 @@ fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers()
         (40, 60, 20)
     );
     assert!(!soldier.gathers);
-    assert!(content.buildings[0].drop_off, "the town centre takes gold");
+    assert_eq!(
+        content.buildings[0].drop_off,
+        sim::Resource::ALL,
+        "the town centre"
+    );
     // Drawn as the original draws them: the town centre from its pieces and
     // annexes, the barracks and the units from their own sprites.
     let looks = app::parse_looks(&converted.ron).expect("its looks load");
@@ -73,6 +77,22 @@ fn every_unit_and_building_of_a_civilisation_converts_to_content_the_game_loads(
     );
     assert!(content.units.len() > 50, "{}", content.units.len());
     assert!(content.buildings.len() > 20, "{}", content.buildings.len());
+    // The original's drop-offs take what their jobs bring: the mill food,
+    // the lumber camp wood, the mining camp gold and stone.
+    let takes = |name: &str| {
+        content
+            .buildings
+            .iter()
+            .find(|b| b.name == name)
+            .unwrap_or_else(|| panic!("{name}"))
+            .drop_off
+            .clone()
+    };
+    use sim::Resource::{Food, Gold, Stone, Wood};
+    assert_eq!(takes("mill_68"), [Food]);
+    assert_eq!(takes("smil_562"), [Wood]);
+    assert_eq!(takes("mine_584"), [Gold, Stone]);
+    assert_eq!(takes("rtwc_109"), [Food, Wood, Gold, Stone]);
     // And the game can draw every one of them: sprites, parts, and icons.
     let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
     let looks = app::parse_looks(&converted.ron).expect("its looks load");

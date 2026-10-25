@@ -674,20 +674,24 @@ impl World {
 
     /// Sends loaded villagers to drop off at one of their owner's drop-offs.
     /// One that was gathering goes back to its mine afterwards; one that
-    /// was not stands. Units carrying nothing, and buildings that are not
-    /// the player's drop-offs, are ignored.
+    /// was not stands. Units carrying nothing, units whose load the building
+    /// does not take, and other players' buildings are ignored.
     fn order_deposit(&mut self, player: PlayerId, units: &[UnitId], building: BuildingId) {
         let Some(target) = self.buildings.get(building) else {
             return;
         };
-        if target.owner != player || !self.content.building(target.kind).drop_off {
+        if target.owner != player {
             return;
         }
+        let stats = self.content.building(target.kind);
         let (origin, size) = (target.origin, target.size);
         let ids: Vec<UnitId> = self
             .owned(player, units)
             .into_iter()
-            .filter(|id| self.units[*id].carrying > 0)
+            .filter(|id| {
+                let unit = &self.units[*id];
+                unit.carrying > 0 && stats.takes(unit.carried)
+            })
             .collect();
         let route = self.plan_adjacent(&ids, origin, size);
         for id in ids {
@@ -996,18 +1000,19 @@ impl World {
         }
     }
 
-    /// Sends a loaded villager to the nearest drop-off it owns.
+    /// Sends a loaded villager to the nearest of its owner's buildings that
+    /// takes its load.
     fn send_to_drop_off(&mut self, id: UnitId, mine: SiteId) {
         let unit = &self.units[id];
         if unit.carrying == 0 {
             self.units[id].order = Order::Idle;
             return;
         }
-        let (pos, owner) = (unit.pos, unit.owner);
+        let (pos, owner, load) = (unit.pos, unit.owner, unit.carried);
         let nearest = self
             .buildings
             .iter()
-            .filter(|(_, b)| b.owner == owner && self.content.building(b.kind).drop_off)
+            .filter(|(_, b)| b.owner == owner && self.content.building(b.kind).takes(load))
             .min_by_key(|(_, b)| (b.center() - pos).length_squared())
             .map(|(id, b)| (id, b.origin, b.size));
 

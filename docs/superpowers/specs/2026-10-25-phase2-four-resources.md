@@ -176,3 +176,22 @@ checksum hashes each site's and load's resource. Replay format 10.
 
 Every site is still drawn as a gold mine; step 4, which puts the other kinds
 on the map, gives each its sprite.
+
+## Step 3 result (2026-10-25)
+
+A building's `drop_off` is the list of resources it takes
+(`BuildingStats::takes`; RON `drop_off: [food, wood, gold, stone]`). The town
+centre takes all four, the barracks none. A villager walks back to the
+nearest of its owner's buildings that takes its load, a hand drop-off is
+refused where the load is not taken, and a right-click on such a building is
+an ordinary move. A load nothing takes stays carried and the villager
+stands, which keeps every resource conserved. Replay format 11.
+
+`datconv` takes each building's resources from the job units whose drop
+sites list it. On the real file: the mill (68) takes food, the lumber camp
+(562) wood, the mining camp (584) gold and stone, the town centre (109) all
+four, as the original's. Converting the camps found that a graphic made of
+pieces is drawn by its pieces alone, its own SLP only where a piece is -1:
+the lumber camp's own SLP (3503) is in no archive and is never drawn. The
+converter no longer requires it, and a type's `sprite` is its own SLP when a
+piece draws it and its first piece otherwise.

@@ -298,17 +298,16 @@ impl Session {
             // their loads off there, early, then go back to work. Units
             // carrying nothing are left as they are.
             Some(EntityId::Building(building))
-                if self.is_drop_off(building, view)
-                    && units
-                        .iter()
-                        .any(|id| view.unit(*id).is_some_and(|u| u.carrying > 0)) =>
+                if units
+                    .iter()
+                    .any(|id| self.takes_load_of(building, *id, view)) =>
             {
                 Some(Command::Deposit {
                     player,
                     units: units
                         .iter()
                         .copied()
-                        .filter(|id| view.unit(*id).is_some_and(|u| u.carrying > 0))
+                        .filter(|id| self.takes_load_of(building, *id, view))
                         .collect(),
                     building,
                 })
@@ -326,10 +325,15 @@ impl Session {
         }
     }
 
-    /// Whether `building` is one of the active player's drop-offs.
-    fn is_drop_off(&self, building: BuildingId, view: WorldView<'_>) -> bool {
-        view.building(building)
-            .is_some_and(|b| b.owner == self.active && view.content().building(b.kind).drop_off)
+    /// Whether `building` is one of the active player's and takes what
+    /// `unit` carries.
+    fn takes_load_of(&self, building: BuildingId, unit: UnitId, view: WorldView<'_>) -> bool {
+        let Some(unit) = view.unit(unit).filter(|u| u.carrying > 0) else {
+            return false;
+        };
+        view.building(building).is_some_and(|b| {
+            b.owner == self.active && view.content().building(b.kind).takes(unit.carried)
+        })
     }
 
     fn is_enemy(&self, target: EntityId, view: WorldView<'_>) -> bool {
