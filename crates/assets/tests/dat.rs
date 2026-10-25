@@ -86,6 +86,21 @@ fn the_real_file_decompresses_and_is_the_conquerors_format() {
         }
     }
     assert_eq!(dat.after_graphics, 917_004);
+    // The terrain block: the first terrain's names sit after the block's map
+    // fields (24 bytes), tile sizes (19 of 6), padding, and two flag bytes.
+    assert_eq!(&data[917_004 + 142..917_004 + 147], b"Grass");
+    assert_eq!(dat.random_maps_at, 917_004 + 42_208);
+    assert_eq!(
+        (
+            dat.random_maps,
+            dat.effects,
+            dat.unit_headers,
+            dat.units_present
+        ),
+        (9, 514, 866, 842)
+    );
+    assert_eq!((dat.civs, dat.civs_at), (19, 1_092_830));
+    assert_eq!(&data[dat.civs_at + 3..dat.civs_at + 7], b"Gaia");
     // The limit leaves plenty of room for the real file.
     assert!(
         data.len() < assets::dat::MAX_DECOMPRESSED / 4,
@@ -171,7 +186,8 @@ fn graphic(
 
 /// A small inflated `.dat`: version, one terrain restriction over two
 /// terrains, one player colour, one sound with one file, and three graphic
-/// slots of which the middle one is empty. Then `rest`.
+/// slots of which the middle one is empty. Then `rest`, which [`after`]
+/// fills with the sections that follow.
 fn small_dat(rest: &[u8]) -> Vec<u8> {
     let mut b = Bytes::default();
     b.text("VER 5.7", 8);
@@ -198,7 +214,7 @@ fn small_dat(rest: &[u8]) -> Vec<u8> {
 
 #[test]
 fn the_graphics_table_reads_each_graphics_sprite_and_pieces() {
-    let data = small_dat(&[]);
+    let data = small_dat(&after());
 
     let dat = Dat::parse(&data).expect("a well-formed file");
 
@@ -221,13 +237,15 @@ fn the_graphics_table_reads_each_graphics_sprite_and_pieces() {
 }
 
 #[test]
-fn reading_stops_exactly_where_the_graphics_table_ends() {
-    let marker = b"NEXT SECTION";
-    let data = small_dat(marker);
+fn the_terrain_block_begins_exactly_where_the_graphics_table_ends() {
+    let data = small_dat(&after());
 
     let dat = Dat::parse(&data).expect("a well-formed file");
 
-    assert_eq!(&data[dat.after_graphics..], marker);
+    assert_eq!(
+        &data[dat.after_graphics..dat.after_graphics + 4],
+        TERRAIN_BLOCK_MARK
+    );
 }
 
 #[test]
@@ -241,12 +259,182 @@ fn a_file_cut_off_inside_the_graphics_is_an_error() {
 
 #[test]
 fn a_negative_count_is_an_error_rather_than_a_huge_allocation() {
-    let mut data = small_dat(&[]);
+    let mut data = small_dat(&after());
     // The terrain restriction count, just after the version.
     data[8..10].copy_from_slice(&(-1i16).to_le_bytes());
 
     assert_eq!(
         Dat::parse(&data).err(),
         Some(DatError::Corrupt("negative count"))
+    );
+}
+
+// --- from the terrain block to the civilisations -----------------------------------
+
+/// The Conquerors' terrain block has no counts: 42 terrains of 436 bytes and
+/// 16 borders of 1440, inside a fixed frame of map fields. 42,208 bytes in
+/// all, checked against the real file by the ignored test.
+const TERRAIN_BLOCK_SIZE: usize = 42_208;
+/// The first bytes of the fake terrain block, to find where it begins.
+const TERRAIN_BLOCK_MARK: &[u8] = b"TERR";
+
+/// One random map's lists, as (lands, terrains, units, elevations).
+type MapLists = (usize, usize, usize, usize);
+
+/// The random maps: a count and a pointer, a header per map (its ID, nine
+/// fields, and each list's count and pointer), then each map again without
+/// its ID and with its lists' entries.
+fn random_maps(b: &mut Bytes, maps: &[MapLists]) {
+    b.i32(maps.len() as i32).i32(0x1234);
+    let lists = |b: &mut Bytes, (lands, terrains, units, elevations): MapLists, entries: bool| {
+        for (count, size) in [(lands, 44), (terrains, 24), (units, 44), (elevations, 24)] {
+            b.i32(count as i32).i32(0);
+            if entries {
+                b.0.extend(std::iter::repeat_n(7u8, count * size));
+            }
+        }
+    };
+    for (id, map) in maps.iter().enumerate() {
+        b.i32(id as i32);
+        for _ in 0..9 {
+            b.i32(1);
+        }
+        lists(b, *map, false);
+    }
+    for map in maps {
+        for _ in 0..9 {
+            b.i32(1);
+        }
+        lists(b, *map, true);
+    }
+}
+
+/// Effects: an `i32` count, then per effect a 31-byte name and its
+/// commands, 11 bytes each.
+fn effects(b: &mut Bytes, commands: &[usize]) {
+    b.i32(commands.len() as i32);
+    for count in commands {
+        b.text("CHUN4", 31).i16(*count as i16);
+        for _ in 0..*count {
+            b.u8(1).i16(2).i16(3).i16(4).f32(5.0);
+        }
+    }
+}
+
+/// Unit headers: an `i32` count, then per unit a flag and, when it exists,
+/// its tasks, 59 bytes each. `None` is a unit that does not exist.
+fn unit_headers(b: &mut Bytes, tasks: &[Option<usize>]) {
+    b.i32(tasks.len() as i32);
+    for unit in tasks {
+        match unit {
+            None => {
+                b.u8(0);
+            }
+            Some(count) => {
+                b.u8(1).i16(*count as i16);
+                b.0.extend(std::iter::repeat_n(3u8, count * 59));
+            }
+        }
+    }
+}
+
+/// The sections after the graphics table: a terrain block, two random maps,
+/// three effects, three unit headers, then a civilisation count of 2 and
+/// the start of the first civilisation.
+fn after() -> Vec<u8> {
+    let mut b = Bytes::default();
+    let mut block = TERRAIN_BLOCK_MARK.to_vec();
+    block.resize(TERRAIN_BLOCK_SIZE, 0);
+    b.0.extend(block);
+    random_maps(&mut b, &[(1, 0, 2, 1), (0, 3, 0, 0)]);
+    effects(&mut b, &[0, 3, 1]);
+    unit_headers(&mut b, &[Some(2), None, Some(0)]);
+    b.i16(2).u8(1).text("Gaia", 20);
+    b.0
+}
+
+#[test]
+fn the_sections_after_the_graphics_are_walked_to_the_civilisations() {
+    let data = small_dat(&after());
+
+    let dat = Dat::parse(&data).expect("a well-formed file");
+
+    assert_eq!(dat.random_maps_at, dat.after_graphics + TERRAIN_BLOCK_SIZE);
+    assert_eq!(
+        (
+            dat.random_maps,
+            dat.effects,
+            dat.unit_headers,
+            dat.units_present
+        ),
+        (2, 3, 3, 2)
+    );
+    assert_eq!(dat.civs, 2);
+    // The first civilisation follows its count: player type, then name.
+    assert_eq!(&data[dat.civs_at + 3..dat.civs_at + 7], b"Gaia");
+}
+
+#[test]
+fn each_section_begins_where_the_one_before_it_ends() {
+    let data = small_dat(&after());
+
+    let dat = Dat::parse(&data).expect("a well-formed file");
+
+    // Each count is the first field of its section.
+    let i32_at = |at: usize| i32::from_le_bytes(data[at..at + 4].try_into().expect("4 bytes"));
+    assert_eq!(i32_at(dat.random_maps_at), 2);
+    assert_eq!(i32_at(dat.effects_at), 3);
+    assert_eq!(i32_at(dat.unit_headers_at), 3);
+    assert_eq!(&data[dat.civs_at..dat.civs_at + 2], &2i16.to_le_bytes());
+}
+
+#[test]
+fn a_random_map_whose_two_copies_disagree_is_an_error() {
+    let mut data = small_dat(&after());
+    let dat = Dat::parse(&data).expect("a well-formed file");
+    // The second copy of map 0 starts after the count, pointer, and two
+    // 72-byte headers; its land count is 36 bytes in.
+    let at = dat.random_maps_at + 8 + 2 * 72 + 36;
+    data[at..at + 4].copy_from_slice(&5i32.to_le_bytes());
+
+    assert_eq!(
+        Dat::parse(&data).err(),
+        Some(DatError::Corrupt("random map lists differ between copies"))
+    );
+}
+
+#[test]
+fn a_negative_effect_count_is_an_error_rather_than_a_huge_allocation() {
+    let mut data = small_dat(&after());
+    let at = Dat::parse(&data).expect("a well-formed file").effects_at;
+    data[at..at + 4].copy_from_slice(&(-1i32).to_le_bytes());
+
+    assert_eq!(
+        Dat::parse(&data).err(),
+        Some(DatError::Corrupt("negative count"))
+    );
+}
+
+#[test]
+fn a_random_map_count_too_large_for_the_file_is_truncated_rather_than_allocated() {
+    let mut data = small_dat(&after());
+    let at = Dat::parse(&data)
+        .expect("a well-formed file")
+        .random_maps_at;
+    data[at..at + 4].copy_from_slice(&i32::MAX.to_le_bytes());
+
+    assert_eq!(Dat::parse(&data).err(), Some(DatError::Truncated));
+}
+
+#[test]
+fn a_file_cut_off_inside_the_unit_headers_is_an_error() {
+    let data = small_dat(&after());
+    let at = Dat::parse(&data)
+        .expect("a well-formed file")
+        .unit_headers_at;
+
+    assert_eq!(
+        Dat::parse(&data[..at + 10]).err(),
+        Some(DatError::Truncated)
     );
 }

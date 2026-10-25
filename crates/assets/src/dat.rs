@@ -117,6 +117,21 @@ pub struct Dat {
     pub graphics: Vec<Option<Graphic>>,
     /// Where the section after the graphics table, the terrain block, begins.
     pub after_graphics: usize,
+    /// Where the random maps begin, and how many there are.
+    pub random_maps_at: usize,
+    pub random_maps: usize,
+    /// Where the effects (the technologies' lists of changes) begin, and how
+    /// many there are.
+    pub effects_at: usize,
+    pub effects: usize,
+    /// Where the unit headers (each unit type's task list) begin, how many
+    /// unit IDs they cover, and how many of those exist.
+    pub unit_headers_at: usize,
+    pub unit_headers: usize,
+    pub units_present: usize,
+    /// Where the civilisations begin, at their count, and how many there are.
+    pub civs_at: usize,
+    pub civs: usize,
 }
 
 /// Reads little-endian fields from inflated data, failing with `Truncated`
@@ -157,6 +172,11 @@ impl Reader<'_> {
         usize::try_from(self.i16()?).map_err(|_| DatError::Corrupt("negative count"))
     }
 
+    /// An `i32` count, which must not be negative.
+    fn count32(&mut self) -> Result<usize, DatError> {
+        usize::try_from(self.i32()?).map_err(|_| DatError::Corrupt("negative count"))
+    }
+
     /// A fixed-size text field, up to its first zero byte.
     fn text(&mut self, size: usize) -> Result<String, DatError> {
         let field = self.bytes(size)?;
@@ -166,8 +186,7 @@ impl Reader<'_> {
 }
 
 impl Dat {
-    /// Reads inflated data (see [`decompress`]) up to the end of the graphics
-    /// table.
+    /// Reads inflated data (see [`decompress`]) up to the civilisations.
     pub fn parse(data: &[u8]) -> Result<Dat, DatError> {
         version(data)?;
         let mut r = Reader { data, at: 8 };
@@ -177,11 +196,140 @@ impl Dat {
         r.skip(colours * 36)?;
         skip_sounds(&mut r)?;
         let graphics = read_graphics(&mut r)?;
+        let after_graphics = r.at;
+        r.skip(TERRAIN_BLOCK_SIZE)?;
+        let random_maps_at = r.at;
+        let random_maps = skip_random_maps(&mut r)?;
+        let effects_at = r.at;
+        let effects = skip_effects(&mut r)?;
+        let unit_headers_at = r.at;
+        let (unit_headers, units_present) = skip_unit_headers(&mut r)?;
+        let civs_at = r.at;
+        let civs = r.count()?;
         Ok(Dat {
             graphics,
-            after_graphics: r.at,
+            after_graphics,
+            random_maps_at,
+            random_maps,
+            effects_at,
+            effects,
+            unit_headers_at,
+            unit_headers,
+            units_present,
+            civs_at,
+            civs,
         })
     }
+}
+
+/// The Conquerors' terrain block, which holds no counts: its size is fixed.
+/// A frame of map fields (two pointers and four sizes, 24 bytes), 19 tile
+/// sizes of three `i16`, an `i16` of padding, 42 terrains, 16 borders, a
+/// map row offset, six `f32` map bounds, 14 `i16` tile and block fields, two
+/// pointers and three flag bytes, then 21 bytes and 157 `i32` the game fills
+/// in at run time.
+const TERRAIN_BLOCK_SIZE: usize = 24
+    + 19 * 6
+    + 2
+    + 42 * TERRAIN_SIZE
+    + 16 * BORDER_SIZE
+    + 4
+    + 6 * 4
+    + 14 * 2
+    + 4
+    + 4
+    + 3
+    + 21
+    + 157 * 4;
+/// One terrain: flags, two 13-byte names, sprite, shape pointer, sound,
+/// blend priority and type, colours, animation fields, 19
+/// elevation graphics of three `i16`, the terrain to draw, its dimensions, a
+/// border per terrain (42), 30 terrain units of ID, density, and centring,
+/// their count, and a phantom `i16`.
+const TERRAIN_SIZE: usize = 2
+    + 26
+    + 12
+    + 8
+    + 3
+    + 2
+    + 2
+    + ANIMATION
+    + 19 * 6
+    + 2
+    + 4
+    + 42 * 2
+    + 30 * 2
+    + 30 * 2
+    + 30
+    + 2
+    + 2;
+/// One terrain border: flags, two 13-byte names, sprite, shape pointer,
+/// sound, colours, animation fields, 19 times 12 frame records of three
+/// `i16`, and three `i16`.
+const BORDER_SIZE: usize = 2 + 26 + 12 + 3 + ANIMATION + 19 * 12 * 6 + 3 * 2;
+/// A terrain's or border's animation fields: a flag, frame and pause
+/// counts, interval and pause time, frame and draw frame, last animation
+/// time, and two flags.
+const ANIMATION: usize = 1 + 2 * 2 + 2 * 4 + 2 * 2 + 4 + 2;
+
+/// The random maps: a count and a pointer, a header per map, then each map
+/// again with its lists' entries. The two copies must agree on every list's
+/// length. Returns the count.
+fn skip_random_maps(r: &mut Reader<'_>) -> Result<usize, DatError> {
+    /// Bytes per entry of each list: lands, terrains, units, elevations.
+    const ENTRY: [usize; 4] = [44, 24, 44, 24];
+    let maps = r.count32()?;
+    r.skip(4)?; // pointer
+                // Grown as headers are read rather than sized from the count, so a
+                // damaged count runs out of file instead of memory.
+    let mut lists = Vec::new();
+    for _ in 0..maps {
+        r.skip(4 + 9 * 4)?; // ID and nine map fields
+        let mut counts = [0; 4];
+        for count in &mut counts {
+            *count = r.count32()?;
+            r.skip(4)?; // pointer
+        }
+        lists.push(counts);
+    }
+    for counts in lists {
+        r.skip(9 * 4)?;
+        for (expected, size) in counts.into_iter().zip(ENTRY) {
+            if r.count32()? != expected {
+                return Err(DatError::Corrupt("random map lists differ between copies"));
+            }
+            r.skip(4)?;
+            r.skip(expected.checked_mul(size).ok_or(DatError::Truncated)?)?;
+        }
+    }
+    Ok(maps)
+}
+
+/// Effects: per effect a 31-byte name (The Conquerors' file stores
+/// `CHUN4` in every one) and its commands: a type, three `i16`, and an `f32`.
+fn skip_effects(r: &mut Reader<'_>) -> Result<usize, DatError> {
+    let effects = r.count32()?;
+    for _ in 0..effects {
+        r.skip(31)?;
+        let commands = r.count()?;
+        r.skip(commands * 11)?;
+    }
+    Ok(effects)
+}
+
+/// Unit headers: per unit ID a flag and, when the unit exists, its task
+/// list, 59 bytes a task. Returns the count and how many exist.
+fn skip_unit_headers(r: &mut Reader<'_>) -> Result<(usize, usize), DatError> {
+    let units = r.count32()?;
+    let mut present = 0;
+    for _ in 0..units {
+        if r.u8()? != 0 {
+            present += 1;
+            let tasks = r.count()?;
+            r.skip(tasks * 59)?;
+        }
+    }
+    Ok((units, present))
 }
 
 /// Terrain restrictions: two pointer tables, then per restriction a
