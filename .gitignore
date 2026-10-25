@@ -6,3 +6,5 @@ reverse/*
 !reverse/README.md
 !reverse/tools/
 sample/*
+# The extracted game install (QUICKSTART step 2): game data, never committed.
+/aoe2-install/

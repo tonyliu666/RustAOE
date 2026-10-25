@@ -35,26 +35,42 @@ running.
 
 The game reads the original sprites from the installer's `data/` folder. The
 installer is a program with a 7z archive attached; `reverse/tools/extract.py`
-unpacks it without running anything. Unpack into a new, empty folder outside
-this repository:
+unpacks it without running anything. Run these from the repository root:
+they unpack into `aoe2-install/`, a folder inside the project that git ignores
+(see `.gitignore`), so the game's files are never committed.
 
 ```sh
-mkdir ~/aoe2-install
-python3 -I reverse/tools/extract.py path/to/AgeOfEmpires-TheConquerors.exe ~/aoe2-install
+mkdir aoe2-install
+python3 -I reverse/tools/extract.py path/to/AgeOfEmpires-TheConquerors.exe "$PWD/aoe2-install"
 ```
 
-It should end with `wrote 240 files, 0 empty files, 18 directories; refused 0`
-and leave `~/aoe2-install/data/graphics.drs` among others. Treat the unpacked
-files as untrusted: the game only reads its `.drs` archives, and you should not
-run anything from that folder.
+If the installer is the one in `sample/`, the path is
+`sample/AgeOfEmpires-TheConquerors.exe`. It should end with
+`wrote 240 files, 0 empty files, 18 directories; refused 0` and leave
+`aoe2-install/data/graphics.drs` among others. Treat the unpacked files as
+untrusted: the game only reads its `.drs` archives, and you should not run
+anything from that folder.
 
 ## 3. Run it
 
+Tell the game where the install is, once, by adding this line to `~/.zshrc`
+(or `~/.bashrc`), with the path to your copy of the repository:
+
 ```sh
-cargo run --release -- --assets ~/aoe2-install
-# or, once and for all:
-export AOE_ASSETS=~/aoe2-install
-cargo run --release
+export AOE_ASSETS=/path/to/ageOfAmpiresInRust/aoe2-install
+```
+
+Then open a new terminal (or run `source ~/.zshrc`) and, from the repository
+root:
+
+```sh
+cargo run --release -p app
+```
+
+Without the variable, name the install each time instead:
+
+```sh
+cargo run --release -p app -- --assets aoe2-install
 ```
 
 Without an install the game stops with a message saying how to give it one;
@@ -168,6 +184,9 @@ the whole bug report. Attach it to the issue.
 ```sh
 # Everything, headless: no window, no GPU, no game data. This is what CI runs.
 cargo test --workspace --no-default-features
+
+# Also the tests that read the real game files (needs AOE_ASSETS, step 3).
+cargo test --workspace -- --include-ignored
 
 # The tick budget: 200 units on a 128x128 map, target under 5 ms.
 cargo bench -p sim
