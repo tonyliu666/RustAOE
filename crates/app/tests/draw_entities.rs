@@ -184,47 +184,6 @@ fn a_unit_is_drawn_between_its_last_two_positions() {
 }
 
 #[test]
-fn the_overlay_names_the_active_player_and_their_gold() {
-    let mut renderer = RecordingRenderer::new();
-    let world = populated();
-
-    draw(&mut renderer, &world, &hud(&[], None));
-
-    let overlay: Vec<String> = renderer.texts().map(|(text, _)| text.to_string()).collect();
-    assert!(
-        overlay
-            .iter()
-            .any(|line| line.contains("player 1") && line.contains("gold 200")),
-        "overlay was {overlay:?}"
-    );
-}
-
-#[test]
-fn the_overlay_shows_every_resource_of_the_active_player() {
-    let mut renderer = RecordingRenderer::new();
-    let map = MapSpec::new(16, 16)
-        .with_starting_resources(Resources {
-            food: 11,
-            wood: 22,
-            gold: 33,
-            stone: 44,
-        })
-        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1));
-    let world = World::new(7, map);
-
-    draw(&mut renderer, &world, &hud(&[], None));
-
-    let overlay: Vec<String> = renderer.texts().map(|(text, _)| text.to_string()).collect();
-    assert!(
-        overlay.iter().any(|line| line.contains("food 11")
-            && line.contains("wood 22")
-            && line.contains("gold 33")
-            && line.contains("stone 44")),
-        "overlay was {overlay:?}"
-    );
-}
-
-#[test]
 fn the_overlay_names_a_player_beyond_the_second() {
     let mut renderer = RecordingRenderer::new();
     let map = MapSpec::new(16, 16).with_players(3).with_building(
@@ -606,4 +565,127 @@ fn with_nothing_selected_the_information_panel_is_empty() {
     let icon = sprites.building_icon(BuildingKind::BARRACKS).texture;
     assert_eq!(drawn_with(&renderer, icon), []);
     assert!(!texts(&renderer).iter().any(|(t, _)| t == "barracks"));
+}
+
+// --- the top bar and the debug line -----------------------------------------------
+
+/// The text drawn at screen point `at`, if any.
+fn text_at(renderer: &RecordingRenderer, at: Vec2) -> Option<String> {
+    let world_at = camera().screen_to_world(at);
+    renderer
+        .texts()
+        .find(|(_, pos)| (pos.x - world_at.x).abs() < 1e-4 && (pos.y - world_at.y).abs() < 1e-4)
+        .map(|(text, _)| text.to_string())
+}
+
+fn stocked() -> World {
+    let map = MapSpec::new(16, 16)
+        .with_players(2)
+        .with_starting_resources(Resources {
+            food: 11,
+            wood: 22,
+            gold: 33,
+            stone: 44,
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(10, 1),
+        );
+    World::new(7, map)
+}
+
+#[test]
+fn the_top_bar_shows_each_resource_in_its_own_slot() {
+    let mut renderer = RecordingRenderer::new();
+    let world = stocked();
+
+    draw(&mut renderer, &world, &hud(&[], None));
+
+    let layout = app::Layout::new(camera().viewport);
+    for (resource, amount) in [
+        (sim::Resource::Food, "11"),
+        (sim::Resource::Wood, "22"),
+        (sim::Resource::Gold, "33"),
+        (sim::Resource::Stone, "44"),
+    ] {
+        assert_eq!(
+            text_at(&renderer, layout.resource_at(resource)).as_deref(),
+            Some(amount),
+            "{resource:?}"
+        );
+    }
+}
+
+#[test]
+fn the_top_bar_shows_the_resources_of_whoever_holds_the_keyboard() {
+    let map = MapSpec::new(16, 16)
+        .with_starting_gold(200)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(10, 1),
+        );
+    let mut world = World::new(7, map);
+    let (town_centre, _) = world
+        .view()
+        .buildings()
+        .find(|(_, b)| b.owner == PlayerId::ONE)
+        .expect("a town centre");
+    // Player one spends 50 on a villager; player two keeps 200.
+    world.step(&[Command::Train {
+        player: PlayerId::ONE,
+        building: town_centre,
+        unit: UnitKind::VILLAGER,
+    }]);
+    let layout = app::Layout::new(camera().viewport);
+    let gold = layout.resource_at(sim::Resource::Gold);
+    let mut renderer = RecordingRenderer::new();
+
+    draw(&mut renderer, &world, &hud(&[], None));
+    let ones = text_at(&renderer, gold);
+    renderer.clear();
+    let twos_turn = Hud {
+        active_player: PlayerId::TWO,
+        ..hud(&[], None)
+    };
+    draw(&mut renderer, &world, &twos_turn);
+    let twos = text_at(&renderer, gold);
+
+    assert_eq!(ones.as_deref(), Some("150"));
+    assert_eq!(twos.as_deref(), Some("200"));
+}
+
+#[test]
+fn the_debug_readout_is_one_line_just_below_the_top_bar() {
+    let mut renderer = RecordingRenderer::new();
+    let world = stocked();
+
+    draw(&mut renderer, &world, &hud(&[], None));
+
+    let camera = camera();
+    let layout = app::Layout::new(camera.viewport);
+    let lines: Vec<(String, Vec2)> = renderer
+        .texts()
+        .filter(|(text, _)| text.contains("tick"))
+        .map(|(text, pos)| (text.to_string(), camera.world_to_screen(pos)))
+        .collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let (line, at) = &lines[0];
+    assert!(line.starts_with("player 1  tick 0"), "{line}");
+    assert!(at.y > layout.top_bar.max().y, "{at:?} is on the top bar");
+    assert!(
+        at.y < layout.top_bar.max().y + 30.0,
+        "{at:?} is far below it"
+    );
+    // The old lines are gone: resources live in the top bar, controls in
+    // QUICKSTART.
+    for (text, _) in renderer.texts() {
+        assert!(
+            !text.contains("selected") && !text.contains("tab switch"),
+            "{text}"
+        );
+    }
 }

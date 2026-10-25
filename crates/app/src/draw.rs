@@ -12,7 +12,7 @@ use crate::pick::to_screen_space;
 use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
 use crate::ui::{trains_on_buttons, Layout, Rect};
 use render::{Camera, Color, Renderer, Vec2};
-use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, Resources, TilePos, UnitId, WorldView};
+use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, TilePos, UnitId, WorldView};
 use std::collections::{HashMap, HashSet};
 
 /// The outline around a selected unit and the drag rectangle.
@@ -22,10 +22,8 @@ pub const HEALTH: Color = Color::rgb(0.25, 0.85, 0.35);
 /// The empty part of a health bar.
 pub const HEALTH_LOST: Color = Color::rgba(0.1, 0.1, 0.1, 0.7);
 
-/// Screen-space offset of the debug overlay from the top-left corner, in pixels.
-const OVERLAY_ORIGIN: Vec2 = Vec2::new(8.0, 24.0);
-/// Overlay text height in screen pixels.
-const OVERLAY_PX: f32 = 20.0;
+/// Debug text height in screen pixels.
+const OVERLAY_PX: f32 = 16.0;
 /// Vertical gap between overlay lines, in screen pixels.
 const OVERLAY_LINE: f32 = 22.0;
 /// The information panel's text: dark ink on the parchment.
@@ -168,57 +166,46 @@ fn draw_info_panel<R: Renderer>(
     }
 }
 
-/// `food 0  wood 0  gold 200  stone 0`, in the fixed resource order.
-fn resource_line(stock: Resources) -> String {
-    Resource::ALL
-        .into_iter()
-        .map(|r| format!("{} {}", r.name(), stock.get(r)))
-        .collect::<Vec<_>>()
-        .join("  ")
-}
+/// The top bar's text: light on the dark slots.
+const BAR_TEXT: Color = Color::rgb(0.95, 0.93, 0.85);
 
-/// Draws the debug readout.
+/// Draws the active player's resources in the top bar's slots, and the debug
+/// readout just below it.
 ///
 /// Positioned by converting a screen offset back into world units, so it stays
-/// pinned to the corner of the window while the camera moves under it.
+/// pinned to the window while the camera moves under it.
 fn draw_overlay<R: Renderer>(
     renderer: &mut R,
     camera: &Camera,
     view: WorldView<'_>,
     hud: &Hud<'_>,
 ) {
-    let mut lines = vec![
-        format!(
-            "tick {}  zoom {:.1}  {}",
-            view.tick(),
-            camera.zoom,
-            if hud.replaying { "replay" } else { "live" }
-        ),
-        format!(
-            "player {}  {}  selected {}",
-            hud.active_player.number(),
-            resource_line(view.resources(hud.active_player)),
-            hud.selection.len()
-        ),
-        "tab switch  right-click order  F10 lock mouse".to_string(),
-    ];
+    let layout = Layout::new(camera.viewport);
+    let stock = view.resources(hud.active_player);
+    for resource in Resource::ALL {
+        renderer.text(
+            &stock.get(resource).to_string(),
+            camera.screen_to_world(layout.resource_at(resource)),
+            layout.bar_text_px,
+            BAR_TEXT,
+        );
+    }
+
+    let mut lines = vec![format!(
+        "player {}  tick {}  zoom {:.1}  {}",
+        hud.active_player.number(),
+        view.tick(),
+        camera.zoom,
+        if hud.replaying { "replay" } else { "live" }
+    )];
     match view.outcome() {
         Some(Outcome::Won(winner)) => lines.push(format!("player {} wins", winner.number())),
         Some(Outcome::Draw) => lines.push("draw".to_string()),
         None => {}
     }
-
     for (row, line) in lines.iter().enumerate() {
-        let offset = Vec2::new(
-            OVERLAY_ORIGIN.x,
-            OVERLAY_ORIGIN.y + OVERLAY_LINE * row as f32,
-        );
-        renderer.text(
-            line,
-            camera.screen_to_world(offset),
-            OVERLAY_PX,
-            Color::WHITE,
-        );
+        let at = layout.debug_at + Vec2::new(0.0, OVERLAY_LINE * row as f32);
+        renderer.text(line, camera.screen_to_world(at), OVERLAY_PX, Color::WHITE);
     }
 }
 

@@ -1,7 +1,7 @@
 # Pre-stage 2: selecting buildings and the command panel
 
 **Date:** 2026-10-25
-**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 5 done)
+**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 6 done)
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.6 step 3b
 **Pulls forward:** part of plan Phase 8 (user interface)
 
@@ -193,3 +193,33 @@ the bar 50764 is loaded; the frame drawn is the percent done, elapsed over
 the unit's training ticks. Training and the queue are shown only for your own
 building; anyone's shows its name and hit points. Breaking each rule on
 purpose fails a test.
+
+## Step 6 result (2026-10-25)
+
+The active player's amounts are written in the top bar's slots, measured on
+51101: the dark text areas after the icons run wood (28 to 77), food (104 to
+154), gold (182 to 231), stone (256 to 308), and population (336 to 385,
+left empty until a population cap exists), from y 4 to 21. Each amount's
+baseline starts 4 pixels into its area at y 18, in 14-pixel text scaled with
+the window. The debug readout is one line (`player N  tick T  zoom Z  live`)
+at (8, 41), just below the top bar, with the winner on a second line once
+the game is decided; the controls line is gone (QUICKSTART lists them).
+Breaking each rule on purpose fails a test.
+
+## Follow-up: gathering as the original plays it (asked 2026-10-25)
+
+Raised by the user while trying step 6, to be its own feature after this one
+is merged:
+
+1. **Gather cursor.** With villagers selected, the cursor over a mine turns
+   into the original's pickaxe.
+2. **Drop off by hand.** A right-click on your drop-off building sends loaded
+   villagers to deposit early, then back to the mine they were working, as
+   in the original.
+3. **What a villager carries.** The information panel shows a selected
+   villager's load.
+4. **The original's numbers.** Carry capacity and gather rate come from the
+   `.dat` (plan Phase 2), not today's 10 gold at one every 2 seconds.
+
+Already in the simulation: the carry capacity, the gather rate, and the walk
+back to the nearest drop-off when the load is full.

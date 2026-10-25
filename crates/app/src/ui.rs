@@ -6,12 +6,23 @@
 //! of the window size, so it is tested without a window.
 
 use render::Vec2;
-use sim::{BuildingId, PlayerId, UnitKind, WorldView};
+use sim::{BuildingId, PlayerId, Resource, UnitKind, WorldView};
 
 /// The size of the image the rectangles below were measured on.
 const IMAGE: Vec2 = Vec2::new(800.0, 600.0);
 /// Height of the top bar, which holds the resource slots.
 const TOP_BAR_HEIGHT: f32 = 25.0;
+/// Where each resource's amount is written in the top bar: the left end of
+/// the baseline, just after the slot's icon. The slots run wood, food, gold,
+/// stone, then population, which waits for a population cap.
+const WOOD_AT: Vec2 = Vec2::new(32.0, 18.0);
+const FOOD_AT: Vec2 = Vec2::new(108.0, 18.0);
+const GOLD_AT: Vec2 = Vec2::new(186.0, 18.0);
+const STONE_AT: Vec2 = Vec2::new(260.0, 18.0);
+/// The top bar's text height at 800x600: the slots are 17 pixels tall.
+const BAR_TEXT_PX: f32 = 14.0;
+/// The debug readout: just below the top bar, at the left.
+const DEBUG_AT: Vec2 = Vec2::new(8.0, 41.0);
 /// Where the bottom row of panels starts, frame included.
 const BOTTOM_TOP: f32 = 455.0;
 /// The dark area of the command panel, inside its frame.
@@ -105,6 +116,13 @@ fn rect((x, y, w, h): (f32, f32, f32, f32)) -> Rect {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Layout {
     pub top_bar: Rect,
+    /// Where each resource's amount is written, in [`Resource::ALL`] order;
+    /// see [`Layout::resource_at`].
+    resources: [Vec2; 4],
+    /// The top bar's text height, in screen pixels.
+    pub bar_text_px: f32,
+    /// Where the debug readout is written.
+    pub debug_at: Vec2,
     /// The whole bottom row: the three panels and the frame around them.
     pub bottom: Rect,
     pub command_panel: Rect,
@@ -133,6 +151,17 @@ impl Layout {
         });
         Layout {
             top_bar: rect((0.0, 0.0, IMAGE.x, TOP_BAR_HEIGHT)).scaled(scale),
+            resources: Resource::ALL.map(|r| {
+                let at = match r {
+                    Resource::Food => FOOD_AT,
+                    Resource::Wood => WOOD_AT,
+                    Resource::Gold => GOLD_AT,
+                    Resource::Stone => STONE_AT,
+                };
+                point(at, scale)
+            }),
+            bar_text_px: BAR_TEXT_PX * scale.y,
+            debug_at: point(DEBUG_AT, scale),
             bottom: rect((0.0, BOTTOM_TOP, IMAGE.x, IMAGE.y - BOTTOM_TOP)).scaled(scale),
             command_panel: rect(COMMAND_PANEL).scaled(scale),
             buttons,
@@ -149,6 +178,15 @@ impl Layout {
             }),
             minimap: rect(MINIMAP).scaled(scale),
         }
+    }
+
+    /// Where `resource`'s amount is written in the top bar.
+    pub fn resource_at(&self, resource: Resource) -> Vec2 {
+        let index = Resource::ALL
+            .iter()
+            .position(|r| *r == resource)
+            .expect("every resource is in ALL");
+        self.resources[index]
     }
 
     /// Whether a click at `point` lands on the interface rather than the map.

@@ -165,8 +165,11 @@ fn the_frame_carries_a_debug_overlay_naming_the_tick() {
 
     draw(&mut renderer, &wide_camera(), &world);
 
-    let (text, _) = renderer.texts().next().expect("an overlay should be drawn");
-    assert!(text.contains("tick 3"), "overlay was {text:?}");
+    let texts: Vec<&str> = renderer.texts().map(|(text, _)| text).collect();
+    assert!(
+        texts.iter().any(|text| text.contains("tick 3")),
+        "overlay was {texts:?}"
+    );
 }
 
 #[test]
@@ -196,11 +199,18 @@ fn the_overlay_sits_at_a_fixed_corner_of_the_screen_whatever_the_camera_shows() 
     let near = Camera::new(Vec2::new(10.0, 10.0), 40.0, Vec2::new(400.0, 400.0));
     let far = Camera::new(Vec2::new(50.0, 30.0), 8.0, Vec2::new(400.0, 400.0));
 
+    let debug_line = |renderer: &RecordingRenderer| {
+        renderer
+            .texts()
+            .find(|(text, _)| text.contains("tick"))
+            .expect("overlay")
+            .1
+    };
     draw(&mut renderer, &near, &world);
-    let near_pos = renderer.texts().next().expect("overlay").1;
+    let near_pos = debug_line(&renderer);
     renderer.clear();
     draw(&mut renderer, &far, &world);
-    let far_pos = renderer.texts().next().expect("overlay").1;
+    let far_pos = debug_line(&renderer);
 
     let to_screen = |cam: &Camera, pos: Vec2| cam.world_to_screen(pos);
     let near_screen = to_screen(&near, near_pos);

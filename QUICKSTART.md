@@ -137,8 +137,11 @@ it.
 Units are easy to click at any zoom: zoomed out, a click within a few pixels
 of a unit selects it, and a small wobble of the hand still counts as a click.
 
-The overlay in the top-left always tells you whose turn it is, their food,
-wood, gold, and stone, and how many units they have selected.
+The top bar shows the wood, food, gold, and stone of whoever holds the
+keyboard, each in its slot beside the original's icon (the population slot
+stays empty for now). Just below it, one small debug line says whose turn it
+is, the tick, the zoom, and whether you are playing live or watching a
+replay.
 
 Each player has their own camera and their own selection, so `Tab` really is a
 handover: your view and your selected units are still there when you come back.
@@ -150,7 +153,8 @@ smaller building to the town centre's right), three villagers standing below
 the town centre, a gold mine to the lower left, and 200 gold. There are **no
 soldiers on the map at the start**: you train them (step 3). Player 1 starts in
 the top-left of the map, player 2 in the bottom-right, with a band of forest
-between them. The overlay at the top shows whose turn it is and their resources.
+between them. The top bar shows your resources; the line under it says whose
+turn it is.
 
 1. **Gather.** Box-select your three villagers. Right click the gold mine near
    your base. They walk over, mine a load of ten gold, carry it back to the
@@ -175,7 +179,7 @@ between them. The overlay at the top shows whose turn it is and their resources.
    above anything that has taken damage. A town centre takes a while: 1000 hit
    points at 8 damage a second per soldier.
 6. **Win.** A player is out when all of their buildings are destroyed; the last
-   player left wins. The overlay announces the winner, and the simulation keeps
+   player left wins. A line under the debug line announces the winner, and the simulation keeps
    running afterwards.
 
 The forest across the middle of the map has two gaps in it. Ordering a group of

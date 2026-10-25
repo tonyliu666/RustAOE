@@ -141,3 +141,23 @@ fn the_panel_text_grows_with_the_window() {
         Rect::new(small.name_at * 2.0, Vec2::ZERO)
     ));
 }
+
+#[test]
+fn each_resource_is_written_in_its_slot_of_the_top_bar() {
+    // The slots' dark text areas, after each icon, on the 800x600 image:
+    // wood, food, gold, stone, left to right, from y 4 to 21.
+    let layout = Layout::new(Vec2::new(800.0, 600.0));
+    for (resource, from, to) in [
+        (sim::Resource::Wood, 28.0, 77.0),
+        (sim::Resource::Food, 104.0, 154.0),
+        (sim::Resource::Gold, 182.0, 231.0),
+        (sim::Resource::Stone, 256.0, 308.0),
+    ] {
+        let at = layout.resource_at(resource);
+        assert!((from..to - 20.0).contains(&at.x), "{resource:?} at {at:?}");
+        assert!(
+            (4.0 + layout.bar_text_px * 0.7..=21.0).contains(&at.y),
+            "{resource:?} at {at:?}"
+        );
+    }
+}
