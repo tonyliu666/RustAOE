@@ -33,7 +33,12 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
     let tree = sprite(renderer, (110, 129), (55.0, 120.0));
     let gold_mine = sprite(renderer, (82, 40), (41.0, 22.0));
     let interface = sprite(renderer, (800, 600), (0.0, 0.0));
+    let unit_icons = vec![
+        sprite(renderer, (36, 36), (0.0, 0.0)),
+        sprite(renderer, (36, 36), (0.0, 0.0)),
+    ];
     Sprites {
+        unit_icons,
         grass,
         tree,
         gold_mine,
@@ -135,13 +140,19 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 
 /// The sprite IDs the game loads, with the sprite each gets.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
-    [1473u32, 1181, 901, 131, 1270, 4479, 51101]
+    [1473u32, 1181, 901, 131, 1270, 4479, 51101, 50730]
         .into_iter()
         .map(|id| {
-            let bytes = overrides
-                .iter()
-                .find(|(o, _)| *o == id)
-                .map_or_else(|| slp(1, 2, &TWO_PIXELS), |(_, b)| b.clone());
+            let bytes = overrides.iter().find(|(o, _)| *o == id).map_or_else(
+                || {
+                    if id == 50730 {
+                        icons(16)
+                    } else {
+                        slp(1, 2, &TWO_PIXELS)
+                    }
+                },
+                |(_, b)| b.clone(),
+            );
             (SLP, id, bytes)
         })
         .collect()
@@ -182,4 +193,42 @@ pub fn install_with(
 
 pub fn remove(dir: &Path) {
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A sprite of `frames` frames where frame n is one row n + 1 pixels wide,
+/// so a frame is told by its width: a stand-in for the unit icons (50730).
+pub fn icons(frames: usize) -> Vec<u8> {
+    let mut out = b"2.0N".to_vec();
+    out.extend((frames as i32).to_le_bytes());
+    out.extend([0u8; 24]);
+    let bodies: Vec<Vec<u8>> = (0..frames)
+        .map(|f| {
+            // One row: a block of f + 1 copies of colour 9, then end of row.
+            let mut row = vec![((f as u8 + 1) << 2)];
+            row.extend(std::iter::repeat_n(9u8, f + 1));
+            row.push(0x0F);
+            row
+        })
+        .collect();
+    let mut at = 32 + 32 * frames;
+    let mut tables = Vec::new();
+    for (f, body) in bodies.iter().enumerate() {
+        out.extend(((at + 4) as u32).to_le_bytes()); // command table
+        out.extend((at as u32).to_le_bytes()); // outline table
+        out.extend(0u32.to_le_bytes());
+        out.extend(0u32.to_le_bytes());
+        out.extend(((f + 1) as i32).to_le_bytes());
+        out.extend(1i32.to_le_bytes());
+        out.extend(0i32.to_le_bytes());
+        out.extend(0i32.to_le_bytes());
+        let mut table = vec![0, 0, 0, 0];
+        table.extend(((at + 8) as u32).to_le_bytes());
+        table.extend(body);
+        at += table.len();
+        tables.push(table);
+    }
+    for table in tables {
+        out.extend(table);
+    }
+    out
 }

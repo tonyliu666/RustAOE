@@ -1,7 +1,7 @@
 # Pre-stage 2: selecting buildings and the command panel
 
 **Date:** 2026-10-25
-**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 3 done)
+**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 4 done)
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.6 step 3b
 **Pulls forward:** part of plan Phase 8 (user interface)
 
@@ -144,3 +144,15 @@ Buildings are picked on their footprint or their drawn body
 winning where bodies overlap; right-click targeting uses the same test. The
 selected building gets the white outline around its sprite. Breaking each
 rule on purpose fails a test.
+
+## Step 4 result (2026-10-25)
+
+Each unit type's icon is its `icon` frame of 50730, decoded in player one's
+colours (`Sprites::unit_icon`); a frame the sprite lacks is
+`AssetError::MissingIcon` naming the entry. `ui::trains_on_buttons` gives
+the selected building's `trains` list, up to fifteen, and nothing for no
+building or another player's. Their icons are drawn on the buttons, over the
+interface. A left press on a button, or its number key (`1` the first), issues
+`Command::Train` at the selected building; with no building of yours
+selected, the keys do nothing. The global training keys and the overlay's key
+list are gone. Breaking each rule on purpose fails a test.

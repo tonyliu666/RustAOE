@@ -10,6 +10,7 @@
 use crate::pick::footprint_centre;
 use crate::pick::to_screen_space;
 use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
+use crate::ui::{trains_on_buttons, Layout, Rect};
 use render::{Camera, Color, Renderer, Vec2};
 use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, Resources, TilePos, UnitId, WorldView};
 use std::collections::{HashMap, HashSet};
@@ -66,6 +67,7 @@ pub fn draw_world<R: Renderer>(
     draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
     draw_interface(renderer, camera, sprites);
+    draw_command_panel(renderer, camera, view, hud, sprites);
     draw_overlay(renderer, camera, view, hud);
     renderer.end_frame();
 }
@@ -80,6 +82,31 @@ fn draw_interface<R: Renderer>(renderer: &mut R, camera: &Camera, sprites: &Spri
         camera.screen_to_world(Vec2::ZERO),
         camera.viewport * (1.0 / camera.zoom),
     );
+}
+
+/// A screen rectangle as the renderer's world-unit position and size.
+fn screen_rect(camera: &Camera, rect: Rect) -> (Vec2, Vec2) {
+    (
+        camera.screen_to_world(rect.min),
+        rect.size * (1.0 / camera.zoom),
+    )
+}
+
+/// Draws the selected building's buttons: the icon of each unit type it
+/// trains, in order, on the command panel.
+fn draw_command_panel<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    let layout = Layout::new(camera.viewport);
+    let trains = trains_on_buttons(view, hud.building, hud.active_player);
+    for (kind, button) in trains.into_iter().zip(layout.buttons) {
+        let (at, size) = screen_rect(camera, button);
+        renderer.sprite(sprites.unit_icon(kind).texture, at, size);
+    }
 }
 
 /// `food 0  wood 0  gold 200  stone 0`, in the fixed resource order.
@@ -114,15 +141,7 @@ fn draw_overlay<R: Renderer>(
             resource_line(view.resources(hud.active_player)),
             hud.selection.len()
         ),
-        format!(
-            "tab switch  {}  right-click order  F10 lock mouse",
-            crate::session::trainable(view.content())
-                .iter()
-                .enumerate()
-                .map(|(i, kind)| format!("{} {}", i + 1, view.content().unit(*kind).name))
-                .collect::<Vec<_>>()
-                .join("  ")
-        ),
+        "tab switch  right-click order  F10 lock mouse".to_string(),
     ];
     match view.outcome() {
         Some(Outcome::Won(winner)) => lines.push(format!("player {} wins", winner.number())),

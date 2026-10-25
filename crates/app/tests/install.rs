@@ -237,3 +237,44 @@ fn an_install_without_the_interface_image_is_an_error() {
     );
     remove(&dir);
 }
+
+#[test]
+fn each_unit_types_icon_is_its_frame_of_the_unit_icons() {
+    // Frame n of the fake icon sprite is n + 1 pixels wide, so the size
+    // tells which frame was taken: the villager's is 15, the soldier's 8.
+    let dir = install(
+        "icons",
+        graphics(&[(50730, common::icons(16))]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let width = |kind| {
+        renderer
+            .texture_size(sprites.unit_icon(kind).texture)
+            .map(|(w, _)| w)
+    };
+    assert_eq!(width(UnitKind::VILLAGER), Some(16));
+    assert_eq!(width(UnitKind::SOLDIER), Some(9));
+    remove(&dir);
+}
+
+#[test]
+fn an_icon_frame_the_install_does_not_have_is_an_error_naming_the_entry() {
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::SOLDIER).icon = 99;
+    let dir = install("icon-missing", graphics(&[]), slp(1, 2, &TWO_PIXELS));
+
+    let result = load_images(&dir, &content);
+
+    assert!(
+        matches!(&result, Err(AssetError::MissingIcon { entry, frame: 99 }) if entry == "soldier"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}

@@ -265,36 +265,6 @@ fn the_overlay_announces_the_winner_once_the_game_is_decided() {
     );
 }
 
-#[test]
-fn the_overlay_lists_each_training_key_with_the_type_it_trains() {
-    let mut content = sim::Content::default();
-    let mut archer = content.unit(UnitKind::SOLDIER).clone();
-    archer.name = "archer".to_string();
-    content.units.push(archer);
-    let archer = content.unit_named("archer").expect("added");
-    content
-        .building_mut(BuildingKind::BARRACKS)
-        .trains
-        .push(archer);
-    let map = MapSpec::new(16, 16).with_building(
-        BuildingKind::TOWN_CENTER,
-        PlayerId::ONE,
-        TilePos::new(1, 1),
-    );
-    let world = World::with_content(7, map, content);
-    let mut renderer = RecordingRenderer::new();
-
-    draw(&mut renderer, &world, &hud(&[], None));
-
-    let overlay: Vec<String> = renderer.texts().map(|(text, _)| text.to_string()).collect();
-    assert!(
-        overlay.iter().any(|line| line.contains("1 villager")
-            && line.contains("2 soldier")
-            && line.contains("3 archer")),
-        "overlay was {overlay:?}"
-    );
-}
-
 // --- a selected building -------------------------------------------------------
 
 /// Where the town centre's sprite was drawn: (top-left, size).
@@ -360,4 +330,104 @@ fn a_buildings_click_target_is_where_its_sprite_is_drawn() {
         building.origin.y as f32 + half,
     );
     assert_eq!((centre + body.offset, body.size), (pos, size));
+}
+
+// --- the command panel ------------------------------------------------------------
+
+/// The sprites drawn with `texture`, as (top-left, size).
+fn drawn_with(renderer: &RecordingRenderer, texture: render::TextureId) -> Vec<(Vec2, Vec2)> {
+    renderer
+        .sprites()
+        .filter(|(t, _, _)| *t == texture)
+        .map(|(_, pos, size)| (pos, size))
+        .collect()
+}
+
+/// A screen rectangle in world units, as the panel's sprites are drawn.
+fn in_world(rect: app::Rect) -> (Vec2, Vec2) {
+    let camera = camera();
+    (
+        camera.screen_to_world(rect.min),
+        rect.size * (1.0 / camera.zoom),
+    )
+}
+
+/// A map with a barracks for each player.
+fn two_barracks() -> World {
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(10, 1));
+    World::new(7, map)
+}
+
+fn barracks_of(world: &World, owner: PlayerId) -> sim::BuildingId {
+    world
+        .view()
+        .buildings()
+        .find(|(_, b)| b.owner == owner)
+        .map(|(id, _)| id)
+        .expect("a barracks")
+}
+
+#[test]
+fn your_selected_barracks_shows_the_soldiers_icon_on_the_first_button() {
+    let mut renderer = RecordingRenderer::new();
+    let world = two_barracks();
+    let hud = Hud {
+        building: Some(barracks_of(&world, PlayerId::ONE)),
+        ..hud(&[], None)
+    };
+
+    let sprites = draw(&mut renderer, &world, &hud);
+
+    let buttons = app::Layout::new(camera().viewport).buttons;
+    let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
+    assert_eq!(drawn_with(&renderer, soldier), [in_world(buttons[0])]);
+    let villager = sprites.unit_icon(UnitKind::VILLAGER).texture;
+    assert_eq!(drawn_with(&renderer, villager), []);
+}
+
+#[test]
+fn the_buttons_are_drawn_over_the_interface() {
+    let mut renderer = RecordingRenderer::new();
+    let world = two_barracks();
+    let hud = Hud {
+        building: Some(barracks_of(&world, PlayerId::ONE)),
+        ..hud(&[], None)
+    };
+
+    let sprites = draw(&mut renderer, &world, &hud);
+
+    let order: Vec<render::TextureId> = renderer.sprites().map(|(t, _, _)| t).collect();
+    let interface = order.iter().position(|t| *t == sprites.interface.texture);
+    let button = order
+        .iter()
+        .position(|t| *t == sprites.unit_icon(UnitKind::SOLDIER).texture);
+    assert!(interface < button, "{interface:?} {button:?}");
+}
+
+#[test]
+fn another_players_building_shows_no_buttons() {
+    let mut renderer = RecordingRenderer::new();
+    let world = two_barracks();
+    let hud = Hud {
+        building: Some(barracks_of(&world, PlayerId::TWO)),
+        ..hud(&[], None)
+    };
+
+    let sprites = draw(&mut renderer, &world, &hud);
+
+    let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
+    assert_eq!(drawn_with(&renderer, soldier), []);
+}
+
+#[test]
+fn with_no_building_selected_there_are_no_buttons() {
+    let mut renderer = RecordingRenderer::new();
+    let world = two_barracks();
+
+    let sprites = draw(&mut renderer, &world, &hud(&[], None));
+
+    let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
+    assert_eq!(drawn_with(&renderer, soldier), []);
 }

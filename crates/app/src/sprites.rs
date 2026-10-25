@@ -41,6 +41,9 @@ const PLAYER_SLOTS: usize = 9;
 /// the map. One image per civilisation; this is the first, used for every
 /// player until civilisations exist.
 const INTERFACE: u32 = 51101;
+/// The unit icons, in `interfac.drs`: 36x36 frames, one per unit type; each
+/// type's content entry names its frame.
+const UNIT_ICONS: u32 = 50730;
 
 /// An uploaded sprite and where its ground point is.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -62,6 +65,8 @@ pub struct Sprites {
     pub gold_mine: Sprite,
     /// The interface image, drawn stretched over the whole window.
     pub interface: Sprite,
+    /// Each unit type's icon, indexed by type ID.
+    pub unit_icons: Vec<Sprite>,
     /// Indexed by unit type ID, then player slot.
     pub units: Vec<[Sprite; PLAYER_SLOTS]>,
     /// Indexed by building type ID, then player slot.
@@ -73,6 +78,11 @@ impl Sprites {
     /// loaded for the content the world plays by, so every type has one.
     pub fn unit(&self, kind: UnitKind, owner: PlayerId) -> &Sprite {
         &self.units[kind.index()][slot(owner)]
+    }
+
+    /// The icon for a unit type, as on the command panel's buttons.
+    pub fn unit_icon(&self, kind: UnitKind) -> &Sprite {
+        &self.unit_icons[kind.index()]
     }
 
     pub fn building(&self, kind: BuildingKind, owner: PlayerId) -> &Sprite {
@@ -136,6 +146,7 @@ pub struct GameImages {
     tree: Frame,
     gold_mine: Frame,
     interface: Frame,
+    unit_icons: Vec<Frame>,
     /// Per unit type ID, one frame per player slot.
     units: Vec<Vec<Frame>>,
     buildings: Vec<Vec<Frame>>,
@@ -156,6 +167,11 @@ impl GameImages {
         let tree = upload_one(renderer, &self.tree);
         let gold_mine = upload_one(renderer, &self.gold_mine);
         let interface = upload_one(renderer, &self.interface);
+        let unit_icons = self
+            .unit_icons
+            .iter()
+            .map(|frame| upload_one(renderer, frame))
+            .collect();
         let mut upload_set = |frames: &[Frame]| -> [Sprite; PLAYER_SLOTS] {
             std::array::from_fn(|i| upload_one(renderer, &frames[i]))
         };
@@ -175,6 +191,7 @@ impl GameImages {
             tree,
             gold_mine,
             interface,
+            unit_icons,
             units,
             buildings,
         }
@@ -207,6 +224,12 @@ pub enum AssetError {
         id: u32,
         error: SlpError,
     },
+    /// A content entry names an icon frame the install's icon sprite does not
+    /// have.
+    MissingIcon {
+        entry: String,
+        frame: u32,
+    },
     /// A content entry names a sprite the install does not have.
     MissingGraphic {
         entry: String,
@@ -231,6 +254,10 @@ impl fmt::Display for AssetError {
                 )
             }
             AssetError::Slp { id, error } => write!(f, "sprite {id}: {error}"),
+            AssetError::MissingIcon { entry, frame } => write!(
+                f,
+                "content entry `{entry}` names icon {frame}, which the icon sprite does not have"
+            ),
             AssetError::MissingGraphic { entry, id } => write!(
                 f,
                 "content entry `{entry}` names sprite {id}, which data/graphics.drs does not have"
@@ -373,6 +400,30 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
             })
             .collect()
     };
+    // Icons are drawn in player one's colours until each player's panel
+    // shows their own.
+    let icons = archives.sprite(UNIT_ICONS)?;
+    let icon = |entry: &str, frame: u32| -> Result<Frame, AssetError> {
+        let missing = || AssetError::MissingIcon {
+            entry: entry.to_string(),
+            frame,
+        };
+        let index = usize::try_from(frame).map_err(|_| missing())?;
+        let header = icons.frames().nth(index).ok_or_else(missing)?;
+        if header.width == 0 || header.height == 0 {
+            return Err(AssetError::EmptySprite { id: UNIT_ICONS });
+        }
+        let image = icons
+            .decode(index, &palette, 1)
+            .map_err(|error| AssetError::Slp {
+                id: UNIT_ICONS,
+                error,
+            })?;
+        Ok(Frame {
+            image,
+            hotspot: Vec2::ZERO,
+        })
+    };
     // Neutral objects belong to Gaia: player slot 0's colours.
     let neutral = |id: u32| decode(id, 0);
 
@@ -395,6 +446,11 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
         tree: neutral(TREE)?,
         gold_mine: neutral(GOLD_MINE)?,
         interface: neutral(INTERFACE)?,
+        unit_icons: content
+            .units
+            .iter()
+            .map(|u| icon(&u.name, u.icon))
+            .collect::<Result<_, _>>()?,
         units: content
             .units
             .iter()

@@ -7,10 +7,10 @@
 //! will let a networked client hold exactly one of these later.
 
 use crate::pick;
-use crate::ui::Layout;
+use crate::ui::{self, Layout};
 use crate::CameraController;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
-use sim::{BuildingId, Command, EntityId, PlayerId, UnitId, UnitKind, WorldView};
+use sim::{BuildingId, Command, EntityId, PlayerId, UnitId, WorldView};
 use smallvec::SmallVec;
 
 /// One side's view of the game.
@@ -54,18 +54,8 @@ pub struct Session {
     bodies: pick::Bodies,
 }
 
-/// The unit types some building can train, in the content's order: what the
-/// training keys train, key 1 the first. The overlay lists the same.
-pub(crate) fn trainable(content: &sim::Content) -> Vec<UnitKind> {
-    content
-        .unit_kinds()
-        .filter(|kind| content.buildings.iter().any(|b| b.trains.contains(kind)))
-        .take(TRAINING_KEYS.len())
-        .collect()
-}
-
-/// The keys that train unit types, in order.
-const TRAINING_KEYS: [Key; 9] = [
+/// The keys that press the command panel's buttons, `1` the first.
+const BUTTON_KEYS: [Key; 9] = [
     Key::Digit1,
     Key::Digit2,
     Key::Digit3,
@@ -190,14 +180,15 @@ impl Session {
 
         // A press on the interface belongs to the interface: it neither
         // starts a drag nor orders anything on the map underneath.
-        let on_interface = Layout::new(camera.viewport).blocks(input.cursor);
+        let layout = Layout::new(camera.viewport);
+        let on_interface = layout.blocks(input.cursor);
         self.update_selection(input, cursor, on_interface, view);
 
         let mut commands = Vec::new();
         if input.is_pressed(MouseButton::Right) && !on_interface {
             commands.extend(self.order(cursor, view));
         }
-        commands.extend(self.training(input, view));
+        commands.extend(self.command_panel(input, &layout, view));
         commands
     }
 
@@ -317,32 +308,38 @@ impl Session {
         }
     }
 
-    /// Training hotkeys: one key per unit type, aimed at the first building
-    /// that can make it.
-    ///
-    /// Picking the building for the player rather than making them select it
-    /// keeps the slice to two keys. Choosing between several barracks is a
-    /// user interface problem, and this slice is not testing that.
-    fn training(&self, input: &InputState, view: WorldView<'_>) -> Vec<Command> {
+    /// The command panel: a click on one of its buttons, or the button's
+    /// number key, trains that button's unit type at the selected building.
+    /// With no building of yours selected there are no buttons, so the keys
+    /// do nothing.
+    fn command_panel(
+        &self,
+        input: &InputState,
+        layout: &Layout,
+        view: WorldView<'_>,
+    ) -> Vec<Command> {
         let player = self.active;
-        let content = view.content();
-        // The unit types some building can train, in the content's order:
-        // key 1 trains the first, key 2 the second, up to key 9. Nothing here
-        // names a type. Training from a selected building's own list is a
-        // user-interface job for plan Phase 8.
-        TRAINING_KEYS
+        let Some(building) = self.active().building else {
+            return Vec::new();
+        };
+        let trains = ui::trains_on_buttons(view, Some(building), player);
+        let clicked = input
+            .is_pressed(MouseButton::Left)
+            .then(|| layout.buttons.iter().position(|b| b.contains(input.cursor)))
+            .flatten();
+        let keyed = BUTTON_KEYS
+            .iter()
+            .enumerate()
+            .filter(|(_, key)| input.key_pressed(**key))
+            .map(|(index, _)| index);
+        clicked
             .into_iter()
-            .zip(trainable(content))
-            .filter(|(key, _)| input.key_pressed(*key))
-            .filter_map(|(_, unit)| {
-                let (building, _) = view.buildings().find(|(_, b)| {
-                    b.owner == player && content.building(b.kind).trains.contains(&unit)
-                })?;
-                Some(Command::Train {
-                    player,
-                    building,
-                    unit,
-                })
+            .chain(keyed)
+            .filter_map(|index| trains.get(index).copied())
+            .map(|unit| Command::Train {
+                player,
+                building,
+                unit,
             })
             .collect()
     }

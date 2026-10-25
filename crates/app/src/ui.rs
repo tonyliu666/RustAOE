@@ -6,6 +6,7 @@
 //! of the window size, so it is tested without a window.
 
 use render::Vec2;
+use sim::{BuildingId, PlayerId, UnitKind, WorldView};
 
 /// The size of the image the rectangles below were measured on.
 const IMAGE: Vec2 = Vec2::new(800.0, 600.0);
@@ -115,4 +116,27 @@ impl Layout {
     pub fn blocks(&self, point: Vec2) -> bool {
         self.top_bar.contains(point) || self.bottom.contains(point)
     }
+}
+
+/// What the command panel's buttons train, in button order, for `player`
+/// with `building` selected: the building's `trains` list, as many as there
+/// are buttons. Empty for no building or another player's: only your own
+/// buildings take your commands.
+pub fn trains_on_buttons(
+    view: WorldView<'_>,
+    building: Option<BuildingId>,
+    player: PlayerId,
+) -> Vec<UnitKind> {
+    building
+        .and_then(|id| view.building(id))
+        .filter(|b| b.owner == player)
+        .map(|b| {
+            let trains = &view.content().building(b.kind).trains;
+            trains
+                .iter()
+                .copied()
+                .take(BUTTON_COLUMNS * BUTTON_ROWS)
+                .collect()
+        })
+        .unwrap_or_default()
 }

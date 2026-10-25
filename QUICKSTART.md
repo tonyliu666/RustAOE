@@ -97,7 +97,8 @@ band of forest.
 | Right click ground | Move there |
 | Right click a gold mine | Send selected villagers to gather |
 | Right click an enemy | Attack it |
-| `1` to `9` | Train a unit type at one of your buildings: the overlay lists which key trains which (by default `1` villager, 50 gold; `2` soldier, 60 gold) |
+| Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 gold; barracks: soldier, 60 gold) |
+| `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
 | `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit |
 
@@ -124,7 +125,8 @@ resource slots, and along the bottom the command panel (left), the
 information panel (middle, parchment), and the minimap frame (right). Clicks
 on the interface never reach the map: a left click there keeps your
 selection, a right click there orders nothing, and a box cannot be started
-there. The panels are still empty; the next steps fill them in. The map
+there. Select one of your buildings and the command panel shows a button for each
+unit it trains; the other panels are still empty. The map
 shows through the open middle; the game opens with your base in the middle of
 it.
 
@@ -144,20 +146,21 @@ smaller building to the town centre's right), three villagers standing below
 the town centre, a gold mine to the lower left, and 200 gold. There are **no
 soldiers on the map at the start**: you train them (step 3). Player 1 starts in
 the top-left of the map, player 2 in the bottom-right, with a band of forest
-between them. The overlay at the top shows whose turn it is, their resources,
-and which number key trains which unit.
+between them. The overlay at the top shows whose turn it is and their resources.
 
 1. **Gather.** Box-select your three villagers. Right click the gold mine near
    your base. They walk over, mine a load of ten gold, carry it back to the
    town centre, deposit it, and go again: one order, no micromanagement.
-2. **Grow.** Once you are above 50 gold, press `1` a few times to queue
-   villagers. Gold is charged when you queue, not when the unit appears, so you
+2. **Grow.** Once you are above 50 gold, left click your town centre. The
+   command panel at the bottom left shows the villager's icon: click it (or
+   press `1`) a few times to queue villagers. Gold is charged when you queue, not when the unit appears, so you
    cannot queue five units on one unit's worth of gold.
-3. **Build an army.** Press `2` to train a soldier at your barracks for 60
-   gold. About 6 seconds later it appears next to the barracks. Press `2`
-   again to queue more, up to five, while you can pay. (The soldier is drawn
+3. **Build an army.** Left click your barracks; its command panel shows the
+   soldier's icon. Click it (or press `1`) to train a soldier for 60 gold.
+   About 6 seconds later it appears next to the barracks. Click again to
+   queue more, up to five, while you can pay. (The soldier is drawn
    with the original's two-handed swordsman for now; Phase 1.6 switches it to
-   the militia's own sprite.) Villagers take 5 seconds with `1`.
+   the militia's own sprite.) Villagers take 5 seconds.
 4. **Switch sides.** Press `Tab` and do the same for the other player. Each
    player keeps their own view, so `Tab` jumps to the other base; `Tab` again
    brings yours back as you left it.
