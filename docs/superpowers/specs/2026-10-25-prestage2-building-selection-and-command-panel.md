@@ -1,7 +1,7 @@
 # Pre-stage 2: selecting buildings and the command panel
 
 **Date:** 2026-10-25
-**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 6 done)
+**Status:** Done 2026-10-25 on branch `feat/command-panel` (steps 1 to 7 and the review fixes)
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.6 step 3b
 **Pulls forward:** part of plan Phase 8 (user interface)
 
@@ -35,9 +35,10 @@ Found by decoding every sprite in `interfac.drs` and looking at them:
 | Building icons | 50705 to 50708, 52 frames of 36x36 each | One set per architecture. In 50705, frame 2 (crossed swords) is the barracks and frame 28 (a man and a woman) the town centre, picked by eye; other frames include the archery range (0), blacksmith (4), castle (7), stable (23), and house (34) |
 | Progress bar | 50764, 100 frames of 100x12 | Frame *n* is *n* percent full |
 
-The interface image for the window's size is drawn over the map, scaled to the
-window; player one's civilisation image (51101) is used for every player until
-civilisations exist (plan Phase 4). The minimap frame stays empty until a
+The 800x600 interface image (51101, player one's civilisation's) is drawn over
+the map, stretched to the window, for every player and every window size. The
+original picks the image by resolution and shows more map instead; that waits
+for Phase 8, and the other civilisations' images for Phase 4. The minimap frame stays empty until a
 minimap exists.
 
 ## Design
@@ -169,12 +170,13 @@ points the `i16` 15 bytes after it):
 | Villager | 83 | 25 | 1284 `VMBAS_FN` | 1479 | 15 |
 | Militia | 74 | 40 | 1102 `SPRMN_FN` | 993 | 8 |
 | Man-at-arms | 75 | 45 | 1115 `SWDMN_FN` | 1044 | 10 |
-| Pikeman | 93 | 45 | 1063 `PKEMN_FN` | 873 | 31 |
+| Spearman | 93 | 45 | 1063 `PKEMN_FN` | 873 | 31 |
 | Town centre | 109 | 2400 | | | 28 |
 | Barracks | 12 | 1200 | | | 2 |
 
 The graphic names mislead: `SPRMN` is the militia, not a spearman, and
-`SWDMN` the man-at-arms. The soldier is now sprite 993 with icon 8; every
+`SWDMN` the man-at-arms, and `PKEMN` (unit 93) the spearman, not the pikeman
+(unit 358, `ISPKM`). The soldier is now sprite 993 with icon 8; every
 icon picked by eye in step 1 is confirmed. SLP 1181, used before, is the
 two-handed swordsman. The villager keeps sprite 1473 (its attack pose, by the
 user's choice) until standing graphics come from the `.dat` in Phase 1.6
@@ -223,3 +225,28 @@ is merged:
 
 Already in the simulation: the carry capacity, the gather rate, and the walk
 back to the nearest drop-off when the load is full.
+
+## Step 7 and the review fixes (2026-10-25)
+
+QUICKSTART read through against the game: the gathering walkthrough says how
+long a load takes and that gold rises on deposit; the known limits name the
+gathering follow-up, the minimap, and population.
+
+The code review and direction check (subagents, the direction check given no
+conclusions) found nothing serious. Fixed here, each with a test that failed
+first and a deliberate break caught:
+
+1. Buildings and units are drawn back to front, as picking assumes, so a
+   click on a roof selects the building whose roof it is.
+2. A drag box that ends on the panels stops at their edge instead of
+   selecting the units hidden under them.
+3. `look_at` centres the open middle after the zoom is clamped, and a resize
+   keeps the same place in the middle of the open area.
+4. A sprite set with no progress bar frames draws the rest instead of
+   panicking; an icon frame with no pixels is `AssetError::EmptyIcon` naming
+   the entry.
+
+Recorded in the plan instead (its pre-stage 2 entry, Phase 1.6, Phase 2, and
+deferred findings): the button position and queue limit for the converter,
+every converted value in Phase 2, the gathering follow-up in Phase 2, and the
+deviations listed there. Phase 1.6 finishes before more interface work.

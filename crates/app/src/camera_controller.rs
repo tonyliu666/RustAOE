@@ -48,14 +48,30 @@ impl CameraController {
     /// Centres the open middle of the window, between the top bar and the
     /// bottom panels, on a world position.
     pub fn look_at(&mut self, at: Vec2) {
-        let open = OpenMiddle::of(&self.camera);
-        self.camera.center = at - Vec2::new(0.0, open.offset);
+        // Clamp first: the zoom may have to change, and the open middle's
+        // offset from the window's centre is measured at the final zoom.
+        self.camera.center = at;
         self.clamp_to_map();
+        self.centre_open_middle_on(at);
     }
 
-    /// Matches the viewport to a resized window.
+    /// Matches the viewport to a resized window, keeping the same place in
+    /// the middle of the open area.
     pub fn resize(&mut self, viewport: Vec2) {
+        if viewport == self.camera.viewport {
+            return;
+        }
+        let focus = self.camera.center + Vec2::new(0.0, OpenMiddle::of(&self.camera).offset);
         self.camera.viewport = viewport;
+        self.clamp_to_map();
+        self.centre_open_middle_on(focus);
+    }
+
+    /// Puts `at` in the middle of the open area, at the current zoom, as far
+    /// as the map allows.
+    fn centre_open_middle_on(&mut self, at: Vec2) {
+        let open = OpenMiddle::of(&self.camera);
+        self.camera.center = at - Vec2::new(0.0, open.offset);
         self.clamp_to_map();
     }
 

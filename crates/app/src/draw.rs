@@ -159,8 +159,11 @@ fn draw_info_panel<R: Renderer>(
     let done = total.saturating_sub(building.train_ticks);
     // Frame n is n percent full; a unit counted down to its last tick shows
     // the fullest frame there is.
-    let frame = (done as usize * 100 / total as usize).min(sprites.progress.len() - 1);
-    icon(sprites.progress[frame].texture, layout.progress_bar);
+    let frame =
+        (done as usize * 100 / total as usize).min(sprites.progress.len().saturating_sub(1));
+    if let Some(bar) = sprites.progress.get(frame) {
+        icon(bar.texture, layout.progress_bar);
+    }
     for (&kind, slot) in waiting.iter().zip(layout.queue_icons) {
         icon(sprites.unit_icon(kind).texture, slot);
     }
@@ -288,7 +291,11 @@ fn draw_buildings<R: Renderer>(
     hud: &Hud<'_>,
     sprites: &Sprites,
 ) {
-    for (id, building) in view.buildings() {
+    // Back to front, as picking assumes: a building lower on the screen is
+    // nearer the viewer, and its roof covers what stands behind it.
+    let mut buildings: Vec<_> = view.buildings().collect();
+    buildings.sort_by(|(_, a), (_, b)| footprint_centre(a).y.total_cmp(&footprint_centre(b).y));
+    for (id, building) in buildings {
         let size = building.size as f32;
         let origin = Vec2::new(building.origin.x as f32, building.origin.y as f32);
         // Scaled to the footprint's width, with the sprite's ground point on
@@ -317,13 +324,21 @@ fn draw_units<R: Renderer>(
     hud: &Hud<'_>,
     sprites: &Sprites,
 ) {
-    for (id, unit) in view.units() {
-        let now = to_screen_space(unit.pos);
-        // A unit that did not exist last tick has nothing to interpolate from,
-        // so it appears at its spawn position rather than sliding in from the
-        // origin.
-        let before = previous.get(&id).map_or(now, |pos| to_screen_space(*pos));
-        let at = before + (now - before) * alpha;
+    let mut units: Vec<_> = view
+        .units()
+        .map(|(id, unit)| {
+            let now = to_screen_space(unit.pos);
+            // A unit that did not exist last tick has nothing to interpolate
+            // from, so it appears at its spawn position rather than sliding in
+            // from the origin.
+            let before = previous.get(&id).map_or(now, |pos| to_screen_space(*pos));
+            (id, unit, before + (now - before) * alpha)
+        })
+        .collect();
+    // Back to front, as picking assumes: the unit lower on the screen is in
+    // front.
+    units.sort_by(|(_, _, a), (_, _, b)| a.y.total_cmp(&b.y));
+    for (id, unit, at) in units {
         let sprite = sprites.unit(unit.kind, unit.owner);
         let (origin, size) = stand(renderer, sprite, at, 1.0 / UNIT_PIXELS_PER_TILE);
 

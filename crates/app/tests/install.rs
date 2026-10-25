@@ -347,3 +347,22 @@ fn every_frame_of_the_progress_bar_is_loaded_in_order() {
     }
     remove(&dir);
 }
+
+#[test]
+fn an_icon_frame_with_no_pixels_is_an_error_naming_the_entry() {
+    // Every frame of this unit icon sprite is zero pixels wide.
+    let dir = install(
+        "icon-empty",
+        graphics(&[(50730, slp(16, 0, &[0x0F]))]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+
+    let result = load_images(&dir, &Content::default());
+
+    assert!(
+        matches!(&result, Err(AssetError::EmptyIcon { entry, frame: 15 }) if entry == "villager"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}

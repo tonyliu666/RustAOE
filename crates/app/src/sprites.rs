@@ -248,6 +248,11 @@ pub enum AssetError {
         entry: String,
         frame: u32,
     },
+    /// A content entry's icon frame has no pixels to draw.
+    EmptyIcon {
+        entry: String,
+        frame: u32,
+    },
     /// A content entry names a sprite the install does not have.
     MissingGraphic {
         entry: String,
@@ -275,6 +280,10 @@ impl fmt::Display for AssetError {
             AssetError::MissingIcon { entry, frame } => write!(
                 f,
                 "content entry `{entry}` names icon {frame}, which the icon sprite does not have"
+            ),
+            AssetError::EmptyIcon { entry, frame } => write!(
+                f,
+                "content entry `{entry}` names icon {frame}, which has no pixels to draw"
             ),
             AssetError::MissingGraphic { entry, id } => write!(
                 f,
@@ -444,7 +453,13 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
             frame,
         };
         let index = usize::try_from(frame).map_err(|_| missing())?;
-        interface_frame(slp, id, index)?.ok_or_else(missing)
+        match interface_frame(slp, id, index) {
+            Err(AssetError::EmptySprite { .. }) => Err(AssetError::EmptyIcon {
+                entry: entry.to_string(),
+                frame,
+            }),
+            other => other?.ok_or_else(missing),
+        }
     };
     let unit_icons = archives.sprite(UNIT_ICONS)?;
     let building_icons = archives.sprite(BUILDING_ICONS)?;

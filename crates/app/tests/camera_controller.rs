@@ -416,3 +416,41 @@ fn sideways_the_view_still_stops_at_the_window_edge() {
     let left = cam.camera().screen_to_world(Vec2::ZERO).x;
     assert!(left.abs() < 1e-3, "view starts at x {left}");
 }
+
+#[test]
+fn looking_at_a_place_centres_it_even_when_the_zoom_must_change() {
+    // Asked for at 1 pixel per tile, far below the widest view the map
+    // allows: the zoom changes, and the place must still end up centred.
+    // At that zoom the map is exactly as wide as the window, so sideways the
+    // view can only sit at the map's middle, x 64.
+    let camera = Camera::new(Vec2::new(64.0, 64.0), 1.0, Vec2::new(800.0, 600.0));
+    let mut cam = CameraController::new(camera, MAP, MAP);
+    let target = Vec2::new(64.0, 70.0);
+
+    cam.look_at(target);
+
+    let (near, far) = open_middle(cam.camera().viewport);
+    let centre = (near + far) * 0.5;
+    let on_screen = cam.camera().world_to_screen(target);
+    assert!(
+        (on_screen.x - centre.x).abs() < 1e-3 && (on_screen.y - centre.y).abs() < 1e-3,
+        "{on_screen:?} not at {centre:?}"
+    );
+}
+
+#[test]
+fn resizing_the_window_keeps_the_same_place_in_the_middle_of_the_open_area() {
+    let mut cam = controller();
+    let target = Vec2::new(60.0, 70.0);
+    cam.look_at(target);
+
+    cam.resize(Vec2::new(1280.0, 1000.0));
+
+    let (near, far) = open_middle(cam.camera().viewport);
+    let centre = (near + far) * 0.5;
+    let on_screen = cam.camera().world_to_screen(target);
+    assert!(
+        (on_screen.x - centre.x).abs() < 1e-2 && (on_screen.y - centre.y).abs() < 1e-2,
+        "{on_screen:?} not at {centre:?}"
+    );
+}

@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
 **Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
-**Status:** Phases 0, 1, and 1.5 done (1.5 pending its end-of-phase review); the pre-stage is done. Phase 1.6 next.
+**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done. Phase 1.6 steps 1, 2, and 3a done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 step 3b next, and Phase 1.6 finishes before more interface work.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
@@ -69,6 +69,14 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 - **Gate (as revised by the user):** only the mouse pans (no W, A, S, D); the mouse is free by default and F10 locks it to the window; the view never shows beyond the map; every map object is a sprite, with health bars the only filled rectangles; the game requires an install (`--assets DIR` or `AOE_ASSETS`) and says how to give it one; clicks select what is drawn. No asset file is committed.
 - **Reference:** the original opens its archives with `FUN_00543370` (eight calls from `FUN_0043ae90`), finds a file by walking the open archives in order and taking the first match (`FUN_00543630`, list head `DAT_006b59e4`), and closes them with `FUN_00543580`.
 
+### Pre-stage 2: selecting buildings and the command panel (done, inserted before Phase 1.6 step 3b)
+
+- **Goal:** Train units the way the original does: select a building, press its unit's button on the command panel, watch the progress bar in the information panel.
+- **Spec:** [`2026-10-25-prestage2-building-selection-and-command-panel.md`](../specs/2026-10-25-prestage2-building-selection-and-command-panel.md), including its review-fix section.
+- **Pulls forward** part of Phase 8: the original's interface image, the command and information panels, resources in the top bar. Content gains each type's `icon`, so the replay format moved to **version 4**.
+- **Gate:** clicking the town centre or barracks shows its panel with the original's icons; a button or its number key trains the unit, the progress bar fills, and the unit appears beside the building; clicks on the interface never act on the map.
+- **Found on the way:** the soldier's sprite was the two-handed swordsman. Read from the `.dat`'s unit entries, the militia (unit 74) stands with `SPRMN_FN` (SLP 993) and has icon 8; every icon chosen by eye matched (spec, step 4b).
+
 ### Phase 1.6: `.dat` converter
 
 - **Goal:** Take game numbers from the original's data instead of from memory.
@@ -76,6 +84,7 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 - **Sprites from the `.dat`:** content's `sprite` field is an SLP ID in `graphics.drs`. The `.dat` gives each unit a graphic, which is an index into its own graphics table; an entry names an SLP and may add extra pieces ("deltas", which is why the town centre is drawn in pieces). The converter resolves a graphic to an SLP ID; drawing the extra pieces is its own step.
 - **Type IDs:** our `UnitKind` and `BuildingKind` are positions in our compact lists; the original's unit IDs have gaps and per-civilisation tables. The spec must choose: keep compact IDs and record the original ID beside each entry (for tracing and tests), or index by the original ID.
 - **Sprite loading at scale:** today every archive is re-parsed on each lookup and every type is decoded nine times, once per player colour, at startup. Before loading a full table: parse each archive once, search the ordered archive list, and decode only the types a game uses, or decode lazily. Add sprite load time to this phase's performance checkpoint.
+- **Fields added by pre-stage 2:** each unit's icon (`IconID`; the step 4b probe found it 47 bytes after the unit ID), its button position on the command panel (the original places each trainable unit at a fixed button, not in list order as the panel does today), and the train queue's limit (today 5; the original's is to be read, not assumed). The probe's offsets are a check for the reader, not a replacement for walking every section.
 - **Fractional values:** the original stores resources, gather rates, speeds, and reload times as `float`. The spec for this phase must fix how each converts: amounts to `i32`, rates to ticks per unit, speeds and ranges to `Fx`, times to ticks, with the rounding rule for each.
 - **Work:** A dev-only Rust tool, a workspace member so its tests run under `cargo test --workspace`, reads `data/empires2_x1_p1.dat` from a user-supplied install and writes the fields our schema has into RON. Resources map by name, not position (the original orders them food, wood, stone, gold), and float amounts round to integers; see the Phase 1.5 spec. The game itself reads only our RON; it never opens a `.dat`. Track `reverse/README.md` and `reverse/tools/` in git; keep decompiled output and extracted data ignored.
 - **Reference:** `FUN_00586b20` names the `.dat` path. The file is zlib-compressed and community-documented.
@@ -86,7 +95,8 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 
 - **Goal:** Food, wood, gold, and stone, each with its own gatherer and drop-off.
 - **Work:** Generalise the gather state machine over resource kind, and turn `Mine` into a generic resource site owned by Gaia. Food sources: forage bushes, hunt, fish, and farms placed by the map, since players cannot build until Phase 3. Drop-off buildings (mill, lumber camp, mining camp) are placed by the map for the same reason. Conservation becomes a per-resource property test.
-- **Costs match the original.** A villager costs 50 food, not gold; the soldier becomes the militia at 60 food and 20 gold. Values come from the Phase 1.6 converter. This is a recorded replay break: bump the replay format version.
+- **Every number matches the original,** not only costs: hit points, speeds, ranges, reload and train times, carry capacity and gather rates, and each unit's standing graphic (the villager is drawn in its attack pose until then). A villager costs 50 food, not gold; the soldier is the militia at 60 food and 20 gold. Values come from the Phase 1.6 converter. This is a recorded replay break: bump the replay format version.
+- **Gathering as the original plays it** (asked for by the user during pre-stage 2): a pickaxe cursor over a resource with villagers selected; a right-click on a drop-off building sends loaded villagers to deposit early and then back to work; the information panel shows a selected villager's load.
 - **Reference:** Gather loop in `reverse/aoc/aoc_decompiled.c`. Search for the resource strings in `reverse/aoc/strings.txt` first.
 - **Gate:** Conservation property test passes for all four resources. A villager never delivers a resource to a building that does not accept it.
 
@@ -210,6 +220,16 @@ From the pre-stage direction check:
 - The "no buildings" defeat rule is provisional; research the original's conquest rule before Phases 10 and 11 build on it.
 - The top-down view means picking, scrolling, and drawing will need rework for the isometric view in Phase 12.
 
+From the pre-stage 2 review and direction check, recorded rather than fixed:
+
+- The interface is always the 800x600 image (51101), stretched to the window. The original picks the 1024x768 or 1280x1024 image by resolution and shows more map instead of scaling. Pick by resolution with Phase 8.
+- Only your own units can be selected; the original also lets you select another player's units to look at them. Phase 8.
+- Wheel zoom is not in the original (its view has a fixed scale); it is kept, and it works over the interface too.
+- Content files written before pre-stage 2 no longer load: every type needs an `icon`. The error names the missing field.
+- The information panel shows content names (`town_center`); the original's names come from its language DLL. Phase 8 or Phase 12.
+- Each pre-stage adds features on the top-down projection (the camera's open middle, picking by drawn body, screen-space panels), so the Phase 12 isometric rework grows. Decide whether to pull the isometric projection forward before Phase 3 adds placement.
+- Presentation-only fields (`sprite`, `icon`) sit in the content every replay embeds, so each new one is a replay break. Consider splitting them out before more are added.
+- Buildings and units are now each drawn back to front, but trees, buildings, and units are still not sorted together.
 
 From the Phase 1 review, accepted as minor and not yet fixed:
 

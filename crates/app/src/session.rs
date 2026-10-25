@@ -233,8 +233,15 @@ impl Session {
         let dragged = travel.x.abs() > slop || travel.y.abs() > slop;
         let min = self.min_pick();
         let (selection, building) = if dragged {
-            // A box selects units only, as in the original.
-            let units = pick::units_in_box(view, owner, from, cursor, &self.bodies.at_least(min));
+            // A box selects units only, as in the original, and only what
+            // shows: a box dragged onto the panels stops at their edge rather
+            // than reaching the units hidden under them.
+            let camera = self.camera();
+            let layout = Layout::new(camera.viewport);
+            let mut end = input.cursor;
+            end.y = end.y.clamp(layout.top_bar.max().y, layout.bottom.min.y);
+            let end = camera.screen_to_world(end);
+            let units = pick::units_in_box(view, owner, from, end, &self.bodies.at_least(min));
             (units, None)
         } else if let Some(unit) = pick::unit_at(view, cursor, &self.bodies, min) {
             // A unit in front of a building is what the player sees, so it

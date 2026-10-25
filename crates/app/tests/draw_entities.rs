@@ -689,3 +689,73 @@ fn the_debug_readout_is_one_line_just_below_the_top_bar() {
         );
     }
 }
+
+// --- drawn back to front ------------------------------------------------------
+
+#[test]
+fn buildings_are_drawn_back_to_front_so_the_nearer_roof_covers_the_farther() {
+    // The barracks is placed first, so it has the lower ID, but it stands
+    // south of the town centre, nearer the viewer: it must be drawn after,
+    // as picking assumes.
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(2, 8))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2));
+    let world = World::new(7, map);
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = draw(&mut renderer, &world, &hud(&[], None));
+
+    let order: Vec<render::TextureId> = renderer.sprites().map(|(t, _, _)| t).collect();
+    let at = |texture| order.iter().position(|t| *t == texture).expect("drawn");
+    let town_centre = sprites
+        .building(BuildingKind::TOWN_CENTER, PlayerId::ONE)
+        .texture;
+    let barracks = sprites
+        .building(BuildingKind::BARRACKS, PlayerId::ONE)
+        .texture;
+    assert!(at(town_centre) < at(barracks));
+}
+
+#[test]
+fn units_are_drawn_back_to_front() {
+    // The soldier is placed first but stands further south.
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(8, 9))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(8, 7));
+    let world = World::new(7, map);
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = draw(&mut renderer, &world, &hud(&[], None));
+
+    let order: Vec<render::TextureId> = renderer.sprites().map(|(t, _, _)| t).collect();
+    let at = |texture| order.iter().position(|t| *t == texture).expect("drawn");
+    let villager = sprites.unit(UnitKind::VILLAGER, PlayerId::ONE).texture;
+    let soldier = sprites.unit(UnitKind::SOLDIER, PlayerId::ONE).texture;
+    assert!(at(villager) < at(soldier));
+}
+
+#[test]
+fn a_sprite_set_without_a_progress_bar_draws_the_rest_rather_than_panicking() {
+    let mut renderer = RecordingRenderer::new();
+    let world = training(1, 50);
+    let mut sprites = common::sprites(&mut renderer);
+    sprites.progress.clear();
+    let hud = Hud {
+        building: Some(barracks_of(&world, PlayerId::ONE)),
+        ..hud(&[], None)
+    };
+
+    draw_world(
+        &mut renderer,
+        &camera(),
+        world.view(),
+        &HashMap::new(),
+        0.0,
+        &hud,
+        &sprites,
+    );
+
+    let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
+    assert!(!drawn_with(&renderer, soldier).is_empty());
+}

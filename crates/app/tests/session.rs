@@ -1047,3 +1047,33 @@ fn a_type_added_in_content_gets_the_next_button_and_key() {
     assert_eq!(train_order(&by_click).2, archer);
     assert_eq!(train_order(&by_key).2, archer);
 }
+
+#[test]
+fn a_drag_into_the_panels_selects_only_what_shows_above_them() {
+    // A villager at (6.5, 11.5) stands under the bottom panels in this
+    // window; the two units at y 5.5 are in the open middle.
+    let world = World::new(
+        3,
+        map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 11)),
+    );
+    let mut session = session();
+    let hidden = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::ONE && u.pos.y.to_bits() > 11 << 16)
+        .map(|(id, _)| id)
+        .expect("the hidden villager");
+    let end = at(Vec2::new(7.5, 11.5));
+    assert!(app::Layout::new(camera().viewport).bottom.contains(end));
+
+    let mut press = at_cursor(at(Vec2::new(4.0, 4.6)));
+    press.press(MouseButton::Left);
+    session.update(&press, 0.0, world.view());
+    let mut release = at_cursor(end);
+    release.hold(MouseButton::Left);
+    release.release(MouseButton::Left);
+    session.update(&release, 0.0, world.view());
+
+    assert_eq!(session.selection().len(), 2, "{:?}", session.selection());
+    assert!(!session.selection().contains(&hidden));
+}
