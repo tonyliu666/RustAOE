@@ -186,6 +186,9 @@ pub struct Unit {
     pub icon: i16,
     /// How much of a resource it carries.
     pub resource_capacity: i16,
+    /// The resources it holds, such as a gold mine's gold or a tree's wood;
+    /// empty slots left out.
+    pub storages: Vec<Storage>,
     /// Tiles per second; types 20 and up.
     pub speed: Option<f32>,
     /// Types 40 and up.
@@ -199,6 +202,15 @@ pub struct Unit {
     /// A building's annexes: further units drawn as parts of it, such as
     /// the town centre's sections. Empty for every other unit.
     pub annexes: Vec<Annex>,
+}
+
+/// A resource a unit holds: what it is, how much, and how it is held.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Storage {
+    /// 0 food, 1 wood, 2 stone, 3 gold, and the original's other attributes.
+    pub resource: i16,
+    pub amount: f32,
+    pub mode: u8,
 }
 
 /// A unit drawn as part of a building, offset from its centre.
@@ -573,7 +585,17 @@ fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
     // obstruction type and class, trait, civilisation, an i16, selection
     // effect and colour, outline size.
     r.skip(4 + 1 + 2 + 2 + 2 + 2 + 3 * 4)?;
-    r.skip(3 * (2 + 4 + 1))?; // resource storages
+    let mut storages = Vec::new();
+    for _ in 0..3 {
+        let storage = Storage {
+            resource: r.i16()?,
+            amount: r.f32()?,
+            mode: r.u8()?,
+        };
+        if storage.resource >= 0 {
+            storages.push(storage);
+        }
+    }
     let damage_graphics = usize::from(r.u8()?);
     r.skip(damage_graphics * 5)?;
     r.skip(2 + 2 + 1 + 1)?; // selection and dying sounds, attack reaction, convert terrain
@@ -591,6 +613,7 @@ fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
         clearance,
         icon,
         resource_capacity,
+        storages,
         speed: None,
         work_rate: None,
         drop_sites: None,

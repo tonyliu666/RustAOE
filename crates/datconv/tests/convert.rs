@@ -75,6 +75,7 @@ fn unit(kind: u8, id: i16, name: &str, class: i16) -> Unit {
         clearance: [0.25, 0.25],
         icon: 15,
         resource_capacity: 10,
+        storages: Vec::new(),
         speed: Some(2.5),
         work_rate: Some(1.0),
         drop_sites: Some([-1, -1]),

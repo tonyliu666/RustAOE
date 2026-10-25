@@ -108,3 +108,25 @@ unit's resource storage, which the reader does not keep yet (step 1).
    against `datconv`'s output on the real file.
 4. Tests and clippy pass; the tick benchmark stays under budget; no game data
    committed.
+
+## Step 1 result (2026-10-25)
+
+`assets::dat::Unit::storages` keeps each unit's resource storages (resource,
+amount, mode), empty slots left out. Checked on the real file (Gaia's units):
+
+| Site | Unit | Holds | Footprint (half-size) |
+| --- | --- | --- | --- |
+| Gold mine | 66 `GOLDM` | 800 gold | 0.5 |
+| Stone mine | 102 `STONM` | 350 stone | 0.5 |
+| Forage bush | 59 `FORAG` | 125 food | 0.5 |
+| Forest trees | 348 to 351 (bamboo, oak, pine, palm) | 100 wood | |
+| Single trees | 284, 399 to 405, ... | 125 wood | |
+
+The job table above is checked in the same test. Sites are type 10 units of
+their own classes (gold 32, stone 8, bush 7, tree 15); a gold mine is a
+single tile, not today's 2x2.
+
+**The farm is not settled:** unit 50 `FARM` stores 15 food, and its depleted
+form, unit 357 `FARM_D`, stores 180 of resource 12, not food. How much food
+a farm gives is decided by the executable as well as by these numbers; step 4
+finds it in the decompile before placing farms, rather than guessing.

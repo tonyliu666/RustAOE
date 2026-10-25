@@ -171,6 +171,36 @@ fn the_real_file_decompresses_and_is_the_conquerors_format() {
     assert_eq!((unit(109).hit_points, unit(109).icon), (2400, 28));
     assert_eq!((unit(12).hit_points, unit(12).icon), (1200, 2));
     assert_eq!(unit(93).creatable.as_ref().map(|c| c.button), Some(2));
+    // The sites' amounts, in their resource storages (0 food, 1 wood, 2
+    // stone, 3 gold).
+    // The sites belong to Gaia.
+    let gaia = &dat.civs[0];
+    let stored = |id: usize| {
+        let site = gaia.units[id].as_ref().expect("the site exists");
+        let s = site.storages.first().expect("a storage");
+        (s.resource, s.amount)
+    };
+    assert_eq!(stored(66), (3, 800.0), "gold mine");
+    assert_eq!(stored(102), (2, 350.0), "stone mine");
+    assert_eq!(stored(59), (0, 125.0), "forage bush");
+    assert_eq!(stored(349), (1, 100.0), "oak forest tree");
+    // The gathering jobs a villager turns into: rate per second, capacity.
+    for (id, rate, capacity) in [
+        (120, 0.31, 10),
+        (122, 0.41, 35),
+        (56, 0.43, 10),
+        (259, 0.53, 10),
+        (123, 0.39, 10),
+        (124, 0.36, 10),
+        (579, 0.38, 10),
+    ] {
+        let job = unit(id);
+        assert_eq!(
+            (job.work_rate, job.resource_capacity),
+            (Some(rate), capacity),
+            "job unit {id}"
+        );
+    }
     // The limit leaves plenty of room for the real file.
     assert!(
         data.len() < assets::dat::MAX_DECOMPRESSED / 4,
@@ -541,6 +571,8 @@ struct UnitSpec {
     damage_graphics: usize,
     /// A building's annexes: (unit, x offset, y offset).
     annexes: [(i16, f32, f32); 4],
+    /// Resource storages: (resource, amount, mode).
+    storages: [(i16, f32, u8); 3],
 }
 
 fn villager_spec() -> UnitSpec {
@@ -565,6 +597,7 @@ fn villager_spec() -> UnitSpec {
         button: 1,
         damage_graphics: 1,
         annexes: [(-1, 0.0, 0.0); 4],
+        storages: [(-1, 0.0, 0), (-1, 0.0, 0), (-1, 0.0, 0)],
     }
 }
 
@@ -593,8 +626,8 @@ fn unit(b: &mut Bytes, u: &UnitSpec) {
         b.u8(0); // recyclable .. civilisation
     }
     b.i16(0).u8(0).u8(0).f32(1.0).f32(1.0).f32(1.0); // nothing, selection, outline
-    for _ in 0..3 {
-        b.i16(-1).f32(0.0).u8(0); // resource storages
+    for (resource, amount, mode) in u.storages {
+        b.i16(resource).f32(amount).u8(mode);
     }
     b.u8(u.damage_graphics as u8);
     for _ in 0..u.damage_graphics {
@@ -1013,5 +1046,30 @@ fn more_civilisations_than_any_game_has_is_an_error() {
     assert_eq!(
         Dat::parse(&data).err(),
         Some(DatError::Corrupt("more civilisations than any version has"))
+    );
+}
+
+#[test]
+fn a_units_resource_storages_are_read_and_empty_slots_left_out() {
+    // A gold mine stores 800 gold (resource 3); its other two slots are
+    // empty (-1).
+    let mine = UnitSpec {
+        kind: 30,
+        id: 66,
+        storages: [(3, 800.0, 1), (-1, 0.0, 0), (-1, 0.0, 0)],
+        ..villager_spec()
+    };
+    let data = with_civs(&[("Gaia", vec![Some(mine)])]);
+    let units = read_civ_units(&data);
+
+    let read = units[0][0].as_ref().expect("the mine");
+
+    assert_eq!(
+        read.storages,
+        [assets::dat::Storage {
+            resource: 3,
+            amount: 800.0,
+            mode: 1,
+        }]
     );
 }
