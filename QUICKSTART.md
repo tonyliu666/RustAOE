@@ -113,7 +113,10 @@ leaves it, so if you leave slowly through an edge the map keeps scrolling
 until the mouse comes back. Lock the mouse with `F10` to avoid it.
 
 The view always stays on the map: zooming out stops once the map fills the
-window, and scrolling stops at the map's edge.
+open middle of the screen (between the top bar and the bottom panels), and
+scrolling stops where the map's edge meets the interface. Scroll all the way
+down and the map's last row sits just above the bottom panels, so every tile
+can be seen and clicked.
 
 The screen is framed by the original's interface: a top bar with the
 resource slots, and along the bottom the command panel (left), the
@@ -121,8 +124,8 @@ information panel (middle, parchment), and the minimap frame (right). Clicks
 on the interface never reach the map: a left click there keeps your
 selection, a right click there orders nothing, and a box cannot be started
 there. The panels are still empty; the next steps fill them in. The map
-shows through the open middle, so a unit near the bottom of the screen can be
-half hidden behind the panels: scroll down a little to see it.
+shows through the open middle; the game opens with your base in the middle of
+it.
 
 Units are easy to click at any zoom: zoomed out, a click within a few pixels
 of a unit selects it, and a small wobble of the hand still counts as a click.

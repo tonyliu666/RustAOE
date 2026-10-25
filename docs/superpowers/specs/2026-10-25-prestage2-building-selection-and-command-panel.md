@@ -122,3 +122,12 @@ drag nor orders anything. Breaking each rule on purpose fails a test.
 Seen on the screenshot: the map's last rows lie under the bottom panel at the
 camera's southern limit, because the camera keeps the window, not the open
 middle, inside the map.
+
+## Step 2b: the camera keeps the open middle on the map (2026-10-25)
+
+Asked for by the user after the step 2 screenshot. `CameraController` now
+treats the open middle (between the top bar and the bottom row) as the view:
+zooming out stops when the map fills it, scrolling stops when its edge meets
+the map's, and `look_at` centres it, not the window, on the point. Beyond the
+map shows only under the interface. Sideways nothing changes. Breaking each
+rule on purpose fails a test.
