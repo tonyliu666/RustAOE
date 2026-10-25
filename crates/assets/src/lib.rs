@@ -6,6 +6,7 @@
 //! Every reader takes a byte slice and returns errors as values, because the
 //! bytes come from a file on disk that may be damaged or not what it claims.
 
+pub mod dat;
 mod drs;
 mod palette;
 mod slp;
