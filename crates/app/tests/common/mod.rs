@@ -140,7 +140,7 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 
 /// The sprite IDs the game loads, with the sprite each gets.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
-    [1473u32, 1181, 901, 131, 1270, 4479, 51101, 50730]
+    [1473u32, 993, 901, 131, 1270, 4479, 51101, 50730]
         .into_iter()
         .map(|id| {
             let bytes = overrides.iter().find(|(o, _)| *o == id).map_or_else(

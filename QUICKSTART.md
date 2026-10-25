@@ -158,9 +158,9 @@ between them. The overlay at the top shows whose turn it is and their resources.
 3. **Build an army.** Left click your barracks; its command panel shows the
    soldier's icon. Click it (or press `1`) to train a soldier for 60 gold.
    About 6 seconds later it appears next to the barracks. Click again to
-   queue more, up to five, while you can pay. (The soldier is drawn
-   with the original's two-handed swordsman for now; Phase 1.6 switches it to
-   the militia's own sprite.) Villagers take 5 seconds.
+   queue more, up to five, while you can pay. The soldier is the
+   original's militia, and its button shows the militia's icon. Villagers take
+   5 seconds.
 4. **Switch sides.** Press `Tab` and do the same for the other player. Each
    player keeps their own view, so `Tab` jumps to the other base; `Tab` again
    brings yours back as you left it.

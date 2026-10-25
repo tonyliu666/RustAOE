@@ -31,7 +31,7 @@ Found by decoding every sprite in `interfac.drs` and looking at them:
 | What | `interfac.drs` | Notes |
 | --- | --- | --- |
 | In-game interface | 51101 to 51118 (800x600), 51121 to 51138 (1024x768), 51141 to 51160 (1280x1024) | One per civilisation. Top bar with the wood, food, gold, stone, and population slots; bottom row of command panel, parchment information panel, and minimap frame. The middle is transparent: the map shows through |
-| Unit icons | 50730, 134 frames of 36x36 | Frame 15 is the male villager, frame 8 a sword-and-shield infantryman (the militia). Confirmed against the `.dat`'s icon IDs in Phase 1.6 step 4 |
+| Unit icons | 50730, 134 frames of 36x36 | Frame 15 is the male villager, frame 8 the militia; both confirmed against the `.dat` (step 4b) |
 | Building icons | 50705 to 50708, 52 frames of 36x36 each | One set per architecture. In 50705, frame 2 (crossed swords) is the barracks and frame 28 (a man and a woman) the town centre, picked by eye; other frames include the archery range (0), blacksmith (4), castle (7), stable (23), and house (34) |
 | Progress bar | 50764, 100 frames of 100x12 | Frame *n* is *n* percent full |
 
@@ -156,3 +156,27 @@ interface. A left press on a button, or its number key (`1` the first), issues
 `Command::Train` at the selected building; with no building of yours
 selected, the keys do nothing. The global training keys and the overlay's key
 list are gone. Breaking each rule on purpose fails a test.
+
+## Step 4b: the soldier's button and body match (2026-10-25)
+
+Found by the user: the barracks' button showed the militia, but the unit it
+trained was someone else. Read from the `.dat`'s unit entries (found by type,
+name length, and ID; the icon is the `i16` 47 bytes after the ID, and hit
+points the `i16` 15 bytes after it):
+
+| Unit | ID | Hit points | Standing graphic | SLP | Icon |
+| --- | --- | --- | --- | --- | --- |
+| Villager | 83 | 25 | 1284 `VMBAS_FN` | 1479 | 15 |
+| Militia | 74 | 40 | 1102 `SPRMN_FN` | 993 | 8 |
+| Man-at-arms | 75 | 45 | 1115 `SWDMN_FN` | 1044 | 10 |
+| Pikeman | 93 | 45 | 1063 `PKEMN_FN` | 873 | 31 |
+| Town centre | 109 | 2400 | | | 28 |
+| Barracks | 12 | 1200 | | | 2 |
+
+The graphic names mislead: `SPRMN` is the militia, not a spearman, and
+`SWDMN` the man-at-arms. The soldier is now sprite 993 with icon 8; every
+icon picked by eye in step 1 is confirmed. SLP 1181, used before, is the
+two-handed swordsman. The villager keeps sprite 1473 (its attack pose, by the
+user's choice) until standing graphics come from the `.dat` in Phase 1.6
+step 4. These offsets are a probe, not the reader: Phase 1.6 step 3b still
+walks every section.

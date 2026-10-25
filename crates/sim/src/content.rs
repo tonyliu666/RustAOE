@@ -323,10 +323,11 @@ impl Default for Content {
                     },
                     train_ticks: 100,
                 },
-                // The militia's sprite.
+                // The militia (unit 74 in the .dat): graphic SPRMN_FN standing,
+                // and its icon.
                 UnitStats {
                     name: "soldier".to_string(),
-                    sprite: 1181,
+                    sprite: 993,
                     icon: 8,
                     gathers: false,
                     max_hp: 60,

@@ -34,7 +34,7 @@
         ),
         (
             name: "soldier",
-            sprite: 1181,          // the militia
+            sprite: 993,           // the militia standing (SPRMN_FN, unit 74)
             icon: 8,
             gathers: false,
             max_hp: 60,
