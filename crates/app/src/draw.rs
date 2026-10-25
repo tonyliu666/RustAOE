@@ -98,7 +98,15 @@ fn draw_overlay<R: Renderer>(
             resource_line(view.resources(hud.active_player)),
             hud.selection.len()
         ),
-        "tab switch  1 villager  2 soldier  right-click order  F10 lock mouse".to_string(),
+        format!(
+            "tab switch  {}  right-click order  F10 lock mouse",
+            crate::session::trainable(view.content())
+                .iter()
+                .enumerate()
+                .map(|(i, kind)| format!("{} {}", i + 1, view.content().unit(*kind).name))
+                .collect::<Vec<_>>()
+                .join("  ")
+        ),
     ];
     match view.outcome() {
         Some(Outcome::Won(winner)) => lines.push(format!("player {} wins", winner.number())),
@@ -195,7 +203,7 @@ fn draw_mines<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Spri
 
 fn draw_buildings<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
     for (_, building) in view.buildings() {
-        let size = building.kind.size() as f32;
+        let size = building.size as f32;
         let origin = Vec2::new(building.origin.x as f32, building.origin.y as f32);
         // Scaled to the footprint's width, with the sprite's ground point on
         // the footprint's centre, so that it covers the tiles it blocks.

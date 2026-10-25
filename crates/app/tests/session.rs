@@ -26,14 +26,18 @@ fn session() -> Session {
 fn map() -> MapSpec {
     MapSpec::new(16, 16)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(0, 0))
-        .with_building(BuildingKind::Barracks, PlayerId::ONE, TilePos::new(0, 12))
-        .with_building(BuildingKind::TownCenter, PlayerId::TWO, TilePos::new(12, 0))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(0, 0))
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(0, 12))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(12, 0),
+        )
         .with_mine(TilePos::new(6, 12), 5000)
-        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(5, 5))
-        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(6, 5))
-        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(9, 9))
-        .with_unit(UnitKind::Soldier, PlayerId::TWO, TilePos::new(5, 7))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(5, 5))
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(6, 5))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(9, 9))
+        .with_unit(UnitKind::SOLDIER, PlayerId::TWO, TilePos::new(5, 7))
 }
 
 fn world() -> World {
@@ -163,13 +167,13 @@ fn a_dead_unit_falls_out_of_the_selection() {
     let villager = world
         .view()
         .units()
-        .find(|(_, u)| u.owner == PlayerId::ONE && u.kind == UnitKind::Villager)
+        .find(|(_, u)| u.owner == PlayerId::ONE && u.kind == UnitKind::VILLAGER)
         .map(|(id, _)| id)
         .expect("player one has a villager");
     let enemy = world
         .view()
         .units()
-        .find(|(_, u)| u.owner == PlayerId::TWO && u.kind == UnitKind::Soldier)
+        .find(|(_, u)| u.owner == PlayerId::TWO && u.kind == UnitKind::SOLDIER)
         .map(|(id, _)| id)
         .expect("player two has a soldier");
     world.step(&[Command::Attack {
@@ -246,7 +250,7 @@ fn right_clicking_a_mine_with_no_villagers_selected_is_a_move_order() {
     let soldier = world
         .view()
         .units()
-        .find(|(_, u)| u.kind == UnitKind::Soldier)
+        .find(|(_, u)| u.kind == UnitKind::SOLDIER)
         .map(|(id, _)| id)
         .expect("the soldier is on the map");
     click(
@@ -372,10 +376,10 @@ fn the_first_hotkey_trains_a_villager_at_the_town_centre() {
             building,
         }] => {
             assert_eq!(*player, PlayerId::ONE);
-            assert_eq!(*unit, UnitKind::Villager);
+            assert_eq!(*unit, UnitKind::VILLAGER);
             assert_eq!(
                 world.view().building(*building).map(|b| b.kind),
-                Some(BuildingKind::TownCenter)
+                Some(BuildingKind::TOWN_CENTER)
             );
         }
         other => panic!("expected one train order, got {other:?}"),
@@ -393,10 +397,10 @@ fn the_second_hotkey_trains_a_soldier_at_the_barracks() {
 
     match commands.as_slice() {
         [Command::Train { unit, building, .. }] => {
-            assert_eq!(*unit, UnitKind::Soldier);
+            assert_eq!(*unit, UnitKind::SOLDIER);
             assert_eq!(
                 world.view().building(*building).map(|b| b.kind),
-                Some(BuildingKind::Barracks)
+                Some(BuildingKind::BARRACKS)
             );
         }
         other => panic!("expected one train order, got {other:?}"),
@@ -424,7 +428,7 @@ fn a_hotkey_with_no_building_that_can_train_it_does_nothing() {
 #[test]
 fn tab_cycles_through_every_player_and_back_to_the_first() {
     let map = map().with_players(3).with_building(
-        BuildingKind::TownCenter,
+        BuildingKind::TOWN_CENTER,
         PlayerId::new(3),
         TilePos::new(12, 12),
     );
@@ -614,10 +618,7 @@ fn villager_bodies() -> app::Bodies {
         offset: Vec2::new(-10.0 / 48.0, -40.0 / 48.0),
         size: Vec2::new(21.0 / 48.0, 42.0 / 48.0),
     };
-    app::Bodies {
-        villager: body,
-        soldier: body,
-    }
+    app::Bodies::all(body)
 }
 
 /// Presses the left button over world point `from` and releases it over
@@ -686,16 +687,10 @@ fn zoomed_in_a_click_beside_the_sprite_still_misses() {
 fn a_click_on_a_units_drawn_body_selects_it() {
     let world = world();
     let mut session = session();
-    session.set_bodies(app::Bodies {
-        villager: app::Body {
-            offset: Vec2::new(-0.25, -1.0),
-            size: Vec2::new(0.5, 1.0),
-        },
-        soldier: app::Body {
-            offset: Vec2::new(-0.25, -1.0),
-            size: Vec2::new(0.5, 1.0),
-        },
-    });
+    session.set_bodies(app::Bodies::all(app::Body {
+        offset: Vec2::new(-0.25, -1.0),
+        size: Vec2::new(0.5, 1.0),
+    }));
     // Player one's villager stands at (5.5, 5.5); click 0.8 tiles above.
     let mut click = at_cursor(at(Vec2::new(5.5, 4.7)));
     click.press(MouseButton::Left);
@@ -705,4 +700,50 @@ fn a_click_on_a_units_drawn_body_selects_it() {
     session.update(&release, 0.0, world.view());
 
     assert_eq!(session.selection().len(), 1);
+}
+
+#[test]
+fn the_training_keys_follow_the_contents_order_of_trainable_types() {
+    // Content listing the soldier first: key 1 now trains a soldier at the
+    // barracks, with no code naming either type.
+    let mut content = sim::Content::default();
+    content.units.swap(0, 1);
+    let (villager, soldier) = (UnitKind::SOLDIER, UnitKind::VILLAGER);
+    content.building_mut(BuildingKind::TOWN_CENTER).trains = vec![villager];
+    content.building_mut(BuildingKind::BARRACKS).trains = vec![soldier];
+    let map = map().with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(1, 8));
+    let world = World::with_content(3, map, content);
+    let mut session = session();
+
+    let commands = session.update(&press(Key::Digit1), 0.0, world.view());
+
+    assert!(
+        matches!(commands.as_slice(), [Command::Train { unit, .. }] if *unit == soldier),
+        "{commands:?}"
+    );
+}
+
+#[test]
+fn a_third_trainable_unit_type_is_trained_with_key_three() {
+    // The Phase 1.5 gate scenario: an archer added only in content, trained
+    // at the barracks after the soldier. Keys 1 to 9 cover the trainable
+    // types in content order, so the archer is key 3.
+    let mut content = sim::Content::default();
+    let mut archer = content.unit(UnitKind::SOLDIER).clone();
+    archer.name = "archer".to_string();
+    content.units.push(archer);
+    let archer = content.unit_named("archer").expect("added");
+    content
+        .building_mut(BuildingKind::BARRACKS)
+        .trains
+        .push(archer);
+    let world = World::with_content(3, map(), content);
+    let mut session = session();
+
+    let commands = session.update(&press(Key::Digit3), 0.0, world.view());
+
+    assert!(
+        matches!(commands.as_slice(), [Command::Train { unit, .. }] if *unit == archer),
+        "{commands:?}"
+    );
 }

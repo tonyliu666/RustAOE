@@ -22,9 +22,9 @@ const UNITS_PER_SIDE: i32 = 100;
 fn crowded_map() -> MapSpec {
     let mut map = MapSpec::new(MAP_SIZE, MAP_SIZE)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(4, 4))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
         .with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::TWO,
             TilePos::new(MAP_SIZE - 8, MAP_SIZE - 8),
         );
@@ -33,12 +33,12 @@ fn crowded_map() -> MapSpec {
         let (x, y) = (i % 20, i / 20);
         map = map
             .with_unit(
-                UnitKind::Soldier,
+                UnitKind::SOLDIER,
                 PlayerId::ONE,
                 TilePos::new(20 + x, 20 + y),
             )
             .with_unit(
-                UnitKind::Soldier,
+                UnitKind::SOLDIER,
                 PlayerId::TWO,
                 TilePos::new(20 + x, 100 + y),
             );

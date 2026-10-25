@@ -41,9 +41,9 @@ fn draw(renderer: &mut RecordingRenderer, world: &World, sprites: &Sprites) {
 
 fn map() -> MapSpec {
     MapSpec::new(16, 16)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
         .with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::TWO,
             TilePos::new(10, 10),
         )
@@ -70,14 +70,17 @@ fn a_unit_is_one_sprite_whose_hotspot_stands_on_its_position() {
     let set = sprites(&mut renderer);
     let world = World::new(
         1,
-        map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6)),
+        map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6)),
     );
 
     draw(&mut renderer, &world, &set);
 
     // The villager stands at the centre of tile (6, 6): (6.5, 6.5).
     let scale = 1.0 / UNIT_PIXELS_PER_TILE;
-    let drawn = drawn_with(&renderer, set.villager[1].texture);
+    let drawn = drawn_with(
+        &renderer,
+        set.unit(UnitKind::VILLAGER, PlayerId::new(1)).texture,
+    );
     assert_eq!(drawn.len(), 1, "drawn {drawn:?}");
     let (pos, size) = drawn[0];
     assert!(
@@ -96,13 +99,24 @@ fn another_players_unit_is_drawn_in_that_players_colours() {
     let set = sprites(&mut renderer);
     let world = World::new(
         1,
-        map().with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(6, 6)),
+        map().with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(6, 6)),
     );
 
     draw(&mut renderer, &world, &set);
 
-    assert_eq!(drawn_with(&renderer, set.villager[2].texture).len(), 1);
-    assert!(drawn_with(&renderer, set.villager[1].texture).is_empty());
+    assert_eq!(
+        drawn_with(
+            &renderer,
+            set.unit(UnitKind::VILLAGER, PlayerId::new(2)).texture
+        )
+        .len(),
+        1
+    );
+    assert!(drawn_with(
+        &renderer,
+        set.unit(UnitKind::VILLAGER, PlayerId::new(1)).texture
+    )
+    .is_empty());
 }
 
 #[test]
@@ -111,12 +125,19 @@ fn a_soldier_is_drawn_with_the_soldier_sprite() {
     let set = sprites(&mut renderer);
     let world = World::new(
         1,
-        map().with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(6, 6)),
+        map().with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(6, 6)),
     );
 
     draw(&mut renderer, &world, &set);
 
-    assert_eq!(drawn_with(&renderer, set.soldier[1].texture).len(), 1);
+    assert_eq!(
+        drawn_with(
+            &renderer,
+            set.unit(UnitKind::SOLDIER, PlayerId::new(1)).texture
+        )
+        .len(),
+        1
+    );
 }
 
 // --- buildings --------------------------------------------------------------
@@ -131,7 +152,11 @@ fn a_building_is_one_sprite_as_wide_as_its_footprint_centred_on_its_hotspot() {
 
     // Player one's 4x4 town centre at (1, 1) has its centre at (3, 3). The
     // 200-pixel-wide sprite is scaled to 4 tiles: 0.02 tiles per pixel.
-    let drawn = drawn_with(&renderer, set.town_center[1].texture);
+    let drawn = drawn_with(
+        &renderer,
+        set.building(BuildingKind::TOWN_CENTER, PlayerId::new(1))
+            .texture,
+    );
     assert_eq!(drawn.len(), 1, "drawn {drawn:?}");
     let (pos, size) = drawn[0];
     assert!(
@@ -250,7 +275,7 @@ fn scratch(name: &str) -> std::path::PathBuf {
 fn a_folder_without_the_game_files_is_an_error_naming_the_file() {
     let dir = scratch("missing");
 
-    match load_images(&dir) {
+    match load_images(&dir, &sim::Content::default()) {
         Err(AssetError::Io { path, .. }) => assert!(path.ends_with("interfac.drs"), "{path:?}"),
         other => panic!("expected a missing-file error, got {:?}", other.err()),
     }
@@ -262,7 +287,7 @@ fn a_damaged_archive_is_an_error_rather_than_a_crash() {
     let dir = scratch("damaged");
     std::fs::write(dir.join("data/interfac.drs"), b"not an archive at all").expect("write");
 
-    match load_images(&dir) {
+    match load_images(&dir, &sim::Content::default()) {
         Err(AssetError::Drs { path, .. }) => assert!(path.ends_with("interfac.drs"), "{path:?}"),
         other => panic!("expected a damaged-archive error, got {:?}", other.err()),
     }
@@ -301,8 +326,8 @@ fn the_only_filled_rectangles_are_health_bars() {
     let map = map()
         .with_mine(TilePos::new(12, 2), 100)
         .with_blocked([TilePos::new(7, 7)])
-        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
-        .with_unit(UnitKind::Soldier, PlayerId::TWO, TilePos::new(6, 7));
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::SOLDIER, PlayerId::TWO, TilePos::new(6, 7));
     let mut world = World::new(1, map);
     let (soldier, _) = world
         .view()
@@ -406,14 +431,28 @@ fn a_third_player_and_gaia_get_their_own_colours() {
     let set = sprites(&mut renderer);
     let map = map()
         .with_players(3)
-        .with_unit(UnitKind::Villager, PlayerId::new(3), TilePos::new(6, 6))
-        .with_unit(UnitKind::Villager, PlayerId::GAIA, TilePos::new(9, 9));
+        .with_unit(UnitKind::VILLAGER, PlayerId::new(3), TilePos::new(6, 6))
+        .with_unit(UnitKind::VILLAGER, PlayerId::GAIA, TilePos::new(9, 9));
     let world = World::new(1, map);
 
     draw(&mut renderer, &world, &set);
 
-    assert_eq!(drawn_with(&renderer, set.villager[3].texture).len(), 1);
-    assert_eq!(drawn_with(&renderer, set.villager[0].texture).len(), 1);
+    assert_eq!(
+        drawn_with(
+            &renderer,
+            set.unit(UnitKind::VILLAGER, PlayerId::new(3)).texture
+        )
+        .len(),
+        1
+    );
+    assert_eq!(
+        drawn_with(
+            &renderer,
+            set.unit(UnitKind::VILLAGER, PlayerId::new(0)).texture
+        )
+        .len(),
+        1
+    );
 }
 
 #[test]

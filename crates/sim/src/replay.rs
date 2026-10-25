@@ -29,8 +29,10 @@ impl Replay {
     ///
     /// Bumped whenever a change alters how a recorded game plays back or how
     /// the file is laid out. Version 1 is every file written before versions
-    /// existed, which have no `version` field. Version 2 adds the field.
-    pub const FORMAT_VERSION: u32 = 2;
+    /// existed, which have no `version` field. Version 2 added the field, and
+    /// was written in two layouts while Phase 1.5 changed the content's shape.
+    /// Version 3 is the first with unit and building types as data.
+    pub const FORMAT_VERSION: u32 = 3;
 
     /// How often the checksum is sampled during recording.
     ///

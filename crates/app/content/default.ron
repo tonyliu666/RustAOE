@@ -3,6 +3,11 @@
 // Read once at startup. Every field is required, and an unknown field is an
 // error, so a typo cannot load quietly and do nothing.
 //
+// Unit and building types are lists: adding a type is adding an entry. Each
+// has a unique `name`, which other entries use to refer to it (`trains`), and
+// a `sprite`: the SLP ID to draw it with, in the original game's
+// `data/graphics.drs`.
+//
 // Times are in ticks; the simulation runs at 20 ticks per second.
 // Fractions are written `(numerator, denominator)`: `(1, 8)` is one eighth.
 // Distances are in tiles.
@@ -12,36 +17,52 @@
 // in gold until Phase 2 of the exe-parity plan, which makes the villager cost
 // food as it does in the original.
 (
-    villager: (
-        max_hp: 40,
-        speed: (1, 8),          // tiles per tick: 2.5 tiles per second
-        damage: 0,              // zero: cannot be ordered to attack
-        range: (0, 1),
-        attack_cooldown: 0,
-        radius: (1, 4),
-        cost: (gold: 50),
-        train_ticks: 100,       // 5 seconds
-    ),
-    soldier: (
-        max_hp: 60,
-        speed: (1, 8),
-        damage: 8,
-        range: (3, 2),          // 1.5 tiles, centre to centre
-        attack_cooldown: 20,    // one hit per second
-        radius: (1, 4),
-        cost: (gold: 60),
-        train_ticks: 120,       // 6 seconds
-    ),
-    town_center: (
-        max_hp: 1000,
-        drop_off: true,
-        trains: [Villager],
-    ),
-    barracks: (
-        max_hp: 600,
-        drop_off: false,
-        trains: [Soldier],
-    ),
+    units: [
+        (
+            name: "villager",
+            sprite: 1473,
+            gathers: true,          // may gather and carry loads
+            max_hp: 40,
+            speed: (1, 8),          // tiles per tick: 2.5 tiles per second
+            damage: 0,              // zero: cannot be ordered to attack
+            range: (0, 1),
+            attack_cooldown: 0,
+            radius: (1, 4),
+            cost: (gold: 50),
+            train_ticks: 100,       // 5 seconds
+        ),
+        (
+            name: "soldier",
+            sprite: 1181,          // the militia
+            gathers: false,
+            max_hp: 60,
+            speed: (1, 8),
+            damage: 8,
+            range: (3, 2),          // 1.5 tiles, centre to centre
+            attack_cooldown: 20,    // one hit per second
+            radius: (1, 4),
+            cost: (gold: 60),
+            train_ticks: 120,       // 6 seconds
+        ),
+    ],
+    buildings: [
+        (
+            name: "town_center",
+            sprite: 901,
+            size: 4,                // footprint, in tiles a side
+            max_hp: 1000,
+            drop_off: true,
+            trains: ["villager"],
+        ),
+        (
+            name: "barracks",
+            sprite: 131,
+            size: 3,
+            max_hp: 600,
+            drop_off: false,
+            trains: ["soldier"],
+        ),
+    ],
     gather: (
         carry_capacity: 10,
         ticks_per_gold: 40,     // one gold every 2 seconds

@@ -87,16 +87,17 @@ type Fraction = (i32, i32);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ContentFile {
-    villager: UnitFile,
-    soldier: UnitFile,
-    town_center: BuildingFile,
-    barracks: BuildingFile,
+    units: Vec<UnitFile>,
+    buildings: Vec<BuildingFile>,
     gather: GatherFile,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UnitFile {
+    name: String,
+    sprite: u32,
+    gathers: bool,
     max_hp: i32,
     speed: Fraction,
     damage: i32,
@@ -120,9 +121,13 @@ struct ResourcesFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BuildingFile {
+    name: String,
+    sprite: u32,
+    size: i32,
     max_hp: i32,
     drop_off: bool,
-    trains: Vec<UnitKind>,
+    /// Unit types by name; turned into IDs when loaded.
+    trains: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -134,11 +139,28 @@ struct GatherFile {
 
 impl ContentFile {
     fn into_content(self) -> Result<Content, ContentError> {
+        let units = self
+            .units
+            .into_iter()
+            .map(UnitFile::into_stats)
+            .collect::<Result<Vec<_>, _>>()?;
+        // A unit type's ID is its place in the list, so a name resolves to
+        // the position of the first entry with it. Duplicate names are caught
+        // by `Content::validate` afterwards.
+        let kind_named = |name: &str| {
+            units
+                .iter()
+                .position(|u| u.name == name)
+                .map(|index| UnitKind::new(index as u16))
+        };
+        let buildings = self
+            .buildings
+            .into_iter()
+            .map(|b| b.into_stats(&kind_named))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Content {
-            villager: self.villager.into_stats("villager")?,
-            soldier: self.soldier.into_stats("soldier")?,
-            town_center: self.town_center.into_stats(),
-            barracks: self.barracks.into_stats(),
+            units,
+            buildings,
             gather: GatherStats {
                 carry_capacity: self.gather.carry_capacity,
                 ticks_per_gold: self.gather.ticks_per_gold,
@@ -148,14 +170,15 @@ impl ContentFile {
 }
 
 impl UnitFile {
-    fn into_stats(self, owner: &str) -> Result<UnitStats, ContentError> {
+    fn into_stats(self) -> Result<UnitStats, ContentError> {
+        let owner = self.name.as_str();
         Ok(UnitStats {
-            max_hp: self.max_hp,
             speed: fraction(self.speed, owner, "speed")?,
-            damage: self.damage,
             range: fraction(self.range, owner, "range")?,
-            attack_cooldown: self.attack_cooldown,
             radius: fraction(self.radius, owner, "radius")?,
+            max_hp: self.max_hp,
+            damage: self.damage,
+            attack_cooldown: self.attack_cooldown,
             cost: Resources {
                 food: self.cost.food,
                 wood: self.cost.wood,
@@ -163,17 +186,36 @@ impl UnitFile {
                 stone: self.cost.stone,
             },
             train_ticks: self.train_ticks,
+            gathers: self.gathers,
+            sprite: self.sprite,
+            name: self.name,
         })
     }
 }
 
 impl BuildingFile {
-    fn into_stats(self) -> BuildingStats {
-        BuildingStats {
+    fn into_stats(
+        self,
+        kind_named: &impl Fn(&str) -> Option<UnitKind>,
+    ) -> Result<BuildingStats, ContentError> {
+        let trains = self
+            .trains
+            .iter()
+            .map(|name| {
+                kind_named(name).ok_or_else(|| ContentError {
+                    field: format!("{}.trains", self.name),
+                    problem: "names a unit type the content does not have",
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(BuildingStats {
+            name: self.name,
+            sprite: self.sprite,
+            size: self.size,
             max_hp: self.max_hp,
             drop_off: self.drop_off,
-            trains: self.trains,
-        }
+            trains,
+        })
     }
 }
 

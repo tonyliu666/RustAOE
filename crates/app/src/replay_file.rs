@@ -78,7 +78,10 @@ pub fn load(path: &Path) -> Result<Replay, ReplayError> {
     let replay: Replay =
         ron::from_str(&text).map_err(|error| ReplayError::Malformed(error.to_string()))?;
     replay.content.validate().map_err(ReplayError::Invalid)?;
-    replay.map.validate().map_err(ReplayError::InvalidMap)?;
+    replay
+        .map
+        .validate_for(&replay.content)
+        .map_err(ReplayError::InvalidMap)?;
     Ok(replay)
 }
 

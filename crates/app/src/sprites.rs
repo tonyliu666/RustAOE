@@ -9,7 +9,7 @@
 use crate::pick::{Bodies, Body};
 use assets::{Drs, DrsError, Image, Palette, PaletteError, Slp, SlpError};
 use render::{Renderer, TextureId, Vec2};
-use sim::{BuildingKind, PlayerId, UnitKind};
+use sim::{BuildingKind, Content, PlayerId, UnitKind};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -26,11 +26,7 @@ const GRASS: u32 = 15001;
 const GRASS_VARIATIONS: usize = 16;
 /// Side of an unskewed terrain texture, in pixels.
 const TILE_PIXELS: u32 = 32;
-/// In `graphics.drs`.
-const VILLAGER: u32 = 1473;
-const SOLDIER: u32 = 1181;
-const TOWN_CENTER: u32 = 901;
-const BARRACKS: u32 = 131;
+// Unit and building sprites come from each type's `sprite` in the content.
 /// An oak, drawn on every rock tile so that blocked ground reads as forest.
 const TREE: u32 = 1270;
 /// Frame 0 of a full gold mine; later frames are the mine running out.
@@ -57,27 +53,21 @@ pub struct Sprites {
     pub grass: Vec<TextureId>,
     pub tree: Sprite,
     pub gold_mine: Sprite,
-    pub villager: [Sprite; PLAYER_SLOTS],
-    pub soldier: [Sprite; PLAYER_SLOTS],
-    pub town_center: [Sprite; PLAYER_SLOTS],
-    pub barracks: [Sprite; PLAYER_SLOTS],
+    /// Indexed by unit type ID, then player slot.
+    pub units: Vec<[Sprite; PLAYER_SLOTS]>,
+    /// Indexed by building type ID, then player slot.
+    pub buildings: Vec<[Sprite; PLAYER_SLOTS]>,
 }
 
 impl Sprites {
+    /// The sprite for a unit type in a player's colours. The sprites are
+    /// loaded for the content the world plays by, so every type has one.
     pub fn unit(&self, kind: UnitKind, owner: PlayerId) -> &Sprite {
-        let set = match kind {
-            UnitKind::Villager => &self.villager,
-            UnitKind::Soldier => &self.soldier,
-        };
-        &set[slot(owner)]
+        &self.units[kind.index()][slot(owner)]
     }
 
     pub fn building(&self, kind: BuildingKind, owner: PlayerId) -> &Sprite {
-        let set = match kind {
-            BuildingKind::TownCenter => &self.town_center,
-            BuildingKind::Barracks => &self.barracks,
-        };
-        &set[slot(owner)]
+        &self.buildings[kind.index()][slot(owner)]
     }
 
     /// Each unit kind's drawn body, for picking: the same placement as
@@ -91,8 +81,8 @@ impl Sprites {
             }
         };
         Bodies {
-            villager: body(&self.villager[1]),
-            soldier: body(&self.soldier[1]),
+            units: self.units.iter().map(|set| body(&set[1])).collect(),
+            ..Bodies::default()
         }
     }
 
@@ -122,10 +112,9 @@ pub struct GameImages {
     grass: Vec<Image>,
     tree: Frame,
     gold_mine: Frame,
-    villager: Vec<Frame>,
-    soldier: Vec<Frame>,
-    town_center: Vec<Frame>,
-    barracks: Vec<Frame>,
+    /// Per unit type ID, one frame per player slot.
+    units: Vec<Vec<Frame>>,
+    buildings: Vec<Vec<Frame>>,
 }
 
 impl GameImages {
@@ -145,10 +134,12 @@ impl GameImages {
         let mut upload_set = |frames: &[Frame]| -> [Sprite; PLAYER_SLOTS] {
             std::array::from_fn(|i| upload_one(renderer, &frames[i]))
         };
-        let villager = upload_set(&self.villager);
-        let soldier = upload_set(&self.soldier);
-        let town_center = upload_set(&self.town_center);
-        let barracks = upload_set(&self.barracks);
+        let units = self.units.iter().map(|frames| upload_set(frames)).collect();
+        let buildings = self
+            .buildings
+            .iter()
+            .map(|frames| upload_set(frames))
+            .collect();
         let grass = self
             .grass
             .iter()
@@ -158,10 +149,8 @@ impl GameImages {
             grass,
             tree,
             gold_mine,
-            villager,
-            soldier,
-            town_center,
-            barracks,
+            units,
+            buildings,
         }
     }
 }
@@ -192,6 +181,11 @@ pub enum AssetError {
         id: u32,
         error: SlpError,
     },
+    /// A content entry names a sprite the install does not have.
+    MissingGraphic {
+        entry: String,
+        id: u32,
+    },
 }
 
 impl fmt::Display for AssetError {
@@ -211,6 +205,10 @@ impl fmt::Display for AssetError {
                 )
             }
             AssetError::Slp { id, error } => write!(f, "sprite {id}: {error}"),
+            AssetError::MissingGraphic { entry, id } => write!(
+                f,
+                "content entry `{entry}` names sprite {id}, which data/graphics.drs does not have"
+            ),
         }
     }
 }
@@ -255,8 +253,9 @@ impl Archive {
 
 /// Reads and decodes every sprite the game draws from an install directory:
 /// the folder holding `data/interfac.drs`, `data/graphics.drs`, and
-/// `data/terrain.drs`.
-pub fn load_images(dir: &Path) -> Result<GameImages, AssetError> {
+/// `data/terrain.drs`. Each unit and building type is drawn with the sprite
+/// its `content` entry names.
+pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetError> {
     let interfac = Archive::read(dir, "interfac.drs")?;
     let palette = Palette::parse(interfac.get(PALETTE)?).map_err(AssetError::Palette)?;
     let graphics = Archive::read(dir, "graphics.drs")?;
@@ -278,9 +277,18 @@ pub fn load_images(dir: &Path) -> Result<GameImages, AssetError> {
             hotspot: Vec2::new(first.hotspot_x as f32, first.hotspot_y as f32),
         })
     };
-    let per_player = |id: u32| -> Result<Vec<Frame>, AssetError> {
+    // One frame per player colour, for the type called `entry`.
+    let per_player = |entry: &str, id: u32| -> Result<Vec<Frame>, AssetError> {
         (0..PLAYER_SLOTS as u8)
-            .map(|player| decode(id, player))
+            .map(|player| {
+                decode(id, player).map_err(|error| match error {
+                    AssetError::Missing { .. } => AssetError::MissingGraphic {
+                        entry: entry.to_string(),
+                        id,
+                    },
+                    other => other,
+                })
+            })
             .collect()
     };
     // Neutral objects belong to Gaia: player slot 0's colours.
@@ -304,10 +312,16 @@ pub fn load_images(dir: &Path) -> Result<GameImages, AssetError> {
         grass,
         tree: neutral(TREE)?,
         gold_mine: neutral(GOLD_MINE)?,
-        villager: per_player(VILLAGER)?,
-        soldier: per_player(SOLDIER)?,
-        town_center: per_player(TOWN_CENTER)?,
-        barracks: per_player(BARRACKS)?,
+        units: content
+            .units
+            .iter()
+            .map(|u| per_player(&u.name, u.sprite))
+            .collect::<Result<_, _>>()?,
+        buildings: content
+            .buildings
+            .iter()
+            .map(|b| per_player(&b.name, b.sprite))
+            .collect::<Result<_, _>>()?,
     })
 }
 

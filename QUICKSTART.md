@@ -80,8 +80,7 @@ band of forest.
 | Right click ground | Move there |
 | Right click a gold mine | Send selected villagers to gather |
 | Right click an enemy | Attack it |
-| `1` | Train a villager at your town centre (50 gold) |
-| `2` | Train a soldier at your barracks (60 gold) |
+| `1` to `9` | Train a unit type at one of your buildings: the overlay lists which key trains which (by default `1` villager, 50 gold; `2` soldier, 60 gold) |
 | `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit |
 
@@ -128,9 +127,11 @@ to twenty units builds one flow field, not twenty paths.
 
 ## 6. Change the numbers
 
-Unit and building numbers come from `crates/app/content/default.ron`, built into
-the binary. Copy it, change a number, and run with `--content my.ron`. A broken
-file is an error message, never a crash.
+Unit and building types and their numbers come from
+`crates/app/content/default.ron`, built into the binary. Copy it, change a
+number or add a whole new unit type (with the sprite ID to draw it with), and
+run with `--content my.ron`. A broken file is an error message, never a
+crash.
 
 ## 7. Record and replay a game
 
@@ -204,7 +205,8 @@ its phases), `crates/sim/src/path.rs` (flow fields and A*), then
 These are planned, each in its own phase of the plan; they are not bugs:
 
 no AI opponent, no fog of war, no building construction in game, no networking,
-no sound, two unit types only, only gold can be gathered, no tech tree, no
+no sound, two unit types by default (more can be added in content), only gold
+can be gathered, no tech tree, no
 save/load, no map editor. Units show one still frame facing south, the town
 centre is only its upper section, and the view is top-down rather than the
 original's isometric one.

@@ -31,5 +31,17 @@ Property tests from the spec's testing section, all present:
 | Gold conservation | `determinism.rs::gold_is_never_created_or_destroyed` |
 | Fixed-point round-trip | `fx_properties.rs::multiplication_then_division_round_trips` |
 
+## 2026-10-25: end of Phase 1.5
+
+Same machine and toolchain. Up to 8 players plus Gaia, four resources, a
+wider checksum, and unit and building types as data.
+
+| Benchmark | Median | Range |
+| --- | --- | --- |
+| `step 200 units moving` | 46.13 µs | 45.93–46.41 µs |
+| `flow field 128x128` | 290.51 µs | 287.47–294.01 µs |
+
+About 4% slower per step than Phase 0, still over 100x under the 5 ms budget.
+
 Re-run this benchmark at the end of Phase 6 (unit roster and combat), as the
 plan requires.

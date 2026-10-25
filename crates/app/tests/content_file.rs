@@ -38,9 +38,9 @@ fn changing_a_number_in_the_file_changes_the_game() {
         parse_content(&default_with("cost: (gold: 50)", "cost: (gold: 30)")).expect("should parse");
     let map = MapSpec::new(16, 16)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(2, 2))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
         .with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::TWO,
             TilePos::new(10, 10),
         );
@@ -54,7 +54,7 @@ fn changing_a_number_in_the_file_changes_the_game() {
     world.step(&[Command::Train {
         player: PlayerId::ONE,
         building: town_center,
-        unit: UnitKind::Villager,
+        unit: UnitKind::VILLAGER,
     }]);
 
     assert_eq!(world.view().gold(PlayerId::ONE), 170);
@@ -86,7 +86,7 @@ fn a_misspelled_field_is_an_error_rather_than_ignored() {
     // author would never learn the number had no effect.
     let result = parse_content(&default_with(
         "max_hp: 40,",
-        "max_hp: 40,\n        hp_regen: 1,",
+        "max_hp: 40,\n            hp_regen: 1,",
     ));
 
     assert!(
@@ -108,8 +108,8 @@ fn a_number_the_game_cannot_run_with_names_its_field() {
 #[test]
 fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n        cost: (gold: 50)",
-        "radius: (1, 0),\n        cost: (gold: 50)",
+        "radius: (1, 4),\n            cost: (gold: 50)",
+        "radius: (1, 0),\n            cost: (gold: 50)",
     ));
 
     assert_eq!(
@@ -124,8 +124,8 @@ fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
 #[test]
 fn a_fraction_too_large_for_fixed_point_is_an_error_rather_than_wrapping() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n        cost: (gold: 50)",
-        "radius: (100000, 1),\n        cost: (gold: 50)",
+        "radius: (1, 4),\n            cost: (gold: 50)",
+        "radius: (100000, 1),\n            cost: (gold: 50)",
     ));
 
     // Wrapped, this would come out negative and be reported as "must be
@@ -151,7 +151,7 @@ fn a_resource_left_out_of_a_cost_reads_as_zero() {
     let content = parse_content(DEFAULT_CONTENT).expect("default.ron should parse");
 
     assert_eq!(
-        content.villager.cost,
+        content.unit(UnitKind::VILLAGER).cost,
         Resources {
             gold: 50,
             ..Resources::default()
@@ -166,5 +166,59 @@ fn a_misspelled_resource_in_a_cost_is_an_error() {
     assert!(
         matches!(result, Err(ContentFileError::Malformed(_))),
         "{result:?}"
+    );
+}
+
+// --- types are entries ----------------------------------------------------------
+
+#[test]
+fn a_unit_type_added_only_in_the_file_loads_and_can_be_trained() {
+    let archer = r#"(
+            name: "archer",
+            sprite: 1270,
+            gathers: false,
+            max_hp: 30,
+            speed: (1, 8),
+            damage: 6,
+            range: (4, 1),
+            attack_cooldown: 20,
+            radius: (1, 4),
+            cost: (gold: 45),
+            train_ticks: 120,
+        ),
+    ],
+    buildings: ["#;
+    let text = default_with("    ],\n    buildings: [", archer);
+    let text = text.replacen(
+        r#"trains: ["soldier"]"#,
+        r#"trains: ["soldier", "archer"]"#,
+        1,
+    );
+
+    let content = parse_content(&text).expect("an added unit type loads");
+
+    let kind = content
+        .unit_named("archer")
+        .expect("the archer is a unit type");
+    assert_eq!(content.unit(kind).damage, 6);
+    assert!(content
+        .building(BuildingKind::BARRACKS)
+        .trains
+        .contains(&kind));
+}
+
+#[test]
+fn a_building_that_trains_a_unit_type_the_file_does_not_have_is_an_error() {
+    let result = parse_content(&default_with(
+        r#"trains: ["soldier"]"#,
+        r#"trains: ["dragon"]"#,
+    ));
+
+    assert_eq!(
+        invalid(result),
+        (
+            "barracks.trains".to_string(),
+            "names a unit type the content does not have"
+        )
     );
 }

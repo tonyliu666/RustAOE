@@ -55,10 +55,10 @@ fn lines(renderer: &RecordingRenderer) -> usize {
 fn populated() -> World {
     let map = MapSpec::new(16, 16)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
         .with_mine(TilePos::new(12, 12), 5000)
-        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
-        .with_unit(UnitKind::Soldier, PlayerId::TWO, TilePos::new(9, 9));
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::SOLDIER, PlayerId::TWO, TilePos::new(9, 9));
     World::new(7, map)
 }
 
@@ -113,10 +113,14 @@ fn a_unit_at_full_health_has_no_health_bar() {
 #[test]
 fn a_wounded_unit_gets_a_health_bar() {
     let map = MapSpec::new(16, 16)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
-        .with_building(BuildingKind::TownCenter, PlayerId::TWO, TilePos::new(12, 1))
-        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(6, 6))
-        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(6, 7));
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(12, 1),
+        )
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(6, 7));
     let mut world = World::new(7, map);
     let attacker = world
         .view()
@@ -145,7 +149,7 @@ fn a_wounded_unit_gets_a_health_bar() {
 
 #[test]
 fn a_unit_is_drawn_between_its_last_two_positions() {
-    let map = MapSpec::new(16, 16).with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(4, 4));
+    let map = MapSpec::new(16, 16).with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(4, 4));
     let world = World::new(7, map);
     let (id, unit) = world.view().units().next().expect("the villager");
     let now = app::to_screen_space(unit.pos);
@@ -165,7 +169,7 @@ fn a_unit_is_drawn_between_its_last_two_positions() {
         &sprites,
     );
 
-    let villager = sprites.villager[1];
+    let villager = sprites.unit(UnitKind::VILLAGER, PlayerId::new(1));
     let (_, pos, _) = renderer
         .sprites()
         .find(|(t, _, _)| *t == villager.texture)
@@ -204,7 +208,7 @@ fn the_overlay_shows_every_resource_of_the_active_player() {
             gold: 33,
             stone: 44,
         })
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1));
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1));
     let world = World::new(7, map);
 
     draw(&mut renderer, &world, &hud(&[], None));
@@ -223,7 +227,7 @@ fn the_overlay_shows_every_resource_of_the_active_player() {
 fn the_overlay_names_a_player_beyond_the_second() {
     let mut renderer = RecordingRenderer::new();
     let map = MapSpec::new(16, 16).with_players(3).with_building(
-        BuildingKind::TownCenter,
+        BuildingKind::TOWN_CENTER,
         PlayerId::new(3),
         TilePos::new(1, 1),
     );
@@ -243,7 +247,7 @@ fn the_overlay_names_a_player_beyond_the_second() {
 #[test]
 fn the_overlay_announces_the_winner_once_the_game_is_decided() {
     let map = MapSpec::new(16, 16).with_building(
-        BuildingKind::TownCenter,
+        BuildingKind::TOWN_CENTER,
         PlayerId::ONE,
         TilePos::new(1, 1),
     );
@@ -256,6 +260,36 @@ fn the_overlay_announces_the_winner_once_the_game_is_decided() {
     let overlay: Vec<String> = renderer.texts().map(|(text, _)| text.to_string()).collect();
     assert!(
         overlay.iter().any(|line| line.contains("player 1 wins")),
+        "overlay was {overlay:?}"
+    );
+}
+
+#[test]
+fn the_overlay_lists_each_training_key_with_the_type_it_trains() {
+    let mut content = sim::Content::default();
+    let mut archer = content.unit(UnitKind::SOLDIER).clone();
+    archer.name = "archer".to_string();
+    content.units.push(archer);
+    let archer = content.unit_named("archer").expect("added");
+    content
+        .building_mut(BuildingKind::BARRACKS)
+        .trains
+        .push(archer);
+    let map = MapSpec::new(16, 16).with_building(
+        BuildingKind::TOWN_CENTER,
+        PlayerId::ONE,
+        TilePos::new(1, 1),
+    );
+    let world = World::with_content(7, map, content);
+    let mut renderer = RecordingRenderer::new();
+
+    draw(&mut renderer, &world, &hud(&[], None));
+
+    let overlay: Vec<String> = renderer.texts().map(|(text, _)| text.to_string()).collect();
+    assert!(
+        overlay.iter().any(|line| line.contains("1 villager")
+            && line.contains("2 soldier")
+            && line.contains("3 archer")),
         "overlay was {overlay:?}"
     );
 }

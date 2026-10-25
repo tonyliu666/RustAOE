@@ -10,20 +10,29 @@ use serde::{Deserialize, Serialize};
 
 /// Every table the simulation reads.
 ///
-/// One named field per kind rather than a map, so that a content file missing
-/// a kind fails to load instead of failing mid-game.
+/// Unit and building types are entries in lists, indexed by [`UnitKind`]
+/// and [`BuildingKind`], so that a new type is a new entry rather than new
+/// code. Entries refer to each other by ID; the application's loader turns
+/// the names in a content file into IDs.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Content {
-    pub villager: UnitStats,
-    pub soldier: UnitStats,
-    pub town_center: BuildingStats,
-    pub barracks: BuildingStats,
+    pub units: Vec<UnitStats>,
+    pub buildings: Vec<BuildingStats>,
     pub gather: GatherStats,
 }
 
 /// Combat, movement, and training numbers for a unit type.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct UnitStats {
+    /// Unique among unit types; how content files refer to this one.
+    pub name: String,
+    /// The sprite the application draws it with: an SLP ID in the
+    /// original's `data/graphics.drs`. Not an entry in the original's `.dat`
+    /// graphics table, which names an SLP plus extra pieces; the Phase 1.6
+    /// converter resolves those to SLP IDs.
+    pub sprite: u32,
+    /// May take a gather order and carry a load.
+    pub gathers: bool,
     pub max_hp: i32,
     /// Tiles per tick.
     pub speed: Fx,
@@ -44,6 +53,12 @@ pub struct UnitStats {
 /// Numbers for a building type.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct BuildingStats {
+    /// Unique among building types.
+    pub name: String,
+    /// SLP ID in the original's `data/graphics.drs`, as for units.
+    pub sprite: u32,
+    /// Footprint side in tiles; the footprint is square.
+    pub size: i32,
     pub max_hp: i32,
     /// Whether villagers may deposit gold here.
     pub drop_off: bool,
@@ -83,6 +98,10 @@ impl std::error::Error for ContentError {}
 
 const POSITIVE: &str = "must be positive";
 const NOT_NEGATIVE: &str = "must not be negative";
+/// The largest building footprint, in tiles a side.
+pub const MAX_BUILDING_SIZE: i32 = 16;
+/// The most entries a type list may have: as many as a `u16` ID can name.
+const MAX_TYPES: usize = u16::MAX as usize + 1;
 
 /// Fails with `problem` on `owner.name` unless `ok`.
 fn check(ok: bool, owner: &str, name: &str, problem: &'static str) -> Result<(), ContentError> {
@@ -130,8 +149,24 @@ impl UnitStats {
 }
 
 impl BuildingStats {
-    fn validate(&self, owner: &str) -> Result<(), ContentError> {
-        check(self.max_hp > 0, owner, "max_hp", POSITIVE)
+    fn validate(&self, owner: &str, unit_types: usize) -> Result<(), ContentError> {
+        check(self.max_hp > 0, owner, "max_hp", POSITIVE)?;
+        check(self.size > 0, owner, "size", POSITIVE)?;
+        // The original's largest building, a wonder, is 5x5. Far larger sizes
+        // overflow the footprint arithmetic, which would panic a debug build
+        // and wrap a release build: the two must play the same game.
+        check(
+            self.size <= MAX_BUILDING_SIZE,
+            owner,
+            "size",
+            "must be at most 16",
+        )?;
+        check(
+            self.trains.iter().all(|kind| kind.index() < unit_types),
+            owner,
+            "trains",
+            "must name unit types in this content",
+        )
     }
 }
 
@@ -152,31 +187,106 @@ impl GatherStats {
     }
 }
 
+/// Fails unless every name in `names` is non-empty and unique; `list` is
+/// the field the names sit in, for the error.
+fn check_names<'a>(list: &str, names: impl Iterator<Item = &'a str>) -> Result<(), ContentError> {
+    let mut seen = std::collections::HashSet::new();
+    for (index, name) in names.enumerate() {
+        let field = || format!("{list}[{index}].name");
+        if name.is_empty() {
+            return Err(ContentError {
+                field: field(),
+                problem: "must not be empty",
+            });
+        }
+        if !seen.insert(name) {
+            return Err(ContentError {
+                field: field(),
+                problem: "must be unique",
+            });
+        }
+    }
+    Ok(())
+}
+
 impl Content {
-    /// Checks every number once, at load time.
+    /// Checks every number and reference once, at load time.
     ///
-    /// Reports the first problem in field order. The simulation trusts
-    /// content that passed here and does not check it again per tick.
+    /// Reports the first problem in field order, naming the field by its
+    /// entry's name, such as `soldier.max_hp`. The simulation trusts content
+    /// that passed here and does not check it again per tick.
     pub fn validate(&self) -> Result<(), ContentError> {
-        self.villager.validate("villager")?;
-        self.soldier.validate("soldier")?;
-        self.town_center.validate("town_center")?;
-        self.barracks.validate("barracks")?;
+        if self.units.is_empty() {
+            return Err(ContentError {
+                field: "units".to_string(),
+                problem: "must not be empty",
+            });
+        }
+        // A type ID is a `u16`; more entries would wrap round to type 0.
+        for (list, len) in [
+            ("units", self.units.len()),
+            ("buildings", self.buildings.len()),
+        ] {
+            if len > MAX_TYPES {
+                return Err(ContentError {
+                    field: list.to_string(),
+                    problem: "must have at most 65536 entries",
+                });
+            }
+        }
+        check_names("units", self.units.iter().map(|u| u.name.as_str()))?;
+        check_names("buildings", self.buildings.iter().map(|b| b.name.as_str()))?;
+        for unit in &self.units {
+            unit.validate(&unit.name)?;
+        }
+        for building in &self.buildings {
+            building.validate(&building.name, self.units.len())?;
+        }
         self.gather.validate()
     }
 
-    pub const fn unit(&self, kind: UnitKind) -> &UnitStats {
-        match kind {
-            UnitKind::Villager => &self.villager,
-            UnitKind::Soldier => &self.soldier,
-        }
+    /// The numbers for a unit type. Panics on an ID this content does not
+    /// have, which validated content and the world never produce.
+    pub fn unit(&self, kind: UnitKind) -> &UnitStats {
+        &self.units[kind.index()]
     }
 
-    pub const fn building(&self, kind: BuildingKind) -> &BuildingStats {
-        match kind {
-            BuildingKind::TownCenter => &self.town_center,
-            BuildingKind::Barracks => &self.barracks,
-        }
+    pub fn unit_mut(&mut self, kind: UnitKind) -> &mut UnitStats {
+        &mut self.units[kind.index()]
+    }
+
+    pub fn building(&self, kind: BuildingKind) -> &BuildingStats {
+        &self.buildings[kind.index()]
+    }
+
+    pub fn building_mut(&mut self, kind: BuildingKind) -> &mut BuildingStats {
+        &mut self.buildings[kind.index()]
+    }
+
+    /// The unit type called `name`.
+    pub fn unit_named(&self, name: &str) -> Option<UnitKind> {
+        self.units
+            .iter()
+            .position(|u| u.name == name)
+            .map(|index| UnitKind::new(index as u16))
+    }
+
+    /// The building type called `name`.
+    pub fn building_named(&self, name: &str) -> Option<BuildingKind> {
+        self.buildings
+            .iter()
+            .position(|b| b.name == name)
+            .map(|index| BuildingKind::new(index as u16))
+    }
+
+    /// Every unit type, with its ID.
+    pub fn unit_kinds(&self) -> impl Iterator<Item = UnitKind> + '_ {
+        (0..self.units.len()).map(|index| UnitKind::new(index as u16))
+    }
+
+    /// Every building type, with its ID.
+    pub fn building_kinds(&self) -> impl Iterator<Item = BuildingKind> + '_ {
+        (0..self.buildings.len()).map(|index| BuildingKind::new(index as u16))
     }
 }
 
@@ -186,44 +296,63 @@ impl Content {
 /// changing them changes the outcome of those replays.
 impl Default for Content {
     fn default() -> Content {
+        // The order is the IDs: `UnitKind::VILLAGER` is 0, `SOLDIER` is 1,
+        // `BuildingKind::TOWN_CENTER` is 0, `BARRACKS` is 1.
         Content {
-            // 2.5 tiles per second at 20 Hz.
-            villager: UnitStats {
-                max_hp: 40,
-                speed: Fx::from_frac(1, 8),
-                damage: 0,
-                range: Fx::ZERO,
-                attack_cooldown: 0,
-                radius: Fx::from_frac(1, 4),
-                cost: Resources {
-                    gold: 50,
-                    ..Resources::default()
+            units: vec![
+                // 2.5 tiles per second at 20 Hz.
+                UnitStats {
+                    name: "villager".to_string(),
+                    sprite: 1473,
+                    gathers: true,
+                    max_hp: 40,
+                    speed: Fx::from_frac(1, 8),
+                    damage: 0,
+                    range: Fx::ZERO,
+                    attack_cooldown: 0,
+                    radius: Fx::from_frac(1, 4),
+                    cost: Resources {
+                        gold: 50,
+                        ..Resources::default()
+                    },
+                    train_ticks: 100,
                 },
-                train_ticks: 100,
-            },
-            soldier: UnitStats {
-                max_hp: 60,
-                speed: Fx::from_frac(1, 8),
-                damage: 8,
-                range: Fx::from_frac(3, 2),
-                attack_cooldown: 20,
-                radius: Fx::from_frac(1, 4),
-                cost: Resources {
-                    gold: 60,
-                    ..Resources::default()
+                // The militia's sprite.
+                UnitStats {
+                    name: "soldier".to_string(),
+                    sprite: 1181,
+                    gathers: false,
+                    max_hp: 60,
+                    speed: Fx::from_frac(1, 8),
+                    damage: 8,
+                    range: Fx::from_frac(3, 2),
+                    attack_cooldown: 20,
+                    radius: Fx::from_frac(1, 4),
+                    cost: Resources {
+                        gold: 60,
+                        ..Resources::default()
+                    },
+                    train_ticks: 120,
                 },
-                train_ticks: 120,
-            },
-            town_center: BuildingStats {
-                max_hp: 1000,
-                drop_off: true,
-                trains: vec![UnitKind::Villager],
-            },
-            barracks: BuildingStats {
-                max_hp: 600,
-                drop_off: false,
-                trains: vec![UnitKind::Soldier],
-            },
+            ],
+            buildings: vec![
+                BuildingStats {
+                    name: "town_center".to_string(),
+                    sprite: 901,
+                    size: 4,
+                    max_hp: 1000,
+                    drop_off: true,
+                    trains: vec![UnitKind::VILLAGER],
+                },
+                BuildingStats {
+                    name: "barracks".to_string(),
+                    sprite: 131,
+                    size: 3,
+                    max_hp: 600,
+                    drop_off: false,
+                    trains: vec![UnitKind::SOLDIER],
+                },
+            ],
             // One gold every two seconds at 20 Hz, ten to a load.
             gather: GatherStats {
                 carry_capacity: 10,

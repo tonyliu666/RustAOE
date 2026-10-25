@@ -53,37 +53,43 @@ impl Body {
     }
 }
 
-/// Each unit kind's body. The application builds these from the sprites, so
-/// that picking matches drawing; the default is a square around the feet.
-#[derive(Copy, Clone, PartialEq, Debug)]
+/// Each unit type's body, indexed by its ID. The application builds these
+/// from the sprites, so that picking matches drawing; a type with no entry
+/// uses the fallback, by default a square around the feet.
+#[derive(Clone, PartialEq, Debug)]
 pub struct Bodies {
-    pub villager: Body,
-    pub soldier: Body,
+    pub units: Vec<Body>,
+    pub fallback: Body,
 }
 
 impl Default for Bodies {
     fn default() -> Bodies {
-        Bodies {
-            villager: Body::around_feet(0.6),
-            soldier: Body::around_feet(0.6),
-        }
+        Bodies::all(Body::around_feet(0.6))
     }
 }
 
 impl Bodies {
-    /// Every body grown to at least `min` tiles each way.
-    pub fn at_least(&self, min: f32) -> Bodies {
+    /// The same body for every unit type.
+    pub const fn all(body: Body) -> Bodies {
         Bodies {
-            villager: self.villager.at_least(min),
-            soldier: self.soldier.at_least(min),
+            units: Vec::new(),
+            fallback: body,
         }
     }
 
-    pub const fn of(&self, kind: UnitKind) -> Body {
-        match kind {
-            UnitKind::Villager => self.villager,
-            UnitKind::Soldier => self.soldier,
+    /// Every body grown to at least `min` tiles each way.
+    pub fn at_least(&self, min: f32) -> Bodies {
+        Bodies {
+            units: self.units.iter().map(|b| b.at_least(min)).collect(),
+            fallback: self.fallback.at_least(min),
         }
+    }
+
+    pub fn of(&self, kind: UnitKind) -> Body {
+        self.units
+            .get(kind.index())
+            .copied()
+            .unwrap_or(self.fallback)
     }
 }
 

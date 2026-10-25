@@ -120,7 +120,11 @@ mod game {
         let playback = config.play.as_deref().map(app::load).transpose()?;
         let (seed, map, content) = match (&playback, config.content) {
             (Some(replay), _) => (replay.seed, replay.map.clone(), replay.content.clone()),
-            (None, Some(content)) => (config.seed, MapSpec::proof_of_concept(), content),
+            (None, Some(content)) => {
+                let map = MapSpec::proof_of_concept(&content)?;
+                map.validate_for(&content)?;
+                (config.seed, map, content)
+            }
             (None, None) => return Err("no content for a new game".into()),
         };
 
@@ -134,7 +138,7 @@ mod game {
         // Decoded once and uploaded now that the window, and with it the
         // graphics context, exists. A bad install is an error at startup,
         // not a crash mid-game.
-        let sprites = app::load_images(&config.assets)?.upload(&mut renderer);
+        let sprites = app::load_images(&config.assets, &content)?.upload(&mut renderer);
         let mut input_source = MacroquadInput::new();
         let mut session = Session::new(
             Camera::new(Vec2::ZERO, START_ZOOM, MacroquadRenderer::viewport()),
@@ -144,7 +148,7 @@ mod game {
         );
 
         for player in (1..=map.players()).map(sim::PlayerId::new) {
-            if let Some(home) = map.home(player) {
+            if let Some(home) = map.home(player, &content) {
                 session.look_at(player, Vec2::new(home.x as f32, home.y as f32));
             }
         }

@@ -18,7 +18,7 @@ pub fn sprite(renderer: &mut RecordingRenderer, size: (u32, u32), hotspot: (f32,
     }
 }
 
-/// One fake sprite per kind and player, two grass variations, a tree, and a
+/// One fake sprite per type of the default content and per player, two grass variations, a tree, and a
 /// gold mine.
 pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
     let mut per_player = |size, hotspot| std::array::from_fn(|_| sprite(renderer, size, hotspot));
@@ -36,10 +36,8 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         grass,
         tree,
         gold_mine,
-        villager,
-        soldier,
-        town_center,
-        barracks,
+        units: vec![villager, soldier],
+        buildings: vec![town_center, barracks],
     }
 }
 

@@ -15,10 +15,10 @@ const SEED: u64 = 0xA6E0;
 fn base_map() -> MapSpec {
     MapSpec::new(32, 32)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(4, 4))
-        .with_building(BuildingKind::Barracks, PlayerId::ONE, TilePos::new(12, 4))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(12, 4))
         .with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::TWO,
             TilePos::new(24, 24),
         )
@@ -74,7 +74,7 @@ fn run(world: &mut World, ticks: u64) {
 #[test]
 fn a_lone_unit_walks_to_the_tile_it_was_ordered_to() {
     let mut world =
-        world(base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(10, 10)));
+        world(base_map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(10, 10)));
     let unit = only_unit(&world);
     let goal = TilePos::new(16, 10);
 
@@ -101,7 +101,7 @@ fn a_group_walks_around_a_wall_to_reach_the_far_side() {
     let wall = (0..30).filter(|y| *y != 29).map(|y| TilePos::new(16, y));
     let mut map = base_map().with_blocked(wall);
     for i in 0..4 {
-        map = map.with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(10 + i, 10));
+        map = map.with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(10 + i, 10));
     }
     let mut world = world(map);
     let group = units_of(&world, PlayerId::ONE);
@@ -129,7 +129,7 @@ fn a_unit_never_ends_a_tick_standing_in_a_blocked_tile() {
     // Ordered straight at a building, which is solid: the unit has to stop
     // outside it rather than walk in.
     let mut world =
-        world(base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(10, 6)));
+        world(base_map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(10, 6)));
     let unit = only_unit(&world);
 
     world.step(&[Command::Move {
@@ -150,7 +150,7 @@ fn a_unit_never_ends_a_tick_standing_in_a_blocked_tile() {
 #[test]
 fn a_unit_ordered_into_a_wall_gives_up_rather_than_grinding_forever() {
     let mut world =
-        world(base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(10, 10)));
+        world(base_map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(10, 10)));
     let unit = only_unit(&world);
 
     // The centre of the town centre is solid, so there is no path to it.
@@ -173,7 +173,7 @@ fn a_unit_ordered_into_a_wall_gives_up_rather_than_grinding_forever() {
 #[test]
 fn an_order_to_someone_elses_unit_is_dropped() {
     let mut world =
-        world(base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(10, 10)));
+        world(base_map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(10, 10)));
     let unit = only_unit(&world);
 
     world.step(&[Command::Move {
@@ -192,7 +192,7 @@ fn an_order_to_someone_elses_unit_is_dropped() {
 #[test]
 fn an_order_to_a_tile_off_the_map_is_dropped() {
     let mut world =
-        world(base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(10, 10)));
+        world(base_map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(10, 10)));
     let unit = only_unit(&world);
 
     world.step(&[Command::Move {
@@ -211,8 +211,8 @@ fn an_order_to_a_tile_off_the_map_is_dropped() {
 #[test]
 fn a_villager_cannot_be_ordered_to_attack() {
     let map = base_map()
-        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(24, 22))
-        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(24, 21));
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(24, 22))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(24, 21));
     let mut world = world(map);
     let attacker = units_of(&world, PlayerId::ONE)[0];
     let victim = units_of(&world, PlayerId::TWO)[0];
@@ -226,26 +226,26 @@ fn a_villager_cannot_be_ordered_to_attack() {
 
     assert_eq!(
         world.view().unit(victim).map(|u| u.hp),
-        Some(Content::default().villager.max_hp)
+        Some(Content::default().unit(UnitKind::VILLAGER).max_hp)
     );
 }
 
 #[test]
 fn a_unit_cannot_be_ordered_to_attack_its_own_side() {
     let map = base_map()
-        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(20, 20))
-        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(20, 21));
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(20, 20))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(20, 21));
     let mut world = world(map);
     let soldier = world
         .view()
         .units()
-        .find(|(_, u)| u.kind == UnitKind::Soldier)
+        .find(|(_, u)| u.kind == UnitKind::SOLDIER)
         .map(|(id, _)| id)
         .expect("the soldier is on the map");
     let friend = world
         .view()
         .units()
-        .find(|(_, u)| u.kind == UnitKind::Villager)
+        .find(|(_, u)| u.kind == UnitKind::VILLAGER)
         .map(|(id, _)| id)
         .expect("the villager is on the map");
 
@@ -258,14 +258,14 @@ fn a_unit_cannot_be_ordered_to_attack_its_own_side() {
 
     assert_eq!(
         world.view().unit(friend).map(|u| u.hp),
-        Some(Content::default().villager.max_hp)
+        Some(Content::default().unit(UnitKind::VILLAGER).max_hp)
     );
 }
 
 #[test]
 fn stop_cancels_an_order_in_progress() {
     let mut world =
-        world(base_map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(10, 10)));
+        world(base_map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(10, 10)));
     let unit = only_unit(&world);
 
     world.step(&[Command::Move {
@@ -289,7 +289,7 @@ fn stop_cancels_an_order_in_progress() {
 /// A villager, a mine, and a drop-off within a short walk of each other.
 fn gather_map() -> MapSpec {
     base_map().with_mine(TilePos::new(10, 4), 5000).with_unit(
-        UnitKind::Villager,
+        UnitKind::VILLAGER,
         PlayerId::ONE,
         TilePos::new(9, 8),
     )
@@ -364,7 +364,7 @@ fn gold_is_conserved_across_a_gathering_session() {
 #[test]
 fn a_gather_order_against_a_depleted_seam_is_dropped() {
     let map = base_map().with_mine(TilePos::new(10, 4), 0).with_unit(
-        UnitKind::Villager,
+        UnitKind::VILLAGER,
         PlayerId::ONE,
         TilePos::new(9, 8),
     );
@@ -390,23 +390,23 @@ fn a_gather_order_against_a_depleted_seam_is_dropped() {
 #[test]
 fn training_a_villager_spends_gold_and_produces_a_unit() {
     let mut world = world(base_map());
-    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TownCenter);
+    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
     let before = world.view().gold(PlayerId::ONE);
 
     world.step(&[Command::Train {
         player: PlayerId::ONE,
         building: town_center,
-        unit: UnitKind::Villager,
+        unit: UnitKind::VILLAGER,
     }]);
     assert_eq!(
         world.view().gold(PlayerId::ONE),
-        before - Content::default().villager.cost.gold,
+        before - Content::default().unit(UnitKind::VILLAGER).cost.gold,
         "gold is charged when the unit is queued, not when it pops"
     );
 
     run(
         &mut world,
-        Content::default().villager.train_ticks as u64 + 1,
+        Content::default().unit(UnitKind::VILLAGER).train_ticks as u64 + 1,
     );
 
     assert_eq!(units_of(&world, PlayerId::ONE).len(), 1);
@@ -415,12 +415,12 @@ fn training_a_villager_spends_gold_and_produces_a_unit() {
 #[test]
 fn training_is_refused_when_the_player_cannot_afford_it() {
     let mut world = world(base_map().with_starting_gold(10));
-    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TownCenter);
+    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
 
     world.step(&[Command::Train {
         player: PlayerId::ONE,
         building: town_center,
-        unit: UnitKind::Villager,
+        unit: UnitKind::VILLAGER,
     }]);
     run(&mut world, 200);
 
@@ -431,12 +431,12 @@ fn training_is_refused_when_the_player_cannot_afford_it() {
 #[test]
 fn a_town_center_cannot_train_soldiers() {
     let mut world = world(base_map());
-    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TownCenter);
+    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
 
     world.step(&[Command::Train {
         player: PlayerId::ONE,
         building: town_center,
-        unit: UnitKind::Soldier,
+        unit: UnitKind::SOLDIER,
     }]);
     run(&mut world, 200);
 
@@ -447,53 +447,53 @@ fn a_town_center_cannot_train_soldiers() {
 #[test]
 fn a_barracks_trains_soldiers() {
     let mut world = world(base_map());
-    let barracks = first_building(&world, PlayerId::ONE, BuildingKind::Barracks);
+    let barracks = first_building(&world, PlayerId::ONE, BuildingKind::BARRACKS);
 
     world.step(&[Command::Train {
         player: PlayerId::ONE,
         building: barracks,
-        unit: UnitKind::Soldier,
+        unit: UnitKind::SOLDIER,
     }]);
     run(
         &mut world,
-        Content::default().soldier.train_ticks as u64 + 1,
+        Content::default().unit(UnitKind::SOLDIER).train_ticks as u64 + 1,
     );
 
     let trained = units_of(&world, PlayerId::ONE);
     assert_eq!(trained.len(), 1);
     assert_eq!(
         world.view().unit(trained[0]).expect("alive").kind,
-        UnitKind::Soldier
+        UnitKind::SOLDIER
     );
 }
 
 #[test]
 fn a_queue_of_two_units_costs_two_units_worth_of_gold() {
     let mut world = world(base_map());
-    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TownCenter);
+    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
     let order = Command::Train {
         player: PlayerId::ONE,
         building: town_center,
-        unit: UnitKind::Villager,
+        unit: UnitKind::VILLAGER,
     };
 
     world.step(&[order.clone(), order]);
 
     assert_eq!(
         world.view().gold(PlayerId::ONE),
-        200 - 2 * Content::default().villager.cost.gold
+        200 - 2 * Content::default().unit(UnitKind::VILLAGER).cost.gold
     );
 }
 
 #[test]
 fn training_a_building_you_do_not_own_is_dropped() {
     let mut world = world(base_map());
-    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TownCenter);
+    let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
 
     world.step(&[Command::Train {
         player: PlayerId::TWO,
         building: town_center,
-        unit: UnitKind::Villager,
+        unit: UnitKind::VILLAGER,
     }]);
 
     assert_eq!(world.view().gold(PlayerId::TWO), 200);
@@ -505,8 +505,8 @@ fn training_a_building_you_do_not_own_is_dropped() {
 #[test]
 fn a_soldier_kills_an_enemy_villager_in_range() {
     let map = base_map()
-        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(20, 20))
-        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(20, 21));
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(20, 20))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(20, 21));
     let mut world = world(map);
     let soldier = units_of(&world, PlayerId::ONE)[0];
     let victim = units_of(&world, PlayerId::TWO)[0];
@@ -519,7 +519,7 @@ fn a_soldier_kills_an_enemy_villager_in_range() {
     // Forty hit points at eight damage a second is five swings.
     run(
         &mut world,
-        5 * Content::default().soldier.attack_cooldown as u64,
+        5 * Content::default().unit(UnitKind::SOLDIER).attack_cooldown as u64,
     );
 
     assert!(
@@ -531,8 +531,8 @@ fn a_soldier_kills_an_enemy_villager_in_range() {
 #[test]
 fn a_soldier_walks_into_range_before_it_can_hit() {
     let map = base_map()
-        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(20, 12))
-        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(20, 20));
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(20, 12))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(20, 20));
     let mut world = world(map);
     let soldier = units_of(&world, PlayerId::ONE)[0];
     let victim = units_of(&world, PlayerId::TWO)[0];
@@ -553,8 +553,8 @@ fn a_soldier_walks_into_range_before_it_can_hit() {
 #[test]
 fn an_attacker_stops_when_its_target_is_already_dead() {
     let map = base_map()
-        .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(20, 20))
-        .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(20, 21));
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(20, 20))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(20, 21));
     let mut world = world(map);
     let soldier = units_of(&world, PlayerId::ONE)[0];
     let victim = units_of(&world, PlayerId::TWO)[0];
@@ -584,7 +584,7 @@ fn no_outcome_while_both_sides_still_have_buildings() {
 fn losing_every_building_loses_the_game() {
     // Player two starts with nothing standing, so the check fires on tick one.
     let map = MapSpec::new(32, 32).with_building(
-        BuildingKind::TownCenter,
+        BuildingKind::TOWN_CENTER,
         PlayerId::ONE,
         TilePos::new(4, 4),
     );
@@ -598,13 +598,13 @@ fn losing_every_building_loses_the_game() {
 #[test]
 fn razing_the_last_enemy_building_wins_the_game() {
     let mut map = MapSpec::new(32, 32)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(4, 4))
-        .with_building(BuildingKind::Barracks, PlayerId::TWO, TilePos::new(16, 16));
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
+        .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(16, 16));
     for i in 0..5 {
-        map = map.with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(14 + i, 20));
+        map = map.with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(14 + i, 20));
     }
     let mut world = world(map);
-    let barracks = first_building(&world, PlayerId::TWO, BuildingKind::Barracks);
+    let barracks = first_building(&world, PlayerId::TWO, BuildingKind::BARRACKS);
     let attackers = units_of(&world, PlayerId::ONE);
 
     world.step(&[Command::Attack {
@@ -622,7 +622,7 @@ fn razing_the_last_enemy_building_wins_the_game() {
 #[test]
 fn the_outcome_is_recorded_once_and_never_changes() {
     let map = MapSpec::new(32, 32).with_building(
-        BuildingKind::TownCenter,
+        BuildingKind::TOWN_CENTER,
         PlayerId::ONE,
         TilePos::new(4, 4),
     );
@@ -638,13 +638,13 @@ fn the_outcome_is_recorded_once_and_never_changes() {
 #[test]
 fn a_razed_building_stops_blocking_the_tiles_it_stood_on() {
     let mut map = MapSpec::new(32, 32)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(4, 4))
-        .with_building(BuildingKind::Barracks, PlayerId::TWO, TilePos::new(16, 16));
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
+        .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(16, 16));
     for i in 0..5 {
-        map = map.with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(14 + i, 20));
+        map = map.with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(14 + i, 20));
     }
     let mut world = world(map);
-    let barracks = first_building(&world, PlayerId::TWO, BuildingKind::Barracks);
+    let barracks = first_building(&world, PlayerId::TWO, BuildingKind::BARRACKS);
     let attackers = units_of(&world, PlayerId::ONE);
     assert!(
         !world

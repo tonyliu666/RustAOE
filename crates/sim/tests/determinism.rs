@@ -64,10 +64,10 @@ fn map(players: u8) -> MapSpec {
     let mut map = MapSpec::new(MAP_SIZE, MAP_SIZE)
         .with_players(players)
         .with_starting_gold(300)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(2, 2))
-        .with_building(BuildingKind::Barracks, PlayerId::ONE, TilePos::new(8, 2))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(8, 2))
         .with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::TWO,
             TilePos::new(26, 26),
         )
@@ -81,19 +81,19 @@ fn map(players: u8) -> MapSpec {
         ]);
     for i in 0..3 {
         map = map
-            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(2 + i, 8))
-            .with_unit(UnitKind::Soldier, PlayerId::ONE, TilePos::new(5 + i, 8))
-            .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(24 + i, 20));
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(2 + i, 8))
+            .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(5 + i, 8))
+            .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(24 + i, 20));
     }
     if players >= 3 {
         map = map.with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::new(3),
             TilePos::new(2, 26),
         );
         for i in 0..2 {
             map = map.with_unit(
-                UnitKind::Villager,
+                UnitKind::VILLAGER,
                 PlayerId::new(3),
                 TilePos::new(8 + i, 24),
             );
@@ -149,9 +149,9 @@ fn to_command(world: &World, player: PlayerId, action: Action) -> Option<Command
         }
         Action::Train { villager } => {
             let (kind, wanted) = if villager {
-                (UnitKind::Villager, BuildingKind::TownCenter)
+                (UnitKind::VILLAGER, BuildingKind::TOWN_CENTER)
             } else {
-                (UnitKind::Soldier, BuildingKind::Barracks)
+                (UnitKind::SOLDIER, BuildingKind::BARRACKS)
             };
             let (building, _) = world
                 .view()

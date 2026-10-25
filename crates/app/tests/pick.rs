@@ -14,17 +14,14 @@ fn tall() -> Bodies {
         offset: Vec2::new(-0.25, -1.0),
         size: Vec2::new(0.5, 1.0),
     };
-    Bodies {
-        villager: body,
-        soldier: body,
-    }
+    Bodies::all(body)
 }
 
 fn map() -> MapSpec {
     MapSpec::new(16, 16)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(0, 0))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(0, 0))
         .with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::TWO,
             TilePos::new(12, 12),
         )
@@ -35,7 +32,7 @@ fn map() -> MapSpec {
 fn one_villager() -> World {
     World::new(
         1,
-        map().with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6)),
+        map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6)),
     )
 }
 
@@ -71,8 +68,8 @@ fn where_two_bodies_overlap_the_one_drawn_in_front_wins() {
     let world = World::new(
         1,
         map()
-            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
-            .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(6, 7)),
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+            .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(6, 7)),
     );
     let (front, _) = world
         .view()
@@ -86,10 +83,7 @@ fn where_two_bodies_overlap_the_one_drawn_in_front_wins() {
         offset: Vec2::new(-0.25, -1.5),
         size: Vec2::new(0.5, 1.5),
     };
-    let taller = Bodies {
-        villager: body,
-        soldier: body,
-    };
+    let taller = Bodies::all(body);
     assert_eq!(
         unit_at(world.view(), Vec2::new(6.5, 6.2), &taller, 0.0),
         Some(front)
@@ -100,7 +94,7 @@ fn where_two_bodies_overlap_the_one_drawn_in_front_wins() {
 fn a_click_on_a_units_head_over_a_building_picks_the_unit() {
     let world = World::new(
         1,
-        map().with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(2, 4)),
+        map().with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(2, 4)),
     );
 
     // The villager stands at (2.5, 4.5), just below the town centre, which
@@ -157,8 +151,8 @@ fn a_click_on_a_drawn_body_beats_a_nearer_units_enlarged_target() {
     let world = World::new(
         1,
         map()
-            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
-            .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(7, 7)),
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+            .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(7, 7)),
     );
     let (left, _) = world
         .view()
@@ -177,8 +171,8 @@ fn off_every_body_the_nearest_enlarged_target_wins() {
     let world = World::new(
         1,
         map()
-            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
-            .with_unit(UnitKind::Villager, PlayerId::TWO, TilePos::new(6, 8)),
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+            .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(6, 8)),
     );
     let (upper, _) = world
         .view()

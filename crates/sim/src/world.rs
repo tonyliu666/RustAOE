@@ -140,6 +140,37 @@ impl MapSpec {
         Ok(())
     }
 
+    /// [`MapSpec::validate`], plus: every building and unit type the map
+    /// places exists in `content`. Run on any map from outside, such as a
+    /// replay's, against the content it will be played with; the world
+    /// indexes content by these types.
+    pub fn validate_for(&self, content: &Content) -> Result<(), MapError> {
+        self.validate()?;
+        if let Some((kind, _, _)) = self
+            .buildings
+            .iter()
+            .find(|(kind, _, _)| kind.index() >= content.buildings.len())
+        {
+            return Err(MapError(format!(
+                "building type {} is not in the content, which has {}",
+                kind.index(),
+                content.buildings.len()
+            )));
+        }
+        if let Some((kind, _, _)) = self
+            .units
+            .iter()
+            .find(|(kind, _, _)| kind.index() >= content.units.len())
+        {
+            return Err(MapError(format!(
+                "unit type {} is not in the content, which has {}",
+                kind.index(),
+                content.units.len()
+            )));
+        }
+        Ok(())
+    }
+
     /// What every player starts with.
     pub fn with_starting_resources(mut self, resources: Resources) -> MapSpec {
         self.starting_resources = resources;
@@ -166,12 +197,13 @@ impl MapSpec {
     /// The first building they own, which on every map that ships is their
     /// town centre. Returns nothing for a player with no buildings, who has
     /// already lost.
-    pub fn home(&self, player: PlayerId) -> Option<TilePos> {
+    pub fn home(&self, player: PlayerId, content: &Content) -> Option<TilePos> {
         self.buildings
             .iter()
             .find(|(_, owner, _)| *owner == player)
             .map(|(kind, _, origin)| {
-                TilePos::new(origin.x + kind.size() / 2, origin.y + kind.size() / 2)
+                let size = content.building(*kind).size;
+                TilePos::new(origin.x + size / 2, origin.y + size / 2)
             })
     }
 
@@ -179,8 +211,26 @@ impl MapSpec {
     ///
     /// Mirrored so that neither side has an advantage the slice was not meant
     /// to test, and small enough that the two bases are a short walk apart.
-    pub fn proof_of_concept() -> MapSpec {
+    ///
+    /// Its types are looked up by name in `content`: `town_center`,
+    /// `barracks`, and `villager`. Content without one of them cannot place
+    /// this map, which is an error naming the missing type.
+    pub fn proof_of_concept(content: &Content) -> Result<MapSpec, MapError> {
         const SIZE: i32 = 128;
+        let missing = |name: &str| {
+            MapError(format!(
+                "the built-in map needs a `{name}` type in the content"
+            ))
+        };
+        let town_center = content
+            .building_named("town_center")
+            .ok_or_else(|| missing("town_center"))?;
+        let barracks = content
+            .building_named("barracks")
+            .ok_or_else(|| missing("barracks"))?;
+        let villager = content
+            .unit_named("villager")
+            .ok_or_else(|| missing("villager"))?;
         let mut map = MapSpec::new(SIZE, SIZE).with_starting_gold(200);
 
         for (player, base) in [
@@ -188,19 +238,11 @@ impl MapSpec {
             (PlayerId::TWO, TilePos::new(SIZE - 24, SIZE - 24)),
         ] {
             map = map
-                .with_building(BuildingKind::TownCenter, player, base)
-                .with_building(
-                    BuildingKind::Barracks,
-                    player,
-                    TilePos::new(base.x + 6, base.y),
-                )
+                .with_building(town_center, player, base)
+                .with_building(barracks, player, TilePos::new(base.x + 6, base.y))
                 .with_mine(TilePos::new(base.x - 4, base.y + 6), Mine::STARTING_GOLD);
             for i in 0..3 {
-                map = map.with_unit(
-                    UnitKind::Villager,
-                    player,
-                    TilePos::new(base.x + i, base.y + 5),
-                );
+                map = map.with_unit(villager, player, TilePos::new(base.x + i, base.y + 5));
             }
         }
 
@@ -209,7 +251,7 @@ impl MapSpec {
         let wall = (0..SIZE)
             .filter(|x| !(40..48).contains(x) && !(80..88).contains(x))
             .map(|x| TilePos::new(x, SIZE / 2));
-        map.with_blocked(wall)
+        Ok(map.with_blocked(wall))
     }
 }
 
@@ -296,11 +338,17 @@ impl World {
 
     /// A world playing by `content`.
     ///
-    /// The content is not validated here: that is the loader's job, done once
-    /// at startup, so that a bad file is an error message and not a world
-    /// that misbehaves.
+    /// Neither is validated here: that is the loader's job, done once at
+    /// startup, so that a bad file is an error message and not a world that
+    /// misbehaves. Callers must have run [`Content::validate`] and
+    /// [`MapSpec::validate_for`] with this content; the world indexes content
+    /// by the map's types and would panic on one the content lacks.
     pub fn with_content(seed: u64, map: MapSpec, content: Content) -> World {
-        debug_assert_eq!(map.validate(), Ok(()), "build worlds from validated maps");
+        debug_assert_eq!(
+            map.validate_for(&content),
+            Ok(()),
+            "build worlds from maps validated against their content"
+        );
         let mut terrain = Grid::new(map.width, map.height, Tile::OPEN);
         for pos in &map.blocked {
             if terrain.in_bounds(*pos) {
@@ -336,7 +384,8 @@ impl World {
 
         for (kind, owner, origin) in map.buildings {
             let hp = world.content.building(kind).max_hp;
-            let building = Building::new(kind, owner, origin, hp);
+            let size = world.content.building(kind).size;
+            let building = Building::new(kind, owner, origin, hp, size);
             world.stamp(building.footprint(), Tile::BLOCKED);
             world.buildings.insert(building);
         }
@@ -570,7 +619,7 @@ impl World {
         let ids: Vec<UnitId> = self
             .owned(player, units)
             .into_iter()
-            .filter(|id| self.units[*id].kind == UnitKind::Villager)
+            .filter(|id| self.content.unit(self.units[*id].kind).gathers)
             .collect();
         let route = self.plan_adjacent(&ids, goal, Mine::SIZE);
         for id in ids {
@@ -673,10 +722,7 @@ impl World {
     fn radius_of(&self, target: EntityId) -> Option<Fx> {
         match target {
             EntityId::Unit(id) => self.units.get(id).map(|u| self.content.unit(u.kind).radius),
-            EntityId::Building(id) => self
-                .buildings
-                .get(id)
-                .map(|b| Fx::from_frac(b.kind.size(), 2)),
+            EntityId::Building(id) => self.buildings.get(id).map(|b| Fx::from_frac(b.size, 2)),
             EntityId::Mine(id) => self.mines.get(id).map(|_| Fx::from_frac(Mine::SIZE, 2)),
         }
     }
@@ -699,7 +745,7 @@ impl World {
                 building.train_ticks -= 1;
                 continue;
             }
-            let (origin, size, owner) = (building.origin, building.kind.size(), building.owner);
+            let (origin, size, owner) = (building.origin, building.size, building.owner);
             // No room to stand means the unit waits rather than being lost:
             // deleting a paid-for unit because the base is crowded would be a
             // silent theft of the player's gold.
@@ -788,7 +834,7 @@ impl World {
             self.send_to_drop_off(id, mine);
             return;
         };
-        let (center, size) = (target.center(), target.kind.size());
+        let (center, size) = (target.center(), target.size);
         if !self.within(id, center, size) {
             return;
         }
@@ -831,7 +877,7 @@ impl World {
             .iter()
             .filter(|(_, b)| b.owner == owner && self.content.building(b.kind).drop_off)
             .min_by_key(|(_, b)| (b.center() - pos).length_squared())
-            .map(|(id, b)| (id, b.origin, b.kind.size()));
+            .map(|(id, b)| (id, b.origin, b.size));
 
         let Some((building, origin, size)) = nearest else {
             // Nowhere to bank it. The gold stays carried, which keeps the
@@ -921,8 +967,10 @@ impl World {
     fn move_unit(&mut self, id: UnitId) {
         let unit = &self.units[id];
         let (pos, kind) = (unit.pos, unit.kind);
-        let stats = *self.content.unit(kind);
-        let speed = stats.speed;
+        let (speed, radius) = {
+            let stats = self.content.unit(kind);
+            (stats.speed, stats.radius)
+        };
 
         let Some(desired) = self.desired_direction(id) else {
             self.units[id].stuck_ticks = 0;
@@ -935,7 +983,7 @@ impl World {
         // gets through a gap.
         let crowding = self.separation(id).clamp_length(speed.div(Fx::from_int(2)));
         let steering = (desired * speed + crowding).clamp_length(speed);
-        let moved = self.slide(pos, steering, stats.radius);
+        let moved = self.slide(pos, steering, radius);
         self.units[id].pos = moved;
 
         // A unit that has been pressed against something for a second and a
@@ -1130,7 +1178,8 @@ impl World {
                 self.units[id].order = Order::Idle;
                 continue;
             };
-            let stats = *self.content.unit(self.units[id].kind);
+            let stats = self.content.unit(self.units[id].kind);
+            let (cooldown, damage) = (stats.attack_cooldown, stats.damage);
             let Some(reach) = self.reach(id, target) else {
                 continue;
             };
@@ -1141,8 +1190,8 @@ impl World {
             if self.units[id].attack_cooldown > 0 {
                 continue;
             }
-            self.units[id].attack_cooldown = stats.attack_cooldown;
-            self.damage(target, stats.damage);
+            self.units[id].attack_cooldown = cooldown;
+            self.damage(target, damage);
         }
     }
 
@@ -1356,17 +1405,11 @@ impl<'a> WorldView<'a> {
 }
 
 const fn unit_kind_code(kind: UnitKind) -> u64 {
-    match kind {
-        UnitKind::Villager => 0,
-        UnitKind::Soldier => 1,
-    }
+    kind.index() as u64
 }
 
 const fn building_kind_code(kind: BuildingKind) -> u64 {
-    match kind {
-        BuildingKind::TownCenter => 0,
-        BuildingKind::Barracks => 1,
-    }
+    kind.index() as u64
 }
 
 /// An entity as two words: which table, and its key's bits.
@@ -1411,14 +1454,14 @@ mod checksum_tests {
     /// One villager, one town centre each, and a mine.
     fn world() -> World {
         let map = MapSpec::new(16, 16)
-            .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(1, 1))
+            .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
             .with_building(
-                BuildingKind::TownCenter,
+                BuildingKind::TOWN_CENTER,
                 PlayerId::TWO,
                 TilePos::new(10, 10),
             )
             .with_mine(TilePos::new(6, 1), 100)
-            .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6));
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6));
         World::new(1, map)
     }
 
@@ -1449,7 +1492,7 @@ mod checksum_tests {
     fn unit_kind_is_hashed() {
         assert!(differs(untouched, |w| {
             let id = unit(w);
-            w.units[id].kind = UnitKind::Soldier;
+            w.units[id].kind = UnitKind::SOLDIER;
         }));
     }
 
@@ -1536,7 +1579,7 @@ mod checksum_tests {
     fn building_kind_is_hashed() {
         assert!(differs(untouched, |w| {
             let id = building(w);
-            w.buildings[id].kind = BuildingKind::Barracks;
+            w.buildings[id].kind = BuildingKind::BARRACKS;
         }));
     }
 
@@ -1556,7 +1599,7 @@ mod checksum_tests {
                 w.buildings[id].queue = vec![kind];
             }
         };
-        assert!(differs(queue(UnitKind::Villager), queue(UnitKind::Soldier)));
+        assert!(differs(queue(UnitKind::VILLAGER), queue(UnitKind::SOLDIER)));
     }
 
     #[test]

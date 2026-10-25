@@ -64,11 +64,26 @@ pub enum EntityId {
     Mine(MineId),
 }
 
-/// The two unit types in the slice.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum UnitKind {
-    Villager,
-    Soldier,
+/// A unit type: an index into [`crate::Content::units`].
+///
+/// Types are data, not code: the simulation never names one. The constants
+/// are the IDs in [`crate::Content::default`], for tests and the built-in map.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct UnitKind(u16);
+
+impl UnitKind {
+    /// The villager in the default content.
+    pub const VILLAGER: UnitKind = UnitKind(0);
+    /// The soldier in the default content.
+    pub const SOLDIER: UnitKind = UnitKind(1);
+
+    pub const fn new(index: u16) -> UnitKind {
+        UnitKind(index)
+    }
+
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
 }
 
 /// What a unit is currently trying to do.
@@ -191,23 +206,24 @@ impl Unit {
     }
 }
 
-/// The two building types in the slice.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum BuildingKind {
-    TownCenter,
-    Barracks,
-}
+/// A building type: an index into [`crate::Content::buildings`].
+///
+/// The constants are the IDs in [`crate::Content::default`].
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct BuildingKind(u16);
 
 impl BuildingKind {
-    /// Footprint in tiles, square.
-    ///
-    /// Still in code rather than content: maps, picking, and drawing need it
-    /// with no world in hand. Placement moves to content with construction.
-    pub const fn size(self) -> i32 {
-        match self {
-            BuildingKind::TownCenter => 4,
-            BuildingKind::Barracks => 3,
-        }
+    /// The town centre in the default content.
+    pub const TOWN_CENTER: BuildingKind = BuildingKind(0);
+    /// The barracks in the default content.
+    pub const BARRACKS: BuildingKind = BuildingKind(1);
+
+    pub const fn new(index: u16) -> BuildingKind {
+        BuildingKind(index)
+    }
+
+    pub const fn index(self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -222,6 +238,9 @@ pub struct Building {
     /// Top-left tile of the footprint.
     pub origin: TilePos,
     pub hp: i32,
+    /// Footprint side in tiles, from its type's content when placed, so that
+    /// its footprint is known without the content in hand.
+    pub size: i32,
     /// Units queued for training, oldest first.
     pub queue: Vec<UnitKind>,
     /// Ticks remaining on the unit at the head of the queue.
@@ -232,14 +251,21 @@ impl Building {
     /// How many units may be waiting to train.
     pub const QUEUE_LIMIT: usize = 5;
 
-    /// A building at full health. `hp` is the kind's `max_hp` from the
-    /// content the world plays by.
-    pub fn new(kind: BuildingKind, owner: PlayerId, origin: TilePos, hp: i32) -> Building {
+    /// A building at full health. `hp` and `size` are the kind's `max_hp`
+    /// and `size` from the content the world plays by.
+    pub fn new(
+        kind: BuildingKind,
+        owner: PlayerId,
+        origin: TilePos,
+        hp: i32,
+        size: i32,
+    ) -> Building {
         Building {
             kind,
             owner,
             origin,
             hp,
+            size,
             queue: Vec::new(),
             train_ticks: 0,
         }
@@ -247,7 +273,7 @@ impl Building {
 
     /// The tiles this building covers.
     pub fn footprint(&self) -> impl Iterator<Item = TilePos> + '_ {
-        let size = self.kind.size();
+        let size = self.size;
         let origin = self.origin;
         (0..size)
             .flat_map(move |dy| (0..size).map(move |dx| TilePos::new(origin.x + dx, origin.y + dy)))
@@ -255,7 +281,7 @@ impl Building {
 
     /// Centre of the footprint in world space.
     pub fn center(&self) -> FxVec2 {
-        let size = self.kind.size();
+        let size = self.size;
         FxVec2::new(
             Fx::from_frac(self.origin.x * 2 + size, 2),
             Fx::from_frac(self.origin.y * 2 + size, 2),

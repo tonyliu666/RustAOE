@@ -18,14 +18,14 @@ fn scratch(name: &str) -> PathBuf {
 fn map() -> MapSpec {
     MapSpec::new(24, 24)
         .with_starting_gold(200)
-        .with_building(BuildingKind::TownCenter, PlayerId::ONE, TilePos::new(2, 2))
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
         .with_building(
-            BuildingKind::TownCenter,
+            BuildingKind::TOWN_CENTER,
             PlayerId::TWO,
             TilePos::new(18, 18),
         )
         .with_mine(TilePos::new(10, 10), 500)
-        .with_unit(UnitKind::Villager, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
 }
 
 /// Records a short session of a villager being sent to a mine.
@@ -102,7 +102,7 @@ fn a_missing_replay_file_is_an_io_error() {
 fn a_replay_keeps_the_content_it_was_recorded_with() {
     let path = scratch("content");
     let mut content = Content::default();
-    content.soldier.damage = 13;
+    content.unit_mut(UnitKind::SOLDIER).damage = 13;
     let replay = Replay::with_content(5, map(), content.clone());
 
     app::save(&path, &replay).expect("the replay should write");
@@ -195,7 +195,7 @@ fn a_replay_carrying_content_the_game_cannot_run_with_is_refused() {
     // like a `--content` file and gets the same checks.
     let path = scratch("invalid-content");
     let mut content = Content::default();
-    content.villager.max_hp = 0;
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 0;
     app::save(&path, &Replay::with_content(5, map(), content)).expect("the replay should write");
 
     let error = app::load(&path);
@@ -210,7 +210,42 @@ fn a_replay_carrying_content_the_game_cannot_run_with_is_refused() {
 #[test]
 fn a_replay_whose_map_gives_an_entity_to_a_missing_player_is_refused() {
     let path = scratch("invalid-map");
-    let map = map().with_unit(UnitKind::Villager, PlayerId::new(3), TilePos::new(4, 4));
+    let map = map().with_unit(UnitKind::VILLAGER, PlayerId::new(3), TilePos::new(4, 4));
+    app::save(&path, &Replay::new(5, map)).expect("the replay should write");
+
+    let error = app::load(&path);
+
+    assert!(
+        matches!(error, Err(app::ReplayError::InvalidMap(_))),
+        "{error:?}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_replay_from_the_middle_of_phase_1_5_is_refused_by_version() {
+    // Format 2 had two layouts while content changed shape; format 3 is the
+    // first written once unit and building types became data.
+    let error = load_text("version-two", "(version: 2, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 2,
+                expected: 3
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_whose_map_names_a_type_its_content_lacks_is_refused_rather_than_crashing() {
+    // Found by the Phase 1.5 review: this replay loaded, then `verify`
+    // panicked indexing building type 9 of 2.
+    let path = scratch("unknown-kind");
+    let map = map().with_building(BuildingKind::new(9), PlayerId::ONE, TilePos::new(12, 2));
     app::save(&path, &Replay::new(5, map)).expect("the replay should write");
 
     let error = app::load(&path);

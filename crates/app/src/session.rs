@@ -9,7 +9,7 @@
 use crate::pick;
 use crate::CameraController;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
-use sim::{BuildingKind, Command, EntityId, PlayerId, UnitId, UnitKind, WorldView};
+use sim::{Command, EntityId, PlayerId, UnitId, UnitKind, WorldView};
 use smallvec::SmallVec;
 
 /// One side's view of the game.
@@ -47,6 +47,29 @@ pub struct Session {
     /// player sees.
     bodies: pick::Bodies,
 }
+
+/// The unit types some building can train, in the content's order: what the
+/// training keys train, key 1 the first. The overlay lists the same.
+pub(crate) fn trainable(content: &sim::Content) -> Vec<UnitKind> {
+    content
+        .unit_kinds()
+        .filter(|kind| content.buildings.iter().any(|b| b.trains.contains(kind)))
+        .take(TRAINING_KEYS.len())
+        .collect()
+}
+
+/// The keys that train unit types, in order.
+const TRAINING_KEYS: [Key; 9] = [
+    Key::Digit1,
+    Key::Digit2,
+    Key::Digit3,
+    Key::Digit4,
+    Key::Digit5,
+    Key::Digit6,
+    Key::Digit7,
+    Key::Digit8,
+    Key::Digit9,
+];
 
 impl Session {
     /// A drag shorter than this many screen pixels is a click, not a box
@@ -217,13 +240,17 @@ impl Session {
         }
 
         match pick::entity_at(view, cursor, &self.bodies, self.min_pick()) {
-            // A mine means gather, but only for villagers; a soldier sent to a
-            // mine should walk there rather than have its order dropped.
+            // A mine means gather, but only for units that gather; a soldier
+            // sent to a mine should walk there rather than have its order
+            // dropped.
             Some(EntityId::Mine(mine)) => {
                 let villagers: SmallVec<[UnitId; 32]> = units
                     .iter()
                     .copied()
-                    .filter(|id| view.unit(*id).is_some_and(|u| u.kind == UnitKind::Villager))
+                    .filter(|id| {
+                        view.unit(*id)
+                            .is_some_and(|u| view.content().unit(u.kind).gathers)
+                    })
                     .collect();
                 if villagers.is_empty() {
                     return Some(Command::Move {
@@ -267,23 +294,26 @@ impl Session {
     /// user interface problem, and this slice is not testing that.
     fn training(&self, input: &InputState, view: WorldView<'_>) -> Vec<Command> {
         let player = self.active;
-        [
-            (Key::Digit1, UnitKind::Villager, BuildingKind::TownCenter),
-            (Key::Digit2, UnitKind::Soldier, BuildingKind::Barracks),
-        ]
-        .into_iter()
-        .filter(|(key, _, _)| input.key_pressed(*key))
-        .filter_map(|(_, unit, from)| {
-            let (building, _) = view
-                .buildings()
-                .find(|(_, b)| b.owner == player && b.kind == from)?;
-            Some(Command::Train {
-                player,
-                building,
-                unit,
+        let content = view.content();
+        // The unit types some building can train, in the content's order:
+        // key 1 trains the first, key 2 the second, up to key 9. Nothing here
+        // names a type. Training from a selected building's own list is a
+        // user-interface job for plan Phase 8.
+        TRAINING_KEYS
+            .into_iter()
+            .zip(trainable(content))
+            .filter(|(key, _)| input.key_pressed(*key))
+            .filter_map(|(_, unit)| {
+                let (building, _) = view.buildings().find(|(_, b)| {
+                    b.owner == player && content.building(b.kind).trains.contains(&unit)
+                })?;
+                Some(Command::Train {
+                    player,
+                    building,
+                    unit,
+                })
             })
-        })
-        .collect()
+            .collect()
     }
 }
 
