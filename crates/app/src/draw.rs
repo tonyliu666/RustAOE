@@ -193,10 +193,9 @@ fn draw_unit_info<R: Renderer>(
             layout.hit_points_at,
         ),
     ];
-    // Only gold can be gathered so far (plan Phase 2 adds the others).
     if unit.carrying > 0 {
         lines.push((
-            format!("carrying {} gold", unit.carrying),
+            format!("carrying {} {}", unit.carrying, unit.carried.name()),
             layout.carrying_at,
         ));
     }
@@ -275,7 +274,7 @@ fn draw_terrain<R: Renderer>(
         .buildings()
         .flat_map(|(_, b)| b.footprint().collect::<Vec<_>>())
         .chain(
-            view.mines()
+            view.sites()
                 .flat_map(|(_, m)| m.footprint().collect::<Vec<_>>()),
         )
         .collect();
@@ -311,7 +310,7 @@ fn stand<R: Renderer>(renderer: &mut R, sprite: &Sprite, ground: Vec2, scale: f3
 }
 
 fn draw_mines<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
-    for (_, mine) in view.mines() {
+    for (_, mine) in view.sites() {
         stand(
             renderer,
             &sprites.gold_mine,

@@ -30,7 +30,7 @@ fn tiles(v: sim::FxVec2) -> (f64, f64) {
 
 /// A town centre at (2, 2), a mine at (12, 2), and a villager between them,
 /// well away from both.
-fn world() -> (World, sim::UnitId, sim::MineId) {
+fn world() -> (World, sim::UnitId, sim::SiteId) {
     let map = MapSpec::new(24, 24)
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
         .with_building(
@@ -42,7 +42,7 @@ fn world() -> (World, sim::UnitId, sim::MineId) {
         .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(8, 8));
     let world = World::new(1, map);
     let (villager, _) = world.view().units().next().expect("the villager");
-    let (mine, _) = world.view().mines().next().expect("the mine");
+    let (mine, _) = world.view().sites().next().expect("the mine");
     (world, villager, mine)
 }
 
@@ -55,11 +55,11 @@ fn touching(gap: f64) -> bool {
 fn a_villager_starts_mining_only_once_it_touches_the_mine() {
     let (mut world, villager, mine) = world();
     let radius = f64::from(Content::default().unit(UnitKind::VILLAGER).radius.to_bits()) / 65536.0;
-    let origin = world.view().mines().next().expect("mine").1.origin;
+    let origin = world.view().sites().next().expect("mine").1.origin;
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
 
     // The first gold extracted marks the moment mining began, at most one
@@ -75,7 +75,7 @@ fn a_villager_starts_mining_only_once_it_touches_the_mine() {
     }
     let at = at.expect("never mined");
 
-    let gap = edge_gap(at, radius, origin, sim::Mine::SIZE);
+    let gap = edge_gap(at, radius, origin, sim::Site::SIZE);
     assert!(touching(gap), "mining {gap:.3} tiles from the mine's edge");
 }
 
@@ -92,7 +92,7 @@ fn a_villager_deposits_only_once_it_touches_the_drop_off() {
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
 
     // Gathering runs before movement within a tick: the deposit is made from
@@ -124,13 +124,13 @@ fn a_villager_still_mines_load_after_load() {
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     for _ in 0..3000 {
         world.step(&[]);
     }
 
-    let capacity = Content::default().gather.carry_capacity;
+    let capacity = Content::default().gather.gold.carry_capacity;
     assert!(
         world.view().resources(PlayerId::ONE).gold >= 3 * capacity,
         "banked only {}",

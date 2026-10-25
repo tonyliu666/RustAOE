@@ -417,7 +417,7 @@ fn blocked_ground_is_grass_with_a_tree_standing_on_it() {
 fn a_gold_mine_is_its_sprite_standing_on_the_mines_centre() {
     let mut renderer = RecordingRenderer::new();
     let set = sprites(&mut renderer);
-    // A 2x2 mine at (12, 2) has its centre at (13, 3).
+    // A one-tile mine at (12, 2) has its centre at (12.5, 2.5).
     let world = World::new(1, map().with_mine(TilePos::new(12, 2), 100));
 
     draw(&mut renderer, &world, &set);
@@ -428,7 +428,7 @@ fn a_gold_mine_is_its_sprite_standing_on_the_mines_centre() {
     assert!(
         close(
             mines[0].0,
-            Vec2::new(13.0 - 41.0 * scale, 3.0 - 22.0 * scale)
+            Vec2::new(12.5 - 41.0 * scale, 2.5 - 22.0 * scale)
         ),
         "at {:?}",
         mines[0].0

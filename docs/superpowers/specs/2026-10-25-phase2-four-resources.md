@@ -54,7 +54,7 @@ unit's resource storage, which the reader does not keep yet (step 1).
   stone, wood, food), an amount, and a footprint. A site with nothing left
   disappears; a tree frees its tile.
 - **Jobs:** content gains, per resource, what a villager gathering it is
-  like: its rate (as ticks per unit, as today's `ticks_per_gold`), its
+  like: its rate (ticks per unit, `ticks_per_unit`), its
   capacity, and the original's job unit ID (for the converter and tests). A
   villager carries one resource at a time; sent to a different resource, it
   drops what it carries (as the original does).
@@ -157,3 +157,22 @@ own drop-off with loaded villagers selected issues it for those carrying a
 load. The automatic walk back when the load is full is unchanged, as in the
 original. Replay format 9: the rule and the command set changed (the version
 Phase 2 was to move to anyway).
+
+## Step 2 result (2026-10-25)
+
+`Mine` is now `Site` (and `MineId` `SiteId`, `EntityId::Site`,
+`view.sites()`): a one-tile site of any resource, as the original's mines,
+bushes, and trees are; `MapSpec::with_site(resource, at, amount)`, with
+`with_mine` kept for gold. A gold mine starts with the original's 800. A
+villager records the resource it carries (`Unit::carried`) and banks into
+that stock; sent to a site of another resource it drops its load, as in the
+original. Content's `gather` is one `(carry_capacity, ticks_per_unit)` per
+resource (`sim::Gathering`; RON `gather: (food: (...), wood: (...), ...)`),
+all ten at one per two seconds until step 5; `datconv` writes each from its
+job unit (forager 120, lumberjack 123, gold miner 579, stone miner 124).
+`view.total(resource)` replaces `total_gold`, and conservation is tested for
+each resource. The information panel names the load's resource. The
+checksum hashes each site's and load's resource. Replay format 10.
+
+Every site is still drawn as a gold mine; step 4, which puts the other kinds
+on the map, gives each its sprite.

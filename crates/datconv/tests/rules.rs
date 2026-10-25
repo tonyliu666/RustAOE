@@ -1,7 +1,7 @@
 //! Each conversion rule on its own, with values chosen in the test.
 
 use assets::dat::Cost;
-use datconv::{building_size, cost, damage, fraction, speed_per_tick, ticks, ticks_per_gold};
+use datconv::{building_size, cost, damage, fraction, speed_per_tick, ticks, ticks_per_unit};
 
 #[test]
 fn a_whole_number_of_ticks_is_exact() {
@@ -106,8 +106,8 @@ fn a_buildings_size_is_twice_its_half_width_rounded() {
 #[test]
 fn the_gather_rate_becomes_ticks_per_unit_gathered() {
     // One gold a second is 20 ticks a gold; 0.379 a second is 52.77 ticks.
-    assert_eq!(ticks_per_gold(1.0).value, 20);
-    assert!(!ticks_per_gold(1.0).was_rounded());
-    assert_eq!(ticks_per_gold(0.379).value, 53);
-    assert!(ticks_per_gold(0.379).was_rounded());
+    assert_eq!(ticks_per_unit(1.0).value, 20);
+    assert!(!ticks_per_unit(1.0).was_rounded());
+    assert_eq!(ticks_per_unit(0.379).value, 53);
+    assert!(ticks_per_unit(0.379).was_rounded());
 }

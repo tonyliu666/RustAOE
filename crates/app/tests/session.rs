@@ -1097,13 +1097,13 @@ fn right_clicking_your_drop_off_with_a_loaded_villager_drops_the_load_off() {
         .expect("the villager");
     let (mine, _) = world
         .view()
-        .mines()
+        .sites()
         .find(|(_, m)| m.origin == TilePos::new(8, 5))
         .expect("the near mine");
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: [villager].into_iter().collect(),
-        mine,
+        site: mine,
     }]);
     for _ in 0..2000 {
         if world.view().unit(villager).is_some_and(|u| u.carrying > 0) {

@@ -135,7 +135,21 @@ fn dat() -> Dat {
     let mut miner = unit(70, 579, "VMGLD", 4);
     miner.work_rate = Some(0.379);
     miner.drop_sites = Some([109, -1]);
-    units[579] = Some(miner);
+    units[579] = Some(miner.clone());
+    // The other jobs a villager turns into: forager, lumberjack, stone
+    // miner, with the original's rates; the lumberjack carries 12 here.
+    for (id, name, rate, capacity) in [
+        (120, "VMFOR", 0.31, 10),
+        (123, "VMLUM", 0.39, 12),
+        (124, "VMMIN", 0.36, 10),
+    ] {
+        let mut job = miner.clone();
+        job.id = id;
+        job.name = name.to_string();
+        job.work_rate = Some(rate);
+        job.resource_capacity = capacity;
+        units[usize::from(id as u16)] = Some(job);
+    }
     let mut town_centre = unit(80, 109, "RTWC", 3);
     town_centre.hit_points = 2400;
     town_centre.standing_graphic = 3;
@@ -312,7 +326,7 @@ fn a_building_trains_the_converted_units_whose_train_location_it_is() {
 }
 
 #[test]
-fn gathering_comes_from_the_gold_miner() {
+fn each_resources_gathering_comes_from_its_job_unit() {
     let content = app::parse_content(
         &convert_with(&dat(), Selection::Default)
             .expect("converts")
@@ -320,8 +334,19 @@ fn gathering_comes_from_the_gold_miner() {
     )
     .expect("loads");
 
-    assert_eq!(content.gather.carry_capacity, 10);
-    assert_eq!(content.gather.ticks_per_gold, 53);
+    // 20 ticks a second over each job's rate per second, rounded.
+    let numbers = |r| {
+        let g = content.gather.get(r);
+        (g.carry_capacity, g.ticks_per_unit)
+    };
+    assert_eq!(
+        numbers(sim::Resource::Food),
+        (10, 65),
+        "forager, 0.31 a second"
+    );
+    assert_eq!(numbers(sim::Resource::Wood), (12, 51), "lumberjack, 0.39");
+    assert_eq!(numbers(sim::Resource::Gold), (10, 53), "gold miner, 0.379");
+    assert_eq!(numbers(sim::Resource::Stone), (10, 56), "stone miner, 0.36");
 }
 
 #[test]
@@ -357,7 +382,7 @@ fn every_value_that_was_rounded_is_reported() {
     assert!(converted
         .report
         .iter()
-        .any(|l| l.contains("gather.ticks_per_gold")));
+        .any(|l| l.contains("gather.gold.ticks_per_unit")));
     assert!(!converted
         .report
         .iter()
@@ -432,7 +457,18 @@ fn every_unit_and_building_can_be_converted_with_unique_names() {
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
     let units: Vec<&str> = content.units.iter().map(|u| u.name.as_str()).collect();
-    assert_eq!(units, ["sprmn_74", "vmbas_83", "pkemn_93", "vmgld_579"]);
+    assert_eq!(
+        units,
+        [
+            "sprmn_74",
+            "vmbas_83",
+            "pkemn_93",
+            "vmfor_120",
+            "vmlum_123",
+            "vmmin_124",
+            "vmgld_579",
+        ]
+    );
     let barracks = content
         .buildings
         .iter()

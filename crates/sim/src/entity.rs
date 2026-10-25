@@ -5,7 +5,7 @@
 //! object graphs painful, and it keeps the whole state trivially copyable and
 //! serializable.
 
-use crate::{Fx, FxVec2, Resources, TilePos};
+use crate::{Fx, FxVec2, Resource, Resources, TilePos};
 use serde::{Deserialize, Serialize};
 use slotmap::new_key_type;
 
@@ -15,7 +15,7 @@ new_key_type! {
     /// Addresses a building for as long as it is standing.
     pub struct BuildingId;
     /// Addresses a gold mine.
-    pub struct MineId;
+    pub struct SiteId;
 }
 
 /// A player slot: Gaia, or one of up to eight players.
@@ -61,7 +61,7 @@ impl PlayerId {
 pub enum EntityId {
     Unit(UnitId),
     Building(BuildingId),
-    Mine(MineId),
+    Site(SiteId),
 }
 
 /// A unit type: an index into [`crate::Content::units`].
@@ -102,7 +102,7 @@ pub enum Order {
         route: Route,
     },
     Gather {
-        mine: MineId,
+        site: SiteId,
         phase: GatherPhase,
         route: Route,
     },
@@ -144,10 +144,10 @@ impl Route {
 /// Where a villager is in the mine-carry-deposit cycle.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GatherPhase {
-    /// Walking to the mine.
-    ToMine,
-    /// Standing at the mine, accumulating gold on a tick counter.
-    Mining,
+    /// Walking to the site.
+    ToSite,
+    /// Standing at the site, gathering on a tick counter.
+    Gathering,
     /// Walking to a drop-off building with a full load.
     ToDropOff { building: BuildingId },
 }
@@ -162,6 +162,8 @@ pub struct Unit {
     pub order: Order,
     /// Gold held, up to the content's `gather.carry_capacity`.
     pub carrying: i32,
+    /// What `carrying` is of: the resource of the last site it worked.
+    pub carried: Resource,
     /// Ticks spent at the mine face since the last gold was extracted.
     pub mine_ticks: u32,
     /// Ticks until this unit may attack again.
@@ -198,6 +200,7 @@ impl Unit {
             hp,
             order: Order::Idle,
             carrying: 0,
+            carried: Resource::Gold,
             mine_ticks: 0,
             attack_cooldown: 0,
             stuck_ticks: 0,
@@ -296,34 +299,43 @@ impl Building {
 
 /// A depletable gold deposit.
 ///
-/// An entity rather than a terrain flag so that it can hold remaining gold and
+/// An entity rather than a terrain flag so that it can hold what is left and
 /// be the target of a command.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Mine {
-    /// Top-left tile of the 2x2 footprint.
+pub struct Site {
+    /// The footprint's tile.
     pub origin: TilePos,
+    /// What it holds: a gold or stone mine, a forage bush, a tree.
+    pub resource: Resource,
     pub remaining: i32,
 }
 
-impl Mine {
-    pub const SIZE: i32 = 2;
-    pub const STARTING_GOLD: i32 = 5000;
+impl Site {
+    /// One tile, as the original's mines, bushes, and trees are (their
+    /// collision half-size is half a tile).
+    pub const SIZE: i32 = 1;
+    /// The original's gold mine holds 800 gold (unit 66 in the `.dat`).
+    pub const STARTING_GOLD: i32 = 800;
 
-    pub fn new(origin: TilePos, remaining: i32) -> Mine {
-        Mine { origin, remaining }
+    pub fn new(origin: TilePos, resource: Resource, remaining: i32) -> Site {
+        Site {
+            origin,
+            resource,
+            remaining,
+        }
     }
 
     pub fn footprint(&self) -> impl Iterator<Item = TilePos> + '_ {
         let origin = self.origin;
-        (0..Mine::SIZE).flat_map(move |dy| {
-            (0..Mine::SIZE).map(move |dx| TilePos::new(origin.x + dx, origin.y + dy))
+        (0..Site::SIZE).flat_map(move |dy| {
+            (0..Site::SIZE).map(move |dx| TilePos::new(origin.x + dx, origin.y + dy))
         })
     }
 
     pub fn center(&self) -> FxVec2 {
         FxVec2::new(
-            Fx::from_frac(self.origin.x * 2 + Mine::SIZE, 2),
-            Fx::from_frac(self.origin.y * 2 + Mine::SIZE, 2),
+            Fx::from_frac(self.origin.x * 2 + Site::SIZE, 2),
+            Fx::from_frac(self.origin.y * 2 + Site::SIZE, 2),
         )
     }
 }

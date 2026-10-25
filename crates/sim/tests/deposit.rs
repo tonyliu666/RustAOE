@@ -6,7 +6,7 @@ use smallvec::smallvec;
 
 /// Player one's town centre and barracks, player two's town centre, a mine,
 /// and a villager of player one beside the mine.
-fn world() -> (World, UnitId, sim::MineId) {
+fn world() -> (World, UnitId, sim::SiteId) {
     let map = MapSpec::new(24, 24)
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
         .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(2, 10))
@@ -19,7 +19,7 @@ fn world() -> (World, UnitId, sim::MineId) {
         .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(11, 3));
     let world = World::new(1, map);
     let (villager, _) = world.view().units().next().expect("the villager");
-    let (mine, _) = world.view().mines().next().expect("the mine");
+    let (mine, _) = world.view().sites().next().expect("the mine");
     (world, villager, mine)
 }
 
@@ -41,11 +41,11 @@ fn gold(world: &World) -> i32 {
 }
 
 /// Gathers until the villager carries `load`.
-fn mine_until(world: &mut World, villager: UnitId, mine: sim::MineId, load: i32) {
+fn mine_until(world: &mut World, villager: UnitId, mine: sim::SiteId, load: i32) {
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     for _ in 0..1000 {
         if carrying(world, villager) >= load {
@@ -86,7 +86,7 @@ fn a_part_load_dropped_off_by_hand_is_banked_and_the_villager_goes_back_to_minin
         if matches!(
             world.view().unit(villager).expect("the villager").order,
             Order::Gather {
-                phase: sim::GatherPhase::Mining,
+                phase: sim::GatherPhase::Gathering,
                 ..
             }
         ) {

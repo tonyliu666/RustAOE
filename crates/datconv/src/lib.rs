@@ -32,9 +32,15 @@ const GATHER: i16 = 5;
 /// Attack classes counted as damage until armour classes exist (Phase 6):
 /// pierce and melee.
 const BASE_ATTACKS: [i16; 2] = [3, 4];
-/// The male gold miner: a villager while it mines gold, whose capacity and
-/// work rate the game's one gather rule uses until Phase 2.
-const GOLD_MINER: i16 = 579;
+/// The job units a villager turns into while it gathers each resource (the
+/// male ones; the female ones have the same numbers), whose capacity and
+/// work rate become the game's gather numbers for that resource.
+const JOBS: [(&str, i16, &str); 4] = [
+    ("food", 120, "forager"),
+    ("wood", 123, "lumberjack"),
+    ("gold", 579, "gold miner"),
+    ("stone", 124, "stone miner"),
+];
 
 /// A converted value, and the value before rounding when it had to be
 /// rounded.
@@ -153,7 +159,7 @@ pub fn building_size(half_width: f32) -> Rounded<i32> {
 }
 
 /// A gather rate in resource per second as ticks per unit gathered.
-pub fn ticks_per_gold(per_second: f32) -> Rounded<u32> {
+pub fn ticks_per_unit(per_second: f32) -> Rounded<u32> {
     if per_second <= 0.0 {
         return Rounded {
             value: 0,
@@ -595,20 +601,22 @@ pub fn convert(
         }
     };
 
-    let miner = find(GOLD_MINER, "gold miner")?;
-    let carry_capacity = i32::from(miner.resource_capacity);
-    let ticks_per_gold = note(
-        &mut report,
-        "gather.ticks_per_gold",
-        ticks_per_gold(miner.work_rate.unwrap_or(0.0)),
-    );
+    let mut gather = Vec::new();
+    for (resource, id, job) in JOBS {
+        let unit = find(id, job)?;
+        let ticks = note(
+            &mut report,
+            &format!("gather.{resource}.ticks_per_unit"),
+            ticks_per_unit(unit.work_rate.unwrap_or(0.0)),
+        );
+        gather.push((resource, i32::from(unit.resource_capacity), ticks));
+    }
 
     let ron = write_ron(
         &civilisation.name,
         &unit_entries,
         &building_entries,
-        carry_capacity,
-        ticks_per_gold,
+        &gather,
     );
     Ok(Conversion { ron, report })
 }
@@ -617,8 +625,7 @@ fn write_ron(
     civ: &str,
     units: &[UnitEntry],
     buildings: &[BuildingEntry],
-    carry_capacity: i32,
-    ticks_per_gold: u32,
+    gather: &[(&str, i32, u32)],
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(
@@ -694,10 +701,14 @@ fn write_ron(
             trains.join(", "),
         );
     }
-    let _ = write!(
-        out,
-        "    ],\n    gather: (\n        carry_capacity: {carry_capacity},\n        ticks_per_gold: {ticks_per_gold},\n    ),\n)\n"
-    );
+    out.push_str("    ],\n    gather: (\n");
+    for (resource, capacity, ticks) in gather {
+        let _ = writeln!(
+            out,
+            "        {resource}: (carry_capacity: {capacity}, ticks_per_unit: {ticks}),"
+        );
+    }
+    out.push_str("    ),\n)\n");
     out
 }
 

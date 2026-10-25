@@ -7,7 +7,10 @@
 
 use crate::looks::{Look, Looks, Part};
 use serde::Deserialize;
-use sim::{BuildingStats, Content, ContentError, Fx, GatherStats, Resources, UnitKind, UnitStats};
+use sim::{
+    BuildingStats, Content, ContentError, Fx, GatherStats, Gathering, Resources, UnitKind,
+    UnitStats,
+};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -171,8 +174,26 @@ struct BuildingFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GatherFile {
+    food: GatherStatsFile,
+    wood: GatherStatsFile,
+    gold: GatherStatsFile,
+    stone: GatherStatsFile,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GatherStatsFile {
     carry_capacity: i32,
-    ticks_per_gold: u32,
+    ticks_per_unit: u32,
+}
+
+impl GatherStatsFile {
+    fn stats(&self) -> GatherStats {
+        GatherStats {
+            carry_capacity: self.carry_capacity,
+            ticks_per_unit: self.ticks_per_unit,
+        }
+    }
 }
 
 impl ContentFile {
@@ -219,9 +240,11 @@ impl ContentFile {
         Ok(Content {
             units,
             buildings,
-            gather: GatherStats {
-                carry_capacity: self.gather.carry_capacity,
-                ticks_per_gold: self.gather.ticks_per_gold,
+            gather: Gathering {
+                food: self.gather.food.stats(),
+                wood: self.gather.wood.stats(),
+                gold: self.gather.gold.stats(),
+                stone: self.gather.stone.stats(),
             },
         })
     }

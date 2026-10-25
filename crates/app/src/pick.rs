@@ -5,7 +5,7 @@
 
 use render::Vec2;
 use sim::{
-    Building, BuildingId, BuildingKind, EntityId, FxVec2, MineId, PlayerId, TilePos, UnitId,
+    Building, BuildingId, BuildingKind, EntityId, FxVec2, PlayerId, SiteId, TilePos, UnitId,
     UnitKind, WorldView,
 };
 
@@ -178,9 +178,9 @@ pub fn footprint_centre(building: &Building) -> Vec2 {
 }
 
 /// The mine covering `world`, if any.
-pub fn mine_at(view: WorldView<'_>, world: Vec2) -> Option<MineId> {
+pub fn site_at(view: WorldView<'_>, world: Vec2) -> Option<SiteId> {
     let tile = tile_at(world);
-    view.mines()
+    view.sites()
         .find(|(_, m)| m.footprint().any(|t| t == tile))
         .map(|(id, _)| id)
 }
@@ -193,7 +193,7 @@ pub fn entity_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies, min: f32) ->
     unit_at(view, world, bodies, min)
         .map(EntityId::Unit)
         .or_else(|| building_at(view, world, bodies).map(EntityId::Building))
-        .or_else(|| mine_at(view, world).map(EntityId::Mine))
+        .or_else(|| site_at(view, world).map(EntityId::Site))
 }
 
 /// The player's own units whose drawn bodies touch a world-space rectangle.

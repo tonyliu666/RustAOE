@@ -166,8 +166,8 @@ fn a_building_needs_positive_hit_points() {
 #[test]
 fn carry_capacity_must_be_positive() {
     assert_rejects(
-        |c| c.gather.carry_capacity = 0,
-        "gather.carry_capacity",
+        |c| c.gather.gold.carry_capacity = 0,
+        "gather.gold.carry_capacity",
         POSITIVE,
     );
 }
@@ -175,8 +175,8 @@ fn carry_capacity_must_be_positive() {
 #[test]
 fn ticks_per_gold_must_be_positive() {
     assert_rejects(
-        |c| c.gather.ticks_per_gold = 0,
-        "gather.ticks_per_gold",
+        |c| c.gather.gold.ticks_per_unit = 0,
+        "gather.gold.ticks_per_unit",
         POSITIVE,
     );
 }

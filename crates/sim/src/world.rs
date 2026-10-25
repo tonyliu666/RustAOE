@@ -1,8 +1,8 @@
 //! The simulation state and the single tick that advances it.
 
 use crate::entity::{
-    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Mine, MineId, Order, Player,
-    PlayerId, Route, Unit, UnitId, UnitKind,
+    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Order, Player, PlayerId, Route,
+    Site, SiteId, Unit, UnitId, UnitKind,
 };
 use crate::path::{astar, Dir8, FlowFieldCache, PathRequest};
 use crate::spatial::SpatialHash;
@@ -37,7 +37,7 @@ pub struct MapSpec {
     height: i32,
     blocked: Vec<TilePos>,
     buildings: Vec<(BuildingKind, PlayerId, TilePos)>,
-    mines: Vec<(TilePos, i32)>,
+    sites: Vec<(TilePos, Resource, i32)>,
     units: Vec<(UnitKind, PlayerId, TilePos)>,
     starting_resources: Resources,
     /// Players, not counting Gaia.
@@ -90,8 +90,14 @@ impl MapSpec {
         self
     }
 
-    pub fn with_mine(mut self, at: TilePos, gold: i32) -> MapSpec {
-        self.mines.push((at, gold));
+    /// A gold mine holding `gold`.
+    pub fn with_mine(self, at: TilePos, gold: i32) -> MapSpec {
+        self.with_site(Resource::Gold, at, gold)
+    }
+
+    /// A site of `resource` holding `amount`.
+    pub fn with_site(mut self, resource: Resource, at: TilePos, amount: i32) -> MapSpec {
+        self.sites.push((at, resource, amount));
         self
     }
 
@@ -247,7 +253,7 @@ impl MapSpec {
             map = map
                 .with_building(town_center, player, base)
                 .with_building(barracks, player, TilePos::new(base.x + 6, base.y))
-                .with_mine(TilePos::new(base.x - 4, base.y + 6), Mine::STARTING_GOLD);
+                .with_mine(TilePos::new(base.x - 4, base.y + 6), Site::STARTING_GOLD);
             for i in 0..3 {
                 map = map.with_unit(villager, player, TilePos::new(base.x + i, base.y + 5));
             }
@@ -281,7 +287,7 @@ pub enum Command {
     Gather {
         player: PlayerId,
         units: SmallVec<[UnitId; 32]>,
-        mine: MineId,
+        site: SiteId,
     },
     Train {
         player: PlayerId,
@@ -322,7 +328,7 @@ pub struct World {
     terrain: Grid<Tile>,
     units: SlotMap<UnitId, Unit>,
     buildings: SlotMap<BuildingId, Building>,
-    mines: SlotMap<MineId, Mine>,
+    sites: SlotMap<SiteId, Site>,
     /// Slot 0 is Gaia, then one per player.
     players: Vec<Player>,
     /// The numbers every system plays by. Fixed for the life of the world.
@@ -382,7 +388,7 @@ impl World {
             terrain,
             units: SlotMap::with_key(),
             buildings: SlotMap::with_key(),
-            mines: SlotMap::with_key(),
+            sites: SlotMap::with_key(),
             // Gaia starts with nothing; every player with the map's stock.
             players: (0..=map.players)
                 .map(|slot| Player {
@@ -409,10 +415,10 @@ impl World {
             world.stamp(building.footprint(), Tile::BLOCKED);
             world.buildings.insert(building);
         }
-        for (origin, gold) in map.mines {
-            let mine = Mine::new(origin, gold);
+        for (origin, resource, amount) in map.sites {
+            let mine = Site::new(origin, resource, amount);
             world.stamp(mine.footprint(), Tile::BLOCKED);
-            world.mines.insert(mine);
+            world.sites.insert(mine);
         }
         for (kind, owner, at) in map.units {
             world.units.insert(Unit::new(
@@ -492,6 +498,7 @@ impl World {
             eat(unit.pos.y.to_bits() as u32 as u64);
             eat(unit.hp as u32 as u64);
             eat(unit.carrying as u32 as u64);
+            eat(resource_code(unit.carried));
             eat(u64::from(unit.mine_ticks));
             eat(u64::from(unit.attack_cooldown));
             for word in order_words(&unit.order) {
@@ -508,8 +515,9 @@ impl World {
                 eat(unit_kind_code(*kind));
             }
         }
-        for (_, mine) in &self.mines {
-            eat(mine.remaining as u32 as u64);
+        for (_, site) in &self.sites {
+            eat(resource_code(site.resource));
+            eat(site.remaining as u32 as u64);
         }
         for player in &self.players {
             eat(u64::from(player.defeated));
@@ -555,7 +563,7 @@ impl World {
                 Command::Gather {
                     player,
                     units,
-                    mine,
+                    site: mine,
                 } => self.order_gather(*player, units, *mine),
                 Command::Train {
                     player,
@@ -633,8 +641,8 @@ impl World {
         }
     }
 
-    fn order_gather(&mut self, player: PlayerId, units: &[UnitId], mine: MineId) {
-        let Some(target) = self.mines.get(mine) else {
+    fn order_gather(&mut self, player: PlayerId, units: &[UnitId], mine: SiteId) {
+        let Some(target) = self.sites.get(mine) else {
             return;
         };
         if target.remaining <= 0 {
@@ -646,11 +654,18 @@ impl World {
             .into_iter()
             .filter(|id| self.content.unit(self.units[*id].kind).gathers)
             .collect();
-        let route = self.plan_adjacent(&ids, goal, Mine::SIZE);
+        let resource = target.resource;
+        let route = self.plan_adjacent(&ids, goal, Site::SIZE);
         for id in ids {
+            // As in the original, a villager sent to gather something else
+            // drops what it carries.
+            let unit = &mut self.units[id];
+            if unit.carrying > 0 && unit.carried != resource {
+                unit.carrying = 0;
+            }
             self.units[id].order = Order::Gather {
-                mine,
-                phase: GatherPhase::ToMine,
+                site: mine,
+                phase: GatherPhase::ToSite,
                 route: route.clone(),
             };
             self.units[id].stuck_ticks = 0;
@@ -677,8 +692,8 @@ impl World {
         let route = self.plan_adjacent(&ids, origin, size);
         for id in ids {
             self.units[id].order = match self.units[id].order {
-                Order::Gather { mine, .. } => Order::Gather {
-                    mine,
+                Order::Gather { site: mine, .. } => Order::Gather {
+                    site: mine,
                     phase: GatherPhase::ToDropOff { building },
                     route: route.clone(),
                 },
@@ -762,7 +777,7 @@ impl World {
         match target {
             EntityId::Unit(id) => self.units.get(id).map(|u| u.owner),
             EntityId::Building(id) => self.buildings.get(id).map(|b| b.owner),
-            EntityId::Mine(_) => None,
+            EntityId::Site(_) => None,
         }
     }
 
@@ -770,7 +785,7 @@ impl World {
         match target {
             EntityId::Unit(id) => self.units.get(id).map(|u| u.pos),
             EntityId::Building(id) => self.buildings.get(id).map(Building::center),
-            EntityId::Mine(id) => self.mines.get(id).map(Mine::center),
+            EntityId::Site(id) => self.sites.get(id).map(Site::center),
         }
     }
 
@@ -816,7 +831,7 @@ impl World {
             }
             // Never a target: a mine belongs to no one, so an attack order on
             // one is refused (`order_attack`).
-            EntityId::Mine(_) => None,
+            EntityId::Site(_) => None,
         }
     }
 
@@ -864,19 +879,22 @@ impl World {
                 self.deposit_and_stand(id, building);
                 continue;
             }
-            let Order::Gather { mine, phase, .. } = self.units[id].order.clone() else {
+            let Order::Gather {
+                site: mine, phase, ..
+            } = self.units[id].order.clone()
+            else {
                 continue;
             };
             match phase {
-                GatherPhase::ToMine => self.gather_approach(id, mine),
-                GatherPhase::Mining => self.gather_extract(id, mine),
+                GatherPhase::ToSite => self.gather_approach(id, mine),
+                GatherPhase::Gathering => self.gather_extract(id, mine),
                 GatherPhase::ToDropOff { building } => self.gather_deposit(id, mine, building),
             }
         }
     }
 
-    fn gather_approach(&mut self, id: UnitId, mine: MineId) {
-        let Some(target) = self.mines.get(mine) else {
+    fn gather_approach(&mut self, id: UnitId, mine: SiteId) {
+        let Some(target) = self.sites.get(mine) else {
             self.units[id].order = Order::Idle;
             return;
         };
@@ -889,39 +907,42 @@ impl World {
             return;
         }
         let origin = target.origin;
-        if self.touches(id, origin, Mine::SIZE) {
+        if self.touches(id, origin, Site::SIZE) {
             self.units[id].order = Order::Gather {
-                mine,
-                phase: GatherPhase::Mining,
+                site: mine,
+                phase: GatherPhase::Gathering,
                 route: Route::Arrived,
             };
         }
     }
 
-    fn gather_extract(&mut self, id: UnitId, mine: MineId) {
-        let gather = self.content.gather;
+    fn gather_extract(&mut self, id: UnitId, mine: SiteId) {
+        let Some(resource) = self.sites.get(mine).map(|s| s.resource) else {
+            self.units[id].order = Order::Idle;
+            return;
+        };
+        let gather = *self.content.gather.get(resource);
         let unit = &mut self.units[id];
         unit.mine_ticks += 1;
-        if unit.mine_ticks < gather.ticks_per_gold {
+        if unit.mine_ticks < gather.ticks_per_unit {
             return;
         }
         unit.mine_ticks = 0;
 
-        let Some(seam) = self.mines.get_mut(mine) else {
-            self.units[id].order = Order::Idle;
-            return;
-        };
+        let seam = &mut self.sites[mine];
         if seam.remaining > 0 {
             seam.remaining -= 1;
-            self.units[id].carrying += 1;
+            let unit = &mut self.units[id];
+            unit.carried = resource;
+            unit.carrying += 1;
         }
-        let exhausted = self.mines[mine].remaining <= 0;
+        let exhausted = self.sites[mine].remaining <= 0;
         if self.units[id].carrying >= gather.carry_capacity || exhausted {
             self.send_to_drop_off(id, mine);
         }
     }
 
-    fn gather_deposit(&mut self, id: UnitId, mine: MineId, building: BuildingId) {
+    fn gather_deposit(&mut self, id: UnitId, mine: SiteId, building: BuildingId) {
         let Some(target) = self.buildings.get(building) else {
             // The drop-off was destroyed mid-walk. Look for another one.
             self.send_to_drop_off(id, mine);
@@ -935,13 +956,13 @@ impl World {
         self.bank(id);
 
         // Head back for another load, unless the seam is gone.
-        let seam_alive = self.mines.get(mine).is_some_and(|m| m.remaining > 0);
+        let seam_alive = self.sites.get(mine).is_some_and(|m| m.remaining > 0);
         if seam_alive {
-            let origin = self.mines[mine].origin;
-            let route = self.plan_adjacent(&[id], origin, Mine::SIZE);
+            let origin = self.sites[mine].origin;
+            let route = self.plan_adjacent(&[id], origin, Site::SIZE);
             self.units[id].order = Order::Gather {
-                mine,
-                phase: GatherPhase::ToMine,
+                site: mine,
+                phase: GatherPhase::ToSite,
                 route,
             };
         } else {
@@ -953,13 +974,11 @@ impl World {
     fn bank(&mut self, id: UnitId) {
         let unit = &mut self.units[id];
         let owner = unit.owner;
-        let carried = std::mem::take(&mut unit.carrying);
+        let (carried, resource) = (std::mem::take(&mut unit.carrying), unit.carried);
         // Saturating for the same reason as `damage`: content decides how
         // much a load holds, so the sum must not differ between builds.
-        let gold = self.players[owner.index()]
-            .resources
-            .get_mut(Resource::Gold);
-        *gold = gold.saturating_add(carried);
+        let stock = self.players[owner.index()].resources.get_mut(resource);
+        *stock = stock.saturating_add(carried);
     }
 
     /// A villager dropping off by hand with no mine to go back to: banks
@@ -978,7 +997,7 @@ impl World {
     }
 
     /// Sends a loaded villager to the nearest drop-off it owns.
-    fn send_to_drop_off(&mut self, id: UnitId, mine: MineId) {
+    fn send_to_drop_off(&mut self, id: UnitId, mine: SiteId) {
         let unit = &self.units[id];
         if unit.carrying == 0 {
             self.units[id].order = Order::Idle;
@@ -1000,7 +1019,7 @@ impl World {
         };
         let route = self.plan_adjacent(&[id], origin, size);
         self.units[id].order = Order::Gather {
-            mine,
+            site: mine,
             phase: GatherPhase::ToDropOff { building },
             route,
         };
@@ -1028,10 +1047,10 @@ impl World {
     fn gather_footprint(&self, id: UnitId) -> Option<(TilePos, i32)> {
         match self.units[id].order {
             Order::Gather {
-                mine,
-                phase: GatherPhase::ToMine,
+                site: mine,
+                phase: GatherPhase::ToSite,
                 ..
-            } => self.mines.get(mine).map(|m| (m.origin, Mine::SIZE)),
+            } => self.sites.get(mine).map(|m| (m.origin, Site::SIZE)),
             Order::Gather {
                 phase: GatherPhase::ToDropOff { building },
                 ..
@@ -1362,7 +1381,7 @@ impl World {
             }
             // Mines cannot be attacked; `order_attack` rejects them, and a
             // stray one here is a no-op rather than a panic.
-            EntityId::Mine(_) => {}
+            EntityId::Site(_) => {}
         }
     }
 
@@ -1515,43 +1534,58 @@ impl<'a> WorldView<'a> {
         self.world.buildings.get(id)
     }
 
-    pub fn mines(&self) -> impl Iterator<Item = (MineId, &'a Mine)> {
-        self.world.mines.iter()
+    pub fn sites(&self) -> impl Iterator<Item = (SiteId, &'a Site)> {
+        self.world.sites.iter()
     }
 
-    pub fn mine(&self, id: MineId) -> Option<&'a Mine> {
-        self.world.mines.get(id)
+    pub fn mine(&self, id: SiteId) -> Option<&'a Site> {
+        self.world.sites.get(id)
     }
 
     /// Total gold still in the ground plus gold in transit plus gold banked.
     ///
     /// Exposed for the conservation property test, which is the only cheap
     /// defence against a resource duplication bug.
-    pub fn total_gold(&self) -> i64 {
+    /// All of one resource in the world: banked by players, carried by
+    /// units, and left in sites. Only training spends any and only a load
+    /// dropped for another resource loses any, so gathering never changes
+    /// it.
+    pub fn total(&self, resource: Resource) -> i64 {
         let banked: i64 = self
             .world
             .players
             .iter()
-            .map(|p| i64::from(p.resources.gold))
+            .map(|p| i64::from(p.resources.get(resource)))
             .sum();
         let carried: i64 = self
             .world
             .units
             .values()
+            .filter(|u| u.carried == resource)
             .map(|u| i64::from(u.carrying))
             .sum();
-        let buried: i64 = self
+        let left: i64 = self
             .world
-            .mines
+            .sites
             .values()
-            .map(|m| i64::from(m.remaining))
+            .filter(|s| s.resource == resource)
+            .map(|s| i64::from(s.remaining))
             .sum();
-        banked + carried + buried
+        banked + carried + left
     }
 
     /// Unit positions, for the renderer to interpolate between ticks.
     pub fn snapshot(&self) -> Vec<(UnitId, FxVec2)> {
         self.world.units.iter().map(|(id, u)| (id, u.pos)).collect()
+    }
+}
+
+const fn resource_code(resource: Resource) -> u64 {
+    match resource {
+        Resource::Food => 0,
+        Resource::Wood => 1,
+        Resource::Gold => 2,
+        Resource::Stone => 3,
     }
 }
 
@@ -1568,7 +1602,7 @@ fn entity_words(entity: EntityId) -> [u64; 2] {
     match entity {
         EntityId::Unit(id) => [0, id.data().as_ffi()],
         EntityId::Building(id) => [1, id.data().as_ffi()],
-        EntityId::Mine(id) => [2, id.data().as_ffi()],
+        EntityId::Site(id) => [2, id.data().as_ffi()],
     }
 }
 
@@ -1582,10 +1616,12 @@ fn order_words(order: &Order) -> [u64; 5] {
             let [table, key] = entity_words(*target);
             [2, table, key, 0, 0]
         }
-        Order::Gather { mine, phase, .. } => {
+        Order::Gather {
+            site: mine, phase, ..
+        } => {
             let (phase, building) = match phase {
-                GatherPhase::ToMine => (0, 0),
-                GatherPhase::Mining => (1, 0),
+                GatherPhase::ToSite => (0, 0),
+                GatherPhase::Gathering => (1, 0),
                 GatherPhase::ToDropOff { building } => (2, building.data().as_ffi()),
             };
             [3, mine.data().as_ffi(), phase, building, 0]
@@ -1625,8 +1661,8 @@ mod checksum_tests {
         world.buildings.keys().next().expect("a building")
     }
 
-    fn mine(world: &World) -> MineId {
-        world.mines.keys().next().expect("a mine")
+    fn mine(world: &World) -> SiteId {
+        world.sites.keys().next().expect("a mine")
     }
 
     /// Whether two otherwise identical worlds, one changed by `a` and one by
@@ -1689,7 +1725,7 @@ mod checksum_tests {
         };
         assert!(differs(
             attack(|w| EntityId::Building(building(w))),
-            attack(|w| EntityId::Mine(mine(w))),
+            attack(|w| EntityId::Site(mine(w))),
         ));
     }
 
@@ -1699,15 +1735,15 @@ mod checksum_tests {
             move |w: &mut World| {
                 let (id, mine) = (unit(w), mine(w));
                 w.units[id].order = Order::Gather {
-                    mine,
+                    site: mine,
                     phase,
                     route: Route::Arrived,
                 };
             }
         };
         assert!(differs(
-            gather(GatherPhase::ToMine),
-            gather(GatherPhase::Mining)
+            gather(GatherPhase::ToSite),
+            gather(GatherPhase::Gathering)
         ));
     }
 

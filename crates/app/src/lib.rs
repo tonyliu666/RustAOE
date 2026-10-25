@@ -24,7 +24,7 @@ pub use content_file::{
 pub use draw::{draw_world, Hud, HEALTH, HEALTH_LOST, SELECTION};
 pub use looks::{Look, Looks, Part};
 pub use pick::{
-    building_at, entity_at, mine_at, tile_at, to_screen_space, unit_at, units_in_box, Bodies, Body,
+    building_at, entity_at, site_at, tile_at, to_screen_space, unit_at, units_in_box, Bodies, Body,
 };
 pub use replay_file::{load, save, ReplayError};
 pub use session::{PlayerUi, Session};

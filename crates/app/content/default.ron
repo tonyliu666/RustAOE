@@ -80,8 +80,13 @@
             trains: ["soldier"],
         ),
     ],
+    // How a villager gathers each resource: how much it carries, and ticks
+    // per unit gathered. One unit every 2 seconds for each until Phase 2 step
+    // 5 takes the original's numbers.
     gather: (
-        carry_capacity: 10,
-        ticks_per_gold: 40,     // one gold every 2 seconds
+        food: (carry_capacity: 10, ticks_per_unit: 40),
+        wood: (carry_capacity: 10, ticks_per_unit: 40),
+        gold: (carry_capacity: 10, ticks_per_unit: 40),
+        stone: (carry_capacity: 10, ticks_per_unit: 40),
     ),
 )

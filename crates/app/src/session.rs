@@ -272,7 +272,7 @@ impl Session {
             // A mine means gather, but only for units that gather; a soldier
             // sent to a mine should walk there rather than have its order
             // dropped.
-            Some(EntityId::Mine(mine)) => {
+            Some(EntityId::Site(mine)) => {
                 let villagers: SmallVec<[UnitId; 32]> = units
                     .iter()
                     .copied()
@@ -291,7 +291,7 @@ impl Session {
                 Some(Command::Gather {
                     player,
                     units: villagers,
-                    mine,
+                    site: mine,
                 })
             }
             // Your own drop-off with loaded villagers selected: they drop
@@ -336,7 +336,7 @@ impl Session {
         match target {
             EntityId::Unit(id) => view.unit(id).is_some_and(|u| u.owner != self.active),
             EntityId::Building(id) => view.building(id).is_some_and(|b| b.owner != self.active),
-            EntityId::Mine(_) => false,
+            EntityId::Site(_) => false,
         }
     }
 

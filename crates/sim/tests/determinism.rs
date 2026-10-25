@@ -140,11 +140,11 @@ fn to_command(world: &World, player: PlayerId, action: Action) -> Option<Command
         }
         Action::Gather { unit } => {
             let id = *mine.get(unit % mine.len().max(1))?;
-            let (seam, _) = world.view().mines().next()?;
+            let (seam, _) = world.view().sites().next()?;
             Some(Command::Gather {
                 player,
                 units: SmallVec::from_slice(&[id]),
-                mine: seam,
+                site: seam,
             })
         }
         Action::Train { villager } => {
@@ -267,7 +267,7 @@ proptest! {
     #[test]
     fn gold_is_never_created_or_destroyed(seed in any::<u64>(), players in players(), script in script()) {
         let mut world = World::new(seed, map(players));
-        let expected = world.view().total_gold();
+        let expected = world.view().total(sim::Resource::Gold);
         let mut spent = 0i64;
         let mut remaining = script.iter().copied().peekable();
         let mut wait = 0u32;
@@ -284,9 +284,9 @@ proptest! {
             }
             wait = wait.saturating_sub(1);
 
-            let before = world.view().total_gold();
+            let before = world.view().total(sim::Resource::Gold);
             world.step(&commands);
-            let after = world.view().total_gold();
+            let after = world.view().total(sim::Resource::Gold);
             // Training is the one legitimate sink, so account for it rather
             // than excluding it from the script.
             spent += before - after;

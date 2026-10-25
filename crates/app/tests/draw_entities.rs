@@ -829,11 +829,11 @@ fn a_selected_unit_shows_its_icon_name_and_hit_points() {
 #[test]
 fn a_villager_carrying_gold_shows_its_load() {
     let (mut world, villager) = villager_by_a_mine();
-    let (mine, _) = world.view().mines().next().expect("the mine");
+    let (mine, _) = world.view().sites().next().expect("the mine");
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     for _ in 0..400 {
         if world.view().unit(villager).is_some_and(|u| u.carrying > 0) {
@@ -903,4 +903,44 @@ fn with_several_units_selected_the_first_is_shown() {
         .map(|(t, _)| t)
         .collect();
     assert_eq!(names, [name]);
+}
+
+#[test]
+fn a_villager_carrying_stone_says_stone() {
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(12, 12),
+        )
+        .with_site(sim::Resource::Stone, TilePos::new(7, 2), 300)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 2));
+    let mut world = World::new(7, map);
+    let (villager, _) = world.view().units().next().expect("the villager");
+    let (site, _) = world.view().sites().next().expect("the stone");
+    world.step(&[Command::Gather {
+        player: PlayerId::ONE,
+        units: smallvec![villager],
+        site,
+    }]);
+    for _ in 0..400 {
+        if world.view().unit(villager).is_some_and(|u| u.carrying > 0) {
+            break;
+        }
+        world.step(&[]);
+    }
+    let carrying = world.view().unit(villager).expect("the villager").carrying;
+    let mut renderer = RecordingRenderer::new();
+    let selection = [villager];
+
+    draw(&mut renderer, &world, &hud(&selection, None));
+
+    assert!(
+        texts(&renderer)
+            .iter()
+            .any(|(t, _)| *t == format!("carrying {carrying} stone")),
+        "{:?}",
+        texts(&renderer)
+    );
 }

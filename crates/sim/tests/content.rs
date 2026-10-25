@@ -265,17 +265,17 @@ fn gathering(content: Content) -> World {
     );
     let mut world = World::with_content(SEED, map, content);
     let villager = only_unit_of(&world, PlayerId::ONE);
-    let mine = world.view().mines().next().map(|(id, _)| id).expect("mine");
+    let mine = world.view().sites().next().map(|(id, _)| id).expect("mine");
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     world
 }
 
 fn mine_remaining(world: &World) -> i32 {
-    world.view().mines().next().map_or(0, |(_, m)| m.remaining)
+    world.view().sites().next().map_or(0, |(_, m)| m.remaining)
 }
 
 #[test]
@@ -293,7 +293,7 @@ fn gold_is_only_banked_at_a_building_content_marks_as_a_drop_off() {
 #[test]
 fn a_villager_carries_no_more_than_the_capacity_in_content() {
     let mut content = Content::default();
-    content.gather.carry_capacity = 3;
+    content.gather.gold.carry_capacity = 3;
     let mut world = gathering(content);
 
     let mut most = 0;
@@ -309,7 +309,7 @@ fn a_villager_carries_no_more_than_the_capacity_in_content() {
 #[test]
 fn gold_is_mined_at_the_rate_in_content() {
     let mut content = Content::default();
-    content.gather.ticks_per_gold = 1;
+    content.gather.gold.ticks_per_unit = 1;
     let mut world = gathering(content);
     // At the default 40 ticks per gold this is about two gold.
     run(&mut world, 100);
@@ -393,12 +393,12 @@ fn banking_a_load_into_a_full_treasury_saturates_rather_than_overflowing() {
         .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 8));
     let mut world = World::with_content(SEED, map, Content::default());
     let villager = only_unit_of(&world, PlayerId::ONE);
-    let mine = world.view().mines().next().map(|(id, _)| id).expect("mine");
+    let mine = world.view().sites().next().map(|(id, _)| id).expect("mine");
 
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     // Long enough at the default numbers to bank a full ten-gold load.
     run(&mut world, 700);
@@ -545,12 +545,12 @@ fn a_unit_type_that_does_not_gather_refuses_a_gather_order() {
     );
     let mut world = World::with_content(SEED, map, content);
     let villager = only_unit_of(&world, PlayerId::ONE);
-    let mine = world.view().mines().next().map(|(id, _)| id).expect("mine");
+    let mine = world.view().sites().next().map(|(id, _)| id).expect("mine");
 
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     run(&mut world, 200);
 

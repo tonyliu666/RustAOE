@@ -17,10 +17,10 @@ mod spatial;
 mod vec2;
 mod world;
 
-pub use content::{BuildingStats, Content, ContentError, GatherStats, UnitStats};
+pub use content::{BuildingStats, Content, ContentError, GatherStats, Gathering, UnitStats};
 pub use entity::{
-    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Mine, MineId, Order, Player,
-    PlayerId, Route, Unit, UnitId, UnitKind,
+    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Order, Player, PlayerId, Route,
+    Site, SiteId, Unit, UnitId, UnitKind,
 };
 pub use fx::Fx;
 pub use grid::{Grid, TilePos};

@@ -4,8 +4,8 @@
 //! pure function of state and commands, so no mocks and no fixtures are needed.
 
 use sim::{
-    BuildingId, BuildingKind, Command, Content, EntityId, MapSpec, MineId, Outcome, PlayerId,
-    Resources, TilePos, UnitId, UnitKind, World,
+    BuildingId, BuildingKind, Command, Content, EntityId, MapSpec, Outcome, PlayerId, Resources,
+    SiteId, TilePos, UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
 
@@ -49,10 +49,10 @@ fn first_building(world: &World, owner: PlayerId, kind: BuildingKind) -> Buildin
         .expect("expected the building to be on the map")
 }
 
-fn first_mine(world: &World) -> MineId {
+fn first_mine(world: &World) -> SiteId {
     world
         .view()
-        .mines()
+        .sites()
         .next()
         .map(|(id, _)| id)
         .expect("expected a mine on the map")
@@ -309,7 +309,7 @@ fn a_villager_mines_gold_and_banks_it() {
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     // Long enough to walk over, fill a ten-gold load, and walk back.
     run(&mut world, 700);
@@ -330,7 +330,7 @@ fn mined_gold_leaves_the_seam_it_came_from() {
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     run(&mut world, 700);
 
@@ -347,17 +347,17 @@ fn gold_is_conserved_across_a_gathering_session() {
     let mut world = world(gather_map());
     let villager = only_unit(&world);
     let mine = first_mine(&world);
-    let total = world.view().total_gold();
+    let total = world.view().total(sim::Resource::Gold);
 
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     for _ in 0..1500 {
         world.step(&[]);
         assert_eq!(
-            world.view().total_gold(),
+            world.view().total(sim::Resource::Gold),
             total,
             "gold appeared or vanished at tick {}",
             world.tick()
@@ -379,7 +379,7 @@ fn a_gather_order_against_a_depleted_seam_is_dropped() {
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
-        mine,
+        site: mine,
     }]);
     run(&mut world, 60);
 

@@ -287,16 +287,16 @@ fn a_mine_cannot_be_attacked() {
     let mut world = World::with_content(1, map, Content::default());
     let soldier = unit_of(&world, PlayerId::ONE);
     let start = world.view().unit(soldier).expect("soldier").pos;
-    let (mine, _) = world.view().mines().next().expect("the mine");
+    let (mine, _) = world.view().sites().next().expect("the mine");
 
-    attack(&mut world, soldier, EntityId::Mine(mine));
+    attack(&mut world, soldier, EntityId::Site(mine));
     for _ in 0..20 {
         world.step(&[]);
     }
 
     assert_eq!(world.view().unit(soldier).expect("soldier").pos, start);
     assert_eq!(
-        world.view().mines().next().map(|(_, m)| m.remaining),
+        world.view().sites().next().map(|(_, m)| m.remaining),
         Some(500)
     );
 }

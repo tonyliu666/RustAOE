@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 pub struct Content {
     pub units: Vec<UnitStats>,
     pub buildings: Vec<BuildingStats>,
-    pub gather: GatherStats,
+    pub gather: Gathering,
 }
 
 /// Combat, movement, and training numbers for a unit type.
@@ -60,17 +60,65 @@ pub struct BuildingStats {
     pub trains: Vec<UnitKind>,
 }
 
-/// Numbers for the gather loop.
+/// How a villager gathers one resource: in the original, the job unit it
+/// turns into (gold miner, lumberjack, and so on).
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct GatherStats {
-    /// Gold a villager holds before it must walk back to a drop-off.
+    /// How much a villager holds before it must walk back to a drop-off.
     pub carry_capacity: i32,
-    /// Ticks per gold extracted.
+    /// Ticks per unit gathered.
     ///
-    /// Whole gold on a tick counter rather than a fractional per-tick rate, so
-    /// that gold is always an integer and the conservation property has
+    /// Whole units on a tick counter rather than a fractional per-tick rate,
+    /// so that every amount is an integer and the conservation property has
     /// nothing to round.
-    pub ticks_per_gold: u32,
+    pub ticks_per_unit: u32,
+}
+
+/// The gather numbers for each resource.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Gathering {
+    pub food: GatherStats,
+    pub wood: GatherStats,
+    pub gold: GatherStats,
+    pub stone: GatherStats,
+}
+
+impl Gathering {
+    /// The same numbers for every resource.
+    pub const fn uniform(stats: GatherStats) -> Gathering {
+        Gathering {
+            food: stats,
+            wood: stats,
+            gold: stats,
+            stone: stats,
+        }
+    }
+
+    pub const fn get(&self, resource: Resource) -> &GatherStats {
+        match resource {
+            Resource::Food => &self.food,
+            Resource::Wood => &self.wood,
+            Resource::Gold => &self.gold,
+            Resource::Stone => &self.stone,
+        }
+    }
+
+    pub fn get_mut(&mut self, resource: Resource) -> &mut GatherStats {
+        match resource {
+            Resource::Food => &mut self.food,
+            Resource::Wood => &mut self.wood,
+            Resource::Gold => &mut self.gold,
+            Resource::Stone => &mut self.stone,
+        }
+    }
+
+    fn validate(&self) -> Result<(), ContentError> {
+        for resource in Resource::ALL {
+            self.get(resource)
+                .validate(&format!("gather.{}", resource.name()))?;
+        }
+        Ok(())
+    }
 }
 
 /// A content table holds a number the game cannot run with.
@@ -183,19 +231,9 @@ impl BuildingStats {
 }
 
 impl GatherStats {
-    fn validate(&self) -> Result<(), ContentError> {
-        check(
-            self.carry_capacity > 0,
-            "gather",
-            "carry_capacity",
-            POSITIVE,
-        )?;
-        check(
-            self.ticks_per_gold > 0,
-            "gather",
-            "ticks_per_gold",
-            POSITIVE,
-        )
+    fn validate(&self, owner: &str) -> Result<(), ContentError> {
+        check(self.carry_capacity > 0, owner, "carry_capacity", POSITIVE)?;
+        check(self.ticks_per_unit > 0, owner, "ticks_per_unit", POSITIVE)
     }
 }
 
@@ -362,11 +400,12 @@ impl Default for Content {
                     trains: vec![UnitKind::SOLDIER],
                 },
             ],
-            // One gold every two seconds at 20 Hz, ten to a load.
-            gather: GatherStats {
+            // One unit every two seconds at 20 Hz, ten to a load, for every
+            // resource until Phase 2 step 5 adopts the original's numbers.
+            gather: Gathering::uniform(GatherStats {
                 carry_capacity: 10,
-                ticks_per_gold: 40,
-            },
+                ticks_per_unit: 40,
+            }),
         }
     }
 }

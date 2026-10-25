@@ -33,7 +33,7 @@ fn recorded() -> Replay {
     let mut world = World::new(99, map());
     let mut replay = Replay::new(99, map());
     let (villager, _) = world.view().units().next().expect("a villager");
-    let (mine, _) = world.view().mines().next().expect("a mine");
+    let (mine, _) = world.view().sites().next().expect("a mine");
 
     for tick in 0..250u64 {
         let commands: Vec<Command> = if tick == 3 {
@@ -42,7 +42,7 @@ fn recorded() -> Replay {
                 units: [villager]
                     .into_iter()
                     .collect::<smallvec::SmallVec<[UnitId; 32]>>(),
-                mine,
+                site: mine,
             }]
         } else {
             Vec::new()
@@ -325,11 +325,22 @@ fn a_replay_from_before_mining_on_touch_is_refused_by_version() {
     let error = load_text("version-eight", "(version: 8, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 8, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_four_resources_is_refused_by_version() {
+    // Version 9 had gold sites only and one set of gather numbers.
+    let error = load_text("version-nine", "(version: 9, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 8,
-                expected: 9
+                found: 9,
+                expected: 10
             })
         ),
         "{error:?}"
