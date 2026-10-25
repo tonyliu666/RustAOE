@@ -161,3 +161,11 @@ fn each_resource_is_written_in_its_slot_of_the_top_bar() {
         );
     }
 }
+
+#[test]
+fn a_units_load_is_written_on_the_information_panel_below_its_hit_points() {
+    let layout = Layout::new(Vec2::new(800.0, 600.0));
+
+    assert!(layout.info_panel.contains(layout.carrying_at));
+    assert!(layout.carrying_at.y > layout.hit_points_at.y);
+}

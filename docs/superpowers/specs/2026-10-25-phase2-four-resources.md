@@ -130,3 +130,12 @@ single tile, not today's 2x2.
 form, unit 357 `FARM_D`, stores 180 of resource 12, not food. How much food
 a farm gives is decided by the executable as well as by these numbers; step 4
 finds it in the decompile before placing farms, rather than guessing.
+
+## Step 1b: a selected unit on the information panel (2026-10-25)
+
+Asked for by the user before step 2. With units selected and no building,
+the information panel shows the first unit's icon, name, and hit points, and,
+while a gatherer carries a load, `carrying N gold` below them (at 800x600,
+baseline (271, 522)). Only gold can be carried until step 2, which writes
+the load's own resource there. Checked in a screenshot: `villager`, `40/40`,
+`carrying 4 gold`.

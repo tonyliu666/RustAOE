@@ -129,7 +129,10 @@ selection, a right click there orders nothing, and a box cannot be started
 there. The map shows through the open middle; the game opens with your base
 in the middle of it.
 
-Select a building and the information panel shows its icon, name, and hit
+Select a unit and the information panel shows its icon, name, and hit points,
+and for a villager with a load, how much it carries (with several units
+selected, the first of them). Select a building and the information panel
+shows its icon, name, and hit
 points. For one of your own, the command panel shows a button for each unit
 it trains, and while it trains, the information panel shows the unit in
 training with a progress bar filling up, and small icons of the units queued
@@ -164,7 +167,9 @@ turn it is.
    seconds, so about 20 seconds a load), carry it back to the town centre on
    their own, deposit it, and go again: one order, no micromanagement. The
    gold in the top bar goes up when a load is deposited, not while it is
-   mined.
+   mined. Left click one villager to watch: the information panel shows its
+   name, its hit points, and `carrying 4 gold` as the load grows to ten,
+   back to nothing once it is deposited.
 2. **Grow.** Left click your town centre. The command panel at the bottom
    left shows the villager's icon: click it (or press `1`) to queue a
    villager for 50 food, as in the original. Food is charged when you queue,
@@ -315,8 +320,7 @@ These are planned, each in its own phase of the plan; they are not bugs:
 no AI opponent, no fog of war, no building construction in game, no networking,
 no sound, two unit types by default (more can be added in content), only gold
 can be gathered, no tech tree, no save/load, no map editor, no minimap, no
-population count. Gathering has no pickaxe cursor yet, a villager cannot be
-sent to deposit a part load by hand, and its load is not shown; these come
-next. Units show one still frame facing south, buildings are the British
+population count. Gathering has no pickaxe cursor yet, and a villager cannot
+be sent to deposit a part load by hand; these come with Phase 2. Units show one still frame facing south, buildings are the British
 Dark Age ones for every player, and the view is top-down rather than the
 original's isometric one.

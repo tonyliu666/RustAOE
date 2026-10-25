@@ -770,3 +770,137 @@ fn a_sprite_set_without_a_progress_bar_draws_the_rest_rather_than_panicking() {
     let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
     assert!(!drawn_with(&renderer, soldier).is_empty());
 }
+
+// --- the information panel for a unit ---------------------------------------------
+
+/// A map with player one's villager beside a mine, for gathering.
+fn villager_by_a_mine() -> (World, UnitId) {
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(12, 12),
+        )
+        .with_mine(TilePos::new(7, 2), 500)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 2));
+    let world = World::new(7, map);
+    let (villager, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::ONE)
+        .expect("the villager");
+    (world, villager)
+}
+
+#[test]
+fn a_selected_unit_shows_its_icon_name_and_hit_points() {
+    let mut renderer = RecordingRenderer::new();
+    let (world, villager) = villager_by_a_mine();
+    let selection = [villager];
+
+    let sprites = draw(&mut renderer, &world, &hud(&selection, None));
+
+    let layout = app::Layout::new(camera().viewport);
+    let icon = sprites.unit_icon(UnitKind::VILLAGER).texture;
+    assert!(
+        drawn_with(&renderer, icon).contains(&in_world(layout.building_icon)),
+        "no icon on the information panel"
+    );
+    let camera = camera();
+    let max_hp = world.view().content().unit(UnitKind::VILLAGER).max_hp;
+    let texts = texts(&renderer);
+    assert!(
+        texts.contains(&(
+            "villager".to_string(),
+            camera.screen_to_world(layout.name_at)
+        )),
+        "{texts:?}"
+    );
+    assert!(
+        texts.contains(&(
+            format!("{max_hp}/{max_hp}"),
+            camera.screen_to_world(layout.hit_points_at)
+        )),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn a_villager_carrying_gold_shows_its_load() {
+    let (mut world, villager) = villager_by_a_mine();
+    let (mine, _) = world.view().mines().next().expect("the mine");
+    world.step(&[Command::Gather {
+        player: PlayerId::ONE,
+        units: smallvec![villager],
+        mine,
+    }]);
+    for _ in 0..400 {
+        if world.view().unit(villager).is_some_and(|u| u.carrying > 0) {
+            break;
+        }
+        world.step(&[]);
+    }
+    let carrying = world.view().unit(villager).expect("the villager").carrying;
+    assert!(carrying > 0, "never mined anything");
+    let mut renderer = RecordingRenderer::new();
+    let selection = [villager];
+
+    draw(&mut renderer, &world, &hud(&selection, None));
+
+    let layout = app::Layout::new(camera().viewport);
+    assert!(
+        texts(&renderer).contains(&(
+            format!("carrying {carrying} gold"),
+            camera().screen_to_world(layout.carrying_at)
+        )),
+        "{:?}",
+        texts(&renderer)
+    );
+}
+
+#[test]
+fn a_villager_carrying_nothing_shows_no_load() {
+    let mut renderer = RecordingRenderer::new();
+    let (world, villager) = villager_by_a_mine();
+    let selection = [villager];
+
+    draw(&mut renderer, &world, &hud(&selection, None));
+
+    assert!(
+        !texts(&renderer)
+            .iter()
+            .any(|(t, _)| t.starts_with("carrying")),
+        "{:?}",
+        texts(&renderer)
+    );
+}
+
+#[test]
+fn with_several_units_selected_the_first_is_shown() {
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(12, 12),
+        )
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(7, 6));
+    let world = World::new(7, map);
+    let ids: Vec<UnitId> = world.view().units().map(|(id, _)| id).collect();
+    let first = world.view().unit(ids[0]).expect("first").kind;
+    let mut renderer = RecordingRenderer::new();
+
+    draw(&mut renderer, &world, &hud(&ids, None));
+
+    let name = world.view().content().unit(first).name.clone();
+    let layout = app::Layout::new(camera().viewport);
+    let at = camera().screen_to_world(layout.name_at);
+    let names: Vec<String> = texts(&renderer)
+        .into_iter()
+        .filter(|(_, pos)| *pos == at)
+        .map(|(t, _)| t)
+        .collect();
+    assert_eq!(names, [name]);
+}

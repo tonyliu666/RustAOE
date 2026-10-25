@@ -121,6 +121,7 @@ fn draw_info_panel<R: Renderer>(
     sprites: &Sprites,
 ) {
     let Some(building) = hud.building.and_then(|id| view.building(id)) else {
+        draw_unit_info(renderer, camera, view, hud, sprites);
         return;
     };
     let layout = Layout::new(camera.viewport);
@@ -166,6 +167,41 @@ fn draw_info_panel<R: Renderer>(
     }
     for (&kind, slot) in waiting.iter().zip(layout.queue_icons) {
         icon(sprites.unit_icon(kind).texture, slot);
+    }
+}
+
+/// Draws what the information panel says about the first selected unit:
+/// its icon, name, and hit points, and the load a gatherer carries.
+fn draw_unit_info<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    let Some(unit) = hud.selection.first().and_then(|id| view.unit(*id)) else {
+        return;
+    };
+    let layout = Layout::new(camera.viewport);
+    let stats = view.content().unit(unit.kind);
+    let (at, size) = screen_rect(camera, layout.building_icon);
+    renderer.sprite(sprites.unit_icon(unit.kind).texture, at, size);
+    let mut lines = vec![
+        (stats.name.clone(), layout.name_at),
+        (
+            format!("{}/{}", unit.hp.max(0), stats.max_hp),
+            layout.hit_points_at,
+        ),
+    ];
+    // Only gold can be gathered so far (plan Phase 2 adds the others).
+    if unit.carrying > 0 {
+        lines.push((
+            format!("carrying {} gold", unit.carrying),
+            layout.carrying_at,
+        ));
+    }
+    for (text, at) in lines {
+        renderer.text(&text, camera.screen_to_world(at), layout.text_px, INK);
     }
 }
 

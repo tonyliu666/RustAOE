@@ -47,6 +47,8 @@ const BUILDING_ICON: (f32, f32, f32, f32) = (227.0, 473.0, 36.0, 36.0);
 /// baseline.
 const NAME_AT: Vec2 = Vec2::new(271.0, 486.0);
 const HIT_POINTS_AT: Vec2 = Vec2::new(271.0, 504.0);
+/// A selected unit's load, below its hit points.
+const CARRYING_AT: Vec2 = Vec2::new(271.0, 522.0);
 /// The panel's text height at 800x600.
 const TEXT_PX: f32 = 16.0;
 const TRAINING_ICON: (f32, f32, f32, f32) = (227.0, 517.0, 36.0, 36.0);
@@ -132,6 +134,8 @@ pub struct Layout {
     pub building_icon: Rect,
     pub name_at: Vec2,
     pub hit_points_at: Vec2,
+    /// Where a selected gatherer's load is written.
+    pub carrying_at: Vec2,
     /// The information panel's text height, in screen pixels.
     pub text_px: f32,
     pub training_icon: Rect,
@@ -169,6 +173,7 @@ impl Layout {
             building_icon: rect(BUILDING_ICON).scaled(scale),
             name_at: point(NAME_AT, scale),
             hit_points_at: point(HIT_POINTS_AT, scale),
+            carrying_at: point(CARRYING_AT, scale),
             text_px: TEXT_PX * scale.y,
             training_icon: rect(TRAINING_ICON).scaled(scale),
             progress_bar: rect(PROGRESS_BAR).scaled(scale),
