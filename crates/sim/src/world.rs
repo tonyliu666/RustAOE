@@ -37,7 +37,7 @@ pub struct MapSpec {
     height: i32,
     blocked: Vec<TilePos>,
     buildings: Vec<(BuildingKind, PlayerId, TilePos)>,
-    sites: Vec<(TilePos, Resource, i32)>,
+    sites: Vec<Site>,
     units: Vec<(UnitKind, PlayerId, TilePos)>,
     starting_resources: Resources,
     /// Players, not counting Gaia.
@@ -97,7 +97,13 @@ impl MapSpec {
 
     /// A site of `resource` holding `amount`.
     pub fn with_site(mut self, resource: Resource, at: TilePos, amount: i32) -> MapSpec {
-        self.sites.push((at, resource, amount));
+        self.sites.push(Site::new(at, resource, amount));
+        self
+    }
+
+    /// A farm holding `food`, three tiles a side, which units walk over.
+    pub fn with_farm(mut self, at: TilePos, food: i32) -> MapSpec {
+        self.sites.push(Site::farm(at, food));
         self
     }
 
@@ -237,6 +243,15 @@ impl MapSpec {
         let villager = content
             .unit_named("villager")
             .ok_or_else(|| missing("villager"))?;
+        let mill = content
+            .building_named("mill")
+            .ok_or_else(|| missing("mill"))?;
+        let lumber_camp = content
+            .building_named("lumber_camp")
+            .ok_or_else(|| missing("lumber_camp"))?;
+        let mining_camp = content
+            .building_named("mining_camp")
+            .ok_or_else(|| missing("mining_camp"))?;
         // The original's standard 200 food, so villagers can be trained
         // before food can be gathered (plan Phase 2), and 200 gold for the
         // barracks.
@@ -246,25 +261,55 @@ impl MapSpec {
             ..Resources::default()
         });
 
+        // Each base, laid out from its town centre's corner (the same for
+        // both, so neither side is favoured): every resource near the
+        // building that takes it, in the amounts the original's sites hold.
         for (player, base) in [
             (PlayerId::ONE, TilePos::new(16, 16)),
             (PlayerId::TWO, TilePos::new(SIZE - 24, SIZE - 24)),
         ] {
+            let at = |dx: i32, dy: i32| TilePos::new(base.x + dx, base.y + dy);
             map = map
                 .with_building(town_center, player, base)
-                .with_building(barracks, player, TilePos::new(base.x + 6, base.y))
-                .with_mine(TilePos::new(base.x - 4, base.y + 6), Site::STARTING_GOLD);
+                .with_building(barracks, player, at(6, 0))
+                .with_building(mill, player, at(8, 5))
+                .with_building(lumber_camp, player, at(-6, -2))
+                .with_building(mining_camp, player, at(-2, 7));
             for i in 0..3 {
-                map = map.with_unit(villager, player, TilePos::new(base.x + i, base.y + 5));
+                map = map.with_unit(villager, player, at(i, 5));
+            }
+            // Gold: seven, in two rows; stone: five in a row; both by the
+            // mining camp.
+            for (dx, dy) in (-6..-2).map(|x| (x, 6)).chain((-6..-3).map(|x| (x, 7))) {
+                map = map.with_site(Resource::Gold, at(dx, dy), Site::STARTING_GOLD);
+            }
+            for dx in 0..5 {
+                map = map.with_site(Resource::Stone, at(dx, 9), Site::STARTING_STONE);
+            }
+            // Six forage bushes and two farms by the mill.
+            for (dx, dy) in [(11, 5), (12, 5), (13, 5), (11, 6), (12, 6), (13, 6)] {
+                map = map.with_site(Resource::Food, at(dx, dy), Site::BUSH_FOOD);
+            }
+            map = map
+                .with_farm(at(8, 8), Site::FARM_FOOD)
+                .with_farm(at(11, 8), Site::FARM_FOOD);
+            // A woodline by the lumber camp: three columns of eleven trees.
+            for dx in -10..-7 {
+                for dy in -6..5 {
+                    map = map.with_site(Resource::Wood, at(dx, dy), Site::TREE_WOOD);
+                }
             }
         }
 
-        // A band of rock across the middle, with two gaps, so that pathfinding
-        // has something to route around on the way between the two bases.
-        let wall = (0..SIZE)
-            .filter(|x| !(40..48).contains(x) && !(80..88).contains(x))
-            .map(|x| TilePos::new(x, SIZE / 2));
-        Ok(map.with_blocked(wall))
+        // A forest three trees deep across the middle, with two gaps, so
+        // that pathfinding has something to route around on the way between
+        // the two bases, and wood to cut a way through.
+        for x in (0..SIZE).filter(|x| !(40..48).contains(x) && !(80..88).contains(x)) {
+            for y in SIZE / 2 - 1..=SIZE / 2 + 1 {
+                map = map.with_site(Resource::Wood, TilePos::new(x, y), Site::TREE_WOOD);
+            }
+        }
+        Ok(map)
     }
 }
 
@@ -415,10 +460,11 @@ impl World {
             world.stamp(building.footprint(), Tile::BLOCKED);
             world.buildings.insert(building);
         }
-        for (origin, resource, amount) in map.sites {
-            let mine = Site::new(origin, resource, amount);
-            world.stamp(mine.footprint(), Tile::BLOCKED);
-            world.sites.insert(mine);
+        for site in map.sites {
+            if site.blocks {
+                world.stamp(site.footprint(), Tile::BLOCKED);
+            }
+            world.sites.insert(site);
         }
         for (kind, owner, at) in map.units {
             world.units.insert(Unit::new(
@@ -648,14 +694,23 @@ impl World {
         if target.remaining <= 0 {
             return;
         }
-        let goal = target.origin;
         let ids: Vec<UnitId> = self
             .owned(player, units)
             .into_iter()
             .filter(|id| self.content.unit(self.units[*id].kind).gathers)
             .collect();
         let resource = target.resource;
-        let route = self.plan_adjacent(&ids, goal, Site::SIZE);
+        // As in the original, a site nothing can stand beside, such as a
+        // tree inside a woodline, sends the villagers to the nearest one like
+        // it that can be reached; with none, they stand.
+        let Some(mine) = self.reachable_site_near(mine) else {
+            for id in ids {
+                self.units[id].order = Order::Idle;
+            }
+            return;
+        };
+        let (goal, size) = (self.sites[mine].origin, self.sites[mine].size);
+        let route = self.plan_adjacent(&ids, goal, size);
         for id in ids {
             // As in the original, a villager sent to gather something else
             // drops what it carries.
@@ -670,6 +725,23 @@ impl World {
             };
             self.units[id].stuck_ticks = 0;
         }
+    }
+
+    /// `site` if a tile beside it is walkable, otherwise the site of the same
+    /// resource nearest it that has one; ties go to the first in the site
+    /// table, so every machine picks the same.
+    fn reachable_site_near(&self, site: SiteId) -> Option<SiteId> {
+        let target = &self.sites[site];
+        let beside = |s: &Site| self.free_tile_beside(s.origin, s.size).is_some();
+        if beside(target) {
+            return Some(site);
+        }
+        let (resource, centre) = (target.resource, target.center());
+        self.sites
+            .iter()
+            .filter(|(_, s)| s.resource == resource && s.remaining > 0 && beside(s))
+            .min_by_key(|(_, s)| (s.center() - centre).length_squared())
+            .map(|(id, _)| id)
     }
 
     /// Sends loaded villagers to drop off at one of their owner's drop-offs.
@@ -911,7 +983,7 @@ impl World {
             return;
         }
         let origin = target.origin;
-        if self.touches(id, origin, Site::SIZE) {
+        if self.touches(id, origin, target.size) {
             self.units[id].order = Order::Gather {
                 site: mine,
                 phase: GatherPhase::Gathering,
@@ -962,8 +1034,8 @@ impl World {
         // Head back for another load, unless the seam is gone.
         let seam_alive = self.sites.get(mine).is_some_and(|m| m.remaining > 0);
         if seam_alive {
-            let origin = self.sites[mine].origin;
-            let route = self.plan_adjacent(&[id], origin, Site::SIZE);
+            let (origin, size) = (self.sites[mine].origin, self.sites[mine].size);
+            let route = self.plan_adjacent(&[id], origin, size);
             self.units[id].order = Order::Gather {
                 site: mine,
                 phase: GatherPhase::ToSite,
@@ -1055,7 +1127,7 @@ impl World {
                 site: mine,
                 phase: GatherPhase::ToSite,
                 ..
-            } => self.sites.get(mine).map(|m| (m.origin, Site::SIZE)),
+            } => self.sites.get(mine).map(|m| (m.origin, m.size)),
             Order::Gather {
                 phase: GatherPhase::ToDropOff { building },
                 ..
@@ -1395,23 +1467,39 @@ impl World {
     fn run_cleanup(&mut self) {
         self.units.retain(|_, unit| unit.hp > 0);
 
+        // A site with nothing left disappears; a tree or mine frees its tile.
+        let used_up: Vec<SiteId> = self
+            .sites
+            .iter()
+            .filter(|(_, s)| s.remaining <= 0)
+            .map(|(id, _)| id)
+            .collect();
+        let mut terrain_changed = false;
+        for id in used_up {
+            let site = self.sites.remove(id).expect("listed above");
+            if site.blocks {
+                self.stamp(site.footprint(), Tile::OPEN);
+                terrain_changed = true;
+            }
+        }
+
         let dead: Vec<BuildingId> = self
             .buildings
             .iter()
             .filter(|(_, b)| b.hp <= 0)
             .map(|(id, _)| id)
             .collect();
-        if dead.is_empty() {
-            return;
-        }
         for id in dead {
             let footprint: Vec<TilePos> = self.buildings[id].footprint().collect();
             self.buildings.remove(id);
             self.stamp(footprint.into_iter(), Tile::OPEN);
+            terrain_changed = true;
         }
         // Terrain changed, so every cached field may now route around a wall
         // that is no longer there.
-        self.flow_fields.clear();
+        if terrain_changed {
+            self.flow_fields.clear();
+        }
     }
 
     // --- Phase 8: win check ------------------------------------------------
@@ -1543,7 +1631,7 @@ impl<'a> WorldView<'a> {
         self.world.sites.iter()
     }
 
-    pub fn mine(&self, id: SiteId) -> Option<&'a Site> {
+    pub fn site(&self, id: SiteId) -> Option<&'a Site> {
         self.world.sites.get(id)
     }
 

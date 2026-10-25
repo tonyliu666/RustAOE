@@ -195,3 +195,66 @@ pieces is drawn by its pieces alone, its own SLP only where a piece is -1:
 the lumber camp's own SLP (3503) is in no archive and is never drawn. The
 converter no longer requires it, and a type's `sprite` is its own SLP when a
 piece draws it and its first piece otherwise.
+
+## Step 4 result (2026-10-25)
+
+A site has a size and says whether it blocks: a mine, bush, or tree is one
+tile and blocks it (`Site::new`); a farm is three tiles a side and does not,
+so a villager works it standing on it and other units walk over it
+(`Site::farm`, `MapSpec::with_farm`). A site that is used up disappears and
+frees its tile; the flow fields are rebuilt when that changes the ground.
+The default content has the mill, lumber camp, and mining camp (size 2, 1000
+hit points, as the original's), and the map needs them.
+
+Each base on the built-in map is laid out from its town centre: a barracks,
+a mill with six forage bushes and two farms by it, a lumber camp by a
+woodline three trees deep, a mining camp by seven gold mines, and five stone
+mines. Amounts are the original's: gold 800, stone 350, bush 125, tree 100,
+farm 175. The forest across the middle is trees, three rows deep with two
+gaps of eight tiles. Replay format 12.
+
+Each site is drawn as the original draws its unit, its graphic's pieces
+composed in order: the gold mine (66) 4479 then 2561, the stone mine (102)
+4482 then 1034, the forage bush (59) 2560, the forest oak (349) 2296 then
+4652, which is now also the tree on rock tiles (it replaces 1270). The farm's
+own SLPs (417 to 419) are in no archive of the install: the original draws a
+farm as ground, and terrain 15004 is farmland with crops (checked by eye, as
+the terrain table is not read yet), so a farm is drawn tile by tile in its
+variations, as grass is, over the grass and under everything else. A farm's
+crops running down (15005 is a farm used up) is left for later.
+
+Tests: `sim/tests/sites.rs` (5), `sim/tests/map.rs` (6), three drawing tests
+in `app/tests/sprites.rs`, three loading tests in `app/tests/install.rs`, one
+replay version test. Mutations caught: each site kind drawn as gold, the farm
+drawn after the buildings, a farm tile left out, the pieces drawn in reverse,
+the oak's pieces swapped, grass loaded for the farm, a missing farm ground
+quietly replaced by grass. Workspace 582 passed, clippy clean. Screenshot:
+the base's woodline, gold, stone, bushes, farms, and three camps all drawn.
+
+### Trees inside a woodline (user report, 2026-10-25)
+
+The user found villagers would not cut trees. Trees on a woodline's edge
+were cut; a tree walled in by others (the middle of the three columns by the
+lumber camp, the middle row of the forest) has no walkable tile beside it, so
+the villager was given no route and stood forever, waiting to touch it. The
+tree pictures overlap heavily, and a click was resolved by tile alone, so
+clicks landed on such trees often.
+
+As in the original, a gather order for a site nothing can stand beside goes
+to the site of the same resource nearest it that has a walkable tile beside
+it (ties to the first in the site table); with none, the villagers stand.
+"Can stand beside" is a walkable tile in the ring around the site, not a
+proof the villager can walk there: provisional. A click now picks a site by
+its drawn picture as well as its tiles, the front one winning where pictures
+overlap, and sites are drawn back to front; a farm, flat ground, is picked
+by its tiles alone. A picture's body is its whole rectangle, transparent
+corners included, so a click on grass just beside a tree can pick it; the
+original tests the drawn outline.
+
+Tests: three in `sim/tests/sites.rs`, three in `app/tests/pick.rs`, two in
+`app/tests/sprites.rs`. Mutations caught: the retarget skipped, the farthest
+site chosen, another resource accepted, the stand order dropped, the
+reachability check dropped; bodies ignored, farms given a body, the back one
+winning, sites drawn unsorted, a body's scale, the stone mine's picture.
+Workspace 590 passed, clippy clean. In the game, player one's villagers sent
+to a crown in the woodline's middle column banked 60 wood within 50 seconds.

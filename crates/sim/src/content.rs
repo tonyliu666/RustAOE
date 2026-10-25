@@ -408,6 +408,30 @@ impl Default for Content {
                     drop_off: Vec::new(),
                     trains: vec![UnitKind::SOLDIER],
                 },
+                // The drop-off camps, from the .dat (units 68, 562, 584):
+                // two tiles a side, 1000 hit points, each taking what its
+                // jobs bring.
+                BuildingStats {
+                    name: "mill".to_string(),
+                    size: 2,
+                    max_hp: 1000,
+                    drop_off: vec![Resource::Food],
+                    trains: Vec::new(),
+                },
+                BuildingStats {
+                    name: "lumber_camp".to_string(),
+                    size: 2,
+                    max_hp: 1000,
+                    drop_off: vec![Resource::Wood],
+                    trains: Vec::new(),
+                },
+                BuildingStats {
+                    name: "mining_camp".to_string(),
+                    size: 2,
+                    max_hp: 1000,
+                    drop_off: vec![Resource::Gold, Resource::Stone],
+                    trains: Vec::new(),
+                },
             ],
             // One unit every two seconds at 20 Hz, ten to a load, for every
             // resource until Phase 2 step 5 adopts the original's numbers.

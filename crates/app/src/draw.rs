@@ -12,7 +12,7 @@ use crate::pick::to_screen_space;
 use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
 use crate::ui::{trains_on_buttons, Layout, Rect};
 use render::{Camera, Color, Renderer, Vec2};
-use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, TilePos, UnitId, WorldView};
+use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, Site, TilePos, UnitId, WorldView};
 use std::collections::{HashMap, HashSet};
 
 /// The outline around a selected unit and the drag rectangle.
@@ -62,7 +62,7 @@ pub fn draw_world<R: Renderer>(
 ) {
     renderer.begin_frame(camera);
     draw_terrain(renderer, camera, view, sprites);
-    draw_mines(renderer, view, sprites);
+    draw_sites(renderer, view, sprites);
     draw_buildings(renderer, view, hud, sprites);
     draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
@@ -309,15 +309,37 @@ fn stand<R: Renderer>(renderer: &mut R, sprite: &Sprite, ground: Vec2, scale: f3
     (origin, size)
 }
 
-fn draw_mines<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
-    for (_, mine) in view.sites() {
+/// Draws each site as the original draws its kind: a farm as farm ground
+/// on each of its tiles, first, since everything else stands over it; the
+/// rest as pictures standing on their centres.
+fn draw_sites<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
+    for (_, farm) in view.sites().filter(|(_, s)| is_farm(s)) {
+        for tile in farm.footprint() {
+            let at = Vec2::new(tile.x as f32, tile.y as f32);
+            renderer.sprite(sprites.farm_at(tile.x, tile.y), at, Vec2::new(1.0, 1.0));
+        }
+    }
+    // Back to front, as picking assumes: a tree lower on the screen is
+    // nearer the viewer, and its crown covers the one behind it.
+    let mut standing: Vec<&Site> = view
+        .sites()
+        .map(|(_, s)| s)
+        .filter(|s| !is_farm(s))
+        .collect();
+    standing.sort_by_key(|s| (s.origin.y, s.origin.x));
+    for site in standing {
         stand(
             renderer,
-            &sprites.gold_mine,
-            to_screen_space(mine.center()),
+            sprites.site(site.resource),
+            to_screen_space(site.center()),
             1.0 / UNIT_PIXELS_PER_TILE,
         );
     }
+}
+
+/// A farm is the one kind of site that does not block its tiles.
+fn is_farm(site: &Site) -> bool {
+    !site.blocks
 }
 
 fn draw_buildings<R: Renderer>(

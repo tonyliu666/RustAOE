@@ -346,11 +346,22 @@ fn a_replay_from_before_drop_offs_by_resource_is_refused_by_version() {
     let error = load_text("version-ten", "(version: 10, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 10, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_farms_is_refused_by_version() {
+    // Version 11's sites were all one tile, blocked it, and never ran out.
+    let error = load_text("version-eleven", "(version: 11, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 10,
-                expected: 11
+                found: 11,
+                expected: 12
             })
         ),
         "{error:?}"

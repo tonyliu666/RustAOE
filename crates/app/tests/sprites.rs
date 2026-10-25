@@ -478,3 +478,133 @@ fn unskewing_an_empty_tile_gives_a_transparent_square_rather_than_a_panic() {
     assert_eq!((square.width, square.height), (4, 4));
     assert!(square.rgba.iter().all(|&b| b == 0));
 }
+
+// --- each kind of site has its own picture ------------------------------------------
+
+#[test]
+fn each_kind_of_site_is_drawn_with_its_own_sprite_on_its_centre() {
+    let mut renderer = RecordingRenderer::new();
+    let set = sprites(&mut renderer);
+    let world = World::new(
+        1,
+        map()
+            .with_site(sim::Resource::Stone, TilePos::new(12, 2), 100)
+            .with_site(sim::Resource::Food, TilePos::new(12, 6), 100)
+            .with_site(sim::Resource::Wood, TilePos::new(12, 10), 100),
+    );
+
+    draw(&mut renderer, &world, &set);
+
+    let scale = 1.0 / UNIT_PIXELS_PER_TILE;
+    for (sprite, centre, what) in [
+        (set.stone_mine, Vec2::new(12.5, 2.5), "stone mine"),
+        (set.bush, Vec2::new(12.5, 6.5), "forage bush"),
+        (set.tree, Vec2::new(12.5, 10.5), "tree"),
+    ] {
+        let drawn = drawn_with(&renderer, sprite.texture);
+        assert_eq!(drawn.len(), 1, "{what} drawn {drawn:?}");
+        let expected = centre - sprite.hotspot * scale;
+        assert!(close(drawn[0].0, expected), "{what} at {:?}", drawn[0].0);
+    }
+    assert!(
+        drawn_with(&renderer, set.gold_mine.texture).is_empty(),
+        "drawn as gold"
+    );
+}
+
+#[test]
+fn a_farm_is_drawn_as_farm_ground_on_each_of_its_nine_tiles() {
+    // As the original does: a farm is ground, drawn tile by tile like grass.
+    let mut renderer = RecordingRenderer::new();
+    let set = sprites(&mut renderer);
+    let world = World::new(1, map().with_farm(TilePos::new(10, 3), 175));
+
+    draw(&mut renderer, &world, &set);
+
+    let farmed: Vec<(Vec2, Vec2)> = renderer
+        .sprites()
+        .filter(|(t, _, _)| set.farm.contains(t))
+        .map(|(_, at, size)| (at, size))
+        .collect();
+    let mut tiles: Vec<(i32, i32)> = farmed
+        .iter()
+        .map(|(at, _)| (at.x as i32, at.y as i32))
+        .collect();
+    tiles.sort_unstable();
+    let expected: Vec<(i32, i32)> = (10..13).flat_map(|x| (3..6).map(move |y| (x, y))).collect();
+    assert_eq!(tiles, expected);
+    assert!(farmed
+        .iter()
+        .all(|(at, size)| at.x.fract() == 0.0 && *size == Vec2::new(1.0, 1.0)));
+}
+
+#[test]
+fn a_farm_is_drawn_over_the_grass_and_under_the_buildings() {
+    let mut renderer = RecordingRenderer::new();
+    let set = sprites(&mut renderer);
+    let world = World::new(1, map().with_farm(TilePos::new(10, 3), 175));
+
+    draw(&mut renderer, &world, &set);
+
+    let order: Vec<(render::TextureId, Vec2)> =
+        renderer.sprites().map(|(t, at, _)| (t, at)).collect();
+    let farm = order
+        .iter()
+        .position(|(t, _)| set.farm.contains(t))
+        .expect("drawn");
+    let grass_under = order
+        .iter()
+        .position(|(t, at)| set.grass.contains(t) && *at == Vec2::new(10.0, 3.0))
+        .expect("grass");
+    let first_building = order
+        .iter()
+        .position(|(t, _)| set.buildings.iter().flatten().any(|s| s.texture == *t))
+        .expect("a building");
+    assert!(grass_under < farm && farm < first_building);
+}
+
+#[test]
+fn sites_are_drawn_back_to_front() {
+    // Added front first: the tree lower on the screen is still drawn last,
+    // over the one behind it.
+    let mut renderer = RecordingRenderer::new();
+    let set = sprites(&mut renderer);
+    let world = World::new(
+        1,
+        map()
+            .with_site(sim::Resource::Wood, TilePos::new(12, 8), 100)
+            .with_site(sim::Resource::Wood, TilePos::new(13, 7), 100),
+    );
+
+    draw(&mut renderer, &world, &set);
+
+    let rows: Vec<f32> = drawn_with(&renderer, set.tree.texture)
+        .iter()
+        .map(|(at, _)| at.y)
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0] < rows[1], "drawn at {rows:?}");
+}
+
+#[test]
+fn each_kind_of_sites_body_is_its_drawn_picture() {
+    let mut renderer = RecordingRenderer::new();
+    let set = sprites(&mut renderer);
+
+    let bodies = set.bodies(&sim::Content::default());
+
+    let scale = 1.0 / UNIT_PIXELS_PER_TILE;
+    for (resource, sprite) in [
+        (sim::Resource::Wood, set.tree),
+        (sim::Resource::Gold, set.gold_mine),
+        (sim::Resource::Stone, set.stone_mine),
+        (sim::Resource::Food, set.bush),
+    ] {
+        let body = bodies.site(resource).expect("a body");
+        assert!(close(body.offset, sprite.hotspot * -scale), "{resource:?}");
+        assert!(close(
+            body.size,
+            Vec2::new(sprite.width, sprite.height) * scale
+        ));
+    }
+}

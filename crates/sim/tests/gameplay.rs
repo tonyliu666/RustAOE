@@ -336,7 +336,7 @@ fn mined_gold_leaves_the_seam_it_came_from() {
 
     let remaining = world
         .view()
-        .mine(mine)
+        .site(mine)
         .expect("the seam is not empty")
         .remaining;
     assert!(remaining < 5000, "the mine still holds all of its gold");

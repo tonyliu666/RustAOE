@@ -215,3 +215,73 @@ fn where_two_buildings_drawn_bodies_overlap_the_one_in_front_is_picked() {
 
     assert_eq!(picked, Some(PlayerId::TWO));
 }
+
+// --- sites by their drawn pictures --------------------------------------------------
+
+/// A tree's body: a tile wide, three tall, standing on its tile's centre.
+fn with_tall_trees() -> Bodies {
+    let mut bodies = Bodies::default();
+    bodies.set_site(
+        sim::Resource::Wood,
+        Body {
+            offset: Vec2::new(-0.5, -2.5),
+            size: Vec2::new(1.0, 3.0),
+        },
+    );
+    bodies
+}
+
+fn tree_origin(world: &World, picked: Option<sim::SiteId>) -> Option<TilePos> {
+    picked
+        .and_then(|id| world.view().site(id))
+        .map(|s| s.origin)
+}
+
+#[test]
+fn a_click_on_a_trees_crown_picks_that_tree() {
+    // The crown of the tree at (6, 8) is drawn over the empty tiles above it.
+    let world = World::new(
+        1,
+        map().with_site(sim::Resource::Wood, TilePos::new(6, 8), 100),
+    );
+
+    let picked = app::site_at(world.view(), Vec2::new(6.5, 6.5), &with_tall_trees());
+
+    assert_eq!(tree_origin(&world, picked), Some(TilePos::new(6, 8)));
+}
+
+#[test]
+fn where_trees_overlap_the_one_in_front_is_picked() {
+    // (6.5, 7.5) is on the tile of the tree behind and the crown of the one
+    // in front of it. Front means lower on screen.
+    let world = World::new(
+        1,
+        map()
+            .with_site(sim::Resource::Wood, TilePos::new(6, 8), 100)
+            .with_site(sim::Resource::Wood, TilePos::new(6, 7), 100),
+    );
+
+    let picked = app::site_at(world.view(), Vec2::new(6.5, 7.5), &with_tall_trees());
+
+    assert_eq!(tree_origin(&world, picked), Some(TilePos::new(6, 8)));
+}
+
+#[test]
+fn a_farm_is_picked_by_its_tiles_alone() {
+    // Flat ground: a forage bush's body, also food, does not reach above it.
+    let mut bodies = with_tall_trees();
+    bodies.set_site(
+        sim::Resource::Food,
+        Body {
+            offset: Vec2::new(-0.5, -2.5),
+            size: Vec2::new(1.0, 3.0),
+        },
+    );
+    let world = World::new(1, map().with_farm(TilePos::new(6, 6), 175));
+
+    let on = app::site_at(world.view(), Vec2::new(8.5, 8.5), &bodies);
+    let off = app::site_at(world.view(), Vec2::new(7.5, 5.5), &bodies);
+
+    assert!(on.is_some());
+    assert_eq!(off, None);
+}

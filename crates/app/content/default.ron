@@ -79,6 +79,37 @@
             drop_off: [],
             trains: ["soldier"],
         ),
+        // The drop-off camps, converted from the .dat (units 68, 562, 584).
+        (
+            name: "mill",
+            sprite: 3482,
+            parts: [(3483, 0, 0), (3482, 0, 0)],
+            icon: 19,
+            size: 2,
+            max_hp: 1000,
+            drop_off: [food],
+            trains: [],
+        ),
+        (
+            name: "lumber_camp",
+            sprite: 3507,
+            parts: [],
+            icon: 40,
+            size: 2,
+            max_hp: 1000,
+            drop_off: [wood],
+            trains: [],
+        ),
+        (
+            name: "mining_camp",
+            sprite: 3495,
+            parts: [],
+            icon: 39,
+            size: 2,
+            max_hp: 1000,
+            drop_off: [gold, stone],
+            trains: [],
+        ),
     ],
     // How a villager gathers each resource: how much it carries, and ticks
     // per unit gathered. One unit every 2 seconds for each until Phase 2 step

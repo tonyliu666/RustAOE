@@ -19,28 +19,38 @@ pub fn sprite(renderer: &mut RecordingRenderer, size: (u32, u32), hotspot: (f32,
 }
 
 /// One fake sprite per type of the default content and per player, two grass
-/// variations, a tree, a gold mine, and the interface.
+/// variations, two of farm ground, a picture per kind of site, and the
+/// interface.
 pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
     let mut per_player = |size, hotspot| std::array::from_fn(|_| sprite(renderer, size, hotspot));
     let villager = per_player((21, 42), (10.0, 40.0));
     let soldier = per_player((28, 47), (14.0, 44.0));
     let town_center = per_player((200, 240), (100.0, 150.0));
     let barracks = per_player((300, 260), (150.0, 160.0));
+    let mill = per_player((200, 150), (100.0, 100.0));
+    let lumber_camp = per_player((200, 150), (100.0, 100.0));
+    let mining_camp = per_player((200, 150), (100.0, 100.0));
     let grass = vec![
         renderer.load_texture(4, 4, &[0; 64]),
         renderer.load_texture(4, 4, &[0; 64]),
     ];
     let tree = sprite(renderer, (110, 129), (55.0, 120.0));
     let gold_mine = sprite(renderer, (82, 40), (41.0, 22.0));
+    let stone_mine = sprite(renderer, (70, 38), (35.0, 20.0));
+    let bush = sprite(renderer, (60, 44), (30.0, 30.0));
+    let farm = vec![
+        renderer.load_texture(4, 4, &[0; 64]),
+        renderer.load_texture(4, 4, &[0; 64]),
+    ];
     let interface = sprite(renderer, (800, 600), (0.0, 0.0));
     let unit_icons = vec![
         sprite(renderer, (36, 36), (0.0, 0.0)),
         sprite(renderer, (36, 36), (0.0, 0.0)),
     ];
-    let building_icons = vec![
-        sprite(renderer, (36, 36), (0.0, 0.0)),
-        sprite(renderer, (36, 36), (0.0, 0.0)),
-    ];
+    // One per building type of the default content.
+    let building_icons = (0..5)
+        .map(|_| sprite(renderer, (36, 36), (0.0, 0.0)))
+        .collect();
     let progress = (0..100)
         .map(|_| sprite(renderer, (100, 12), (0.0, 0.0)))
         .collect();
@@ -51,9 +61,12 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         grass,
         tree,
         gold_mine,
+        stone_mine,
+        bush,
+        farm,
         interface,
         units: vec![villager, soldier],
-        buildings: vec![town_center, barracks],
+        buildings: vec![town_center, barracks, mill, lumber_camp, mining_camp],
     }
 }
 
@@ -151,8 +164,8 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 /// an override for an ID not among them is added as well.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
     let defaults = [
-        1473u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 1270, 4479, 51101, 50730,
-        50705, 50764,
+        1473u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 3482, 3483, 3507, 3495,
+        2296, 4652, 4479, 2561, 4482, 1034, 2560, 51101, 50730, 50705, 50764,
     ];
     let extra = overrides
         .iter()
@@ -167,7 +180,7 @@ pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
                     if id == 50730 {
                         icons(16)
                     } else if id == 50705 {
-                        icons_in(30, 7)
+                        icons_in(52, 7)
                     } else if id == 50764 {
                         icons(100)
                     } else {
@@ -182,7 +195,8 @@ pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
 }
 
 /// Writes a fake install to a fresh scratch directory: the palette, every
-/// sprite the game loads, and `grass` as terrain 15001.
+/// sprite the game loads, and `grass` as terrain 15001 and as the farm
+/// ground, 15004.
 pub fn install(
     name: &str,
     graphics_files: Vec<([u8; 4], u32, Vec<u8>)>,
@@ -207,7 +221,10 @@ pub fn install_with(
     };
     write("interfac.drs", drs(&[(BINA, 50500, palette())]));
     write("graphics.drs", drs(&graphics_files));
-    write("terrain.drs", drs(&[(SLP, 15001, grass)]));
+    write(
+        "terrain.drs",
+        drs(&[(SLP, 15001, grass.clone()), (SLP, 15004, grass)]),
+    );
     for (file, files) in extra {
         write(file, drs(files));
     }

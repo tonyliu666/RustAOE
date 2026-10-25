@@ -554,7 +554,7 @@ fn a_unit_type_that_does_not_gather_refuses_a_gather_order() {
     }]);
     run(&mut world, 200);
 
-    assert_eq!(world.view().mine(mine).map(|m| m.remaining), Some(5000));
+    assert_eq!(world.view().site(mine).map(|m| m.remaining), Some(5000));
 }
 
 #[test]

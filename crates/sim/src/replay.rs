@@ -40,8 +40,9 @@ impl Replay {
     /// mines and deposits only on touch and adds the `Deposit` command;
     /// version 10 gives sites and loads a resource and the gather numbers one
     /// set per resource; version 11 lets a building take only some
-    /// resources.
-    pub const FORMAT_VERSION: u32 = 11;
+    /// resources; version 12 gives each site a size and whether it blocks,
+    /// for farms, and removes a site once it is used up.
+    pub const FORMAT_VERSION: u32 = 12;
 
     /// How often the checksum is sampled during recording.
     ///

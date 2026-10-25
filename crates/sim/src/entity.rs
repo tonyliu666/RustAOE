@@ -301,41 +301,72 @@ impl Building {
 ///
 /// An entity rather than a terrain flag so that it can hold what is left and
 /// be the target of a command.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Site {
-    /// The footprint's tile.
+    /// The footprint's top-left tile.
     pub origin: TilePos,
-    /// What it holds: a gold or stone mine, a forage bush, a tree.
+    /// What it holds: a gold or stone mine, a forage bush, a tree, a farm.
     pub resource: Resource,
     pub remaining: i32,
+    /// Footprint side in tiles.
+    pub size: i32,
+    /// Whether its footprint blocks movement: a mine, bush, or tree does,
+    /// a farm does not.
+    pub blocks: bool,
 }
 
 impl Site {
-    /// One tile, as the original's mines, bushes, and trees are (their
+    /// A mine, bush, or tree is one tile, as the original's are (their
     /// collision half-size is half a tile).
     pub const SIZE: i32 = 1;
-    /// The original's gold mine holds 800 gold (unit 66 in the `.dat`).
+    /// What the original's sites hold, from their resource storages in the
+    /// `.dat`: a gold mine (unit 66) 800 gold, a stone mine (102) 350 stone,
+    /// a forage bush (59) 125 food, a forest tree (348 to 351) 100 wood.
     pub const STARTING_GOLD: i32 = 800;
+    pub const STARTING_STONE: i32 = 350;
+    pub const BUSH_FOOD: i32 = 125;
+    pub const TREE_WOOD: i32 = 100;
 
+    /// A farm is three tiles a side (the original's collision half-size is
+    /// 1.5) and units walk over it.
+    pub const FARM_SIZE: i32 = 3;
+    /// The original's farm gives 175 food: a civilisation's "farm food
+    /// amount" attribute (36), 175 for every civilisation in the `.dat`.
+    pub const FARM_FOOD: i32 = 175;
+
+    /// A one-tile site that blocks its tile: a mine, a bush, a tree.
     pub fn new(origin: TilePos, resource: Resource, remaining: i32) -> Site {
         Site {
             origin,
             resource,
             remaining,
+            size: Site::SIZE,
+            blocks: true,
+        }
+    }
+
+    /// A farm, holding `food`.
+    pub fn farm(origin: TilePos, food: i32) -> Site {
+        Site {
+            origin,
+            resource: Resource::Food,
+            remaining: food,
+            size: Site::FARM_SIZE,
+            blocks: false,
         }
     }
 
     pub fn footprint(&self) -> impl Iterator<Item = TilePos> + '_ {
         let origin = self.origin;
-        (0..Site::SIZE).flat_map(move |dy| {
-            (0..Site::SIZE).map(move |dx| TilePos::new(origin.x + dx, origin.y + dy))
-        })
+        let size = self.size;
+        (0..size)
+            .flat_map(move |dy| (0..size).map(move |dx| TilePos::new(origin.x + dx, origin.y + dy)))
     }
 
     pub fn center(&self) -> FxVec2 {
         FxVec2::new(
-            Fx::from_frac(self.origin.x * 2 + Site::SIZE, 2),
-            Fx::from_frac(self.origin.y * 2 + Site::SIZE, 2),
+            Fx::from_frac(self.origin.x * 2 + self.size, 2),
+            Fx::from_frac(self.origin.y * 2 + self.size, 2),
         )
     }
 }

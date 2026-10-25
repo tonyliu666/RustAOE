@@ -304,7 +304,7 @@ fn each_building_types_icon_is_its_frame_of_the_building_icons() {
     // The town centre's is frame 28, the barracks' frame 2.
     let dir = install(
         "building-icons",
-        graphics(&[(50705, common::icons_in(30, 7))]),
+        graphics(&[(50705, common::icons_in(52, 7))]),
         slp(1, 2, &TWO_PIXELS),
     );
     let mut renderer = RecordingRenderer::new();
@@ -624,6 +624,99 @@ fn a_type_with_no_look_is_an_error_naming_it() {
 
     assert!(
         matches!(&result, Err(AssetError::NoLook { entry }) if entry == "soldier"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn each_kind_of_site_is_composed_from_the_originals_pieces() {
+    // Each site's first piece, then its own picture over it: the gold mine
+    // is 4479 then 2561, the stone mine 4482 then 1034, a tree 2296 then
+    // 4652, and a forage bush 2560 alone.
+    let dir = install(
+        "site-pieces",
+        graphics(&[
+            (4479, common::piece(3, (0, 0), 11)),
+            (2561, common::piece(1, (0, 0), 12)),
+            (4482, common::piece(3, (0, 0), 21)),
+            (1034, common::piece(1, (0, 0), 22)),
+            (2296, common::piece(3, (0, 0), 31)),
+            (4652, common::piece(1, (0, 0), 32)),
+            (2560, common::piece(2, (0, 0), 41)),
+        ]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default(), &looks())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    for (sprite, under, over, what) in [
+        (sprites.gold_mine, 11, 12, "gold mine"),
+        (sprites.stone_mine, 21, 22, "stone mine"),
+        (sprites.tree, 31, 32, "tree"),
+    ] {
+        assert_eq!(
+            renderer.texture_size(sprite.texture),
+            Some((3, 1)),
+            "{what}"
+        );
+        let pixels = renderer.texture_pixels(sprite.texture).expect("uploaded");
+        assert_eq!(
+            &pixels[0..4],
+            colour(over),
+            "{what}: its own picture on top"
+        );
+        assert_eq!(&pixels[4..8], colour(under), "{what}: the piece under it");
+    }
+    let bush = renderer
+        .texture_pixels(sprites.bush.texture)
+        .expect("uploaded");
+    assert_eq!(&bush[0..8], [colour(41), colour(41)].concat());
+    remove(&dir);
+}
+
+#[test]
+fn farms_are_drawn_with_the_farm_ground_in_its_variations() {
+    // Terrain 15004: the original's farm, crops and all.
+    let terrain = vec![
+        (common::SLP, 15001, slp(1, 2, &TWO_PIXELS)),
+        (common::SLP, 15004, slp(3, 2, &TWO_PIXELS)),
+    ];
+    let dir = install_with(
+        "farm-ground",
+        graphics(&[]),
+        slp(1, 2, &TWO_PIXELS),
+        &[("terrain.drs", terrain)],
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default(), &looks())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    assert_eq!(sprites.farm.len(), 3);
+    assert_eq!(sprites.grass.len(), 1);
+    remove(&dir);
+}
+
+#[test]
+fn an_install_without_the_farm_ground_is_an_error() {
+    let terrain = vec![(common::SLP, 15001, slp(1, 2, &TWO_PIXELS))];
+    let dir = install_with(
+        "no-farm-ground",
+        graphics(&[]),
+        slp(1, 2, &TWO_PIXELS),
+        &[("terrain.drs", terrain)],
+    );
+
+    let result = load_images(&dir, &Content::default(), &looks());
+
+    assert!(
+        matches!(result, Err(AssetError::Missing { id: 15004, .. })),
         "{:?}",
         result.err()
     );

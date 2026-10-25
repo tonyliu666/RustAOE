@@ -12,7 +12,7 @@ use assets::{
     Drs, DrsError, Image, Palette, PaletteError, Slp, SlpError, ARCHIVE_ORDER, MAX_FRAME_SIDE,
 };
 use render::{Renderer, TextureId, Vec2};
-use sim::{BuildingKind, Content, PlayerId, UnitKind};
+use sim::{BuildingKind, Content, PlayerId, Resource, UnitKind};
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
@@ -27,15 +27,23 @@ pub const UNIT_PIXELS_PER_TILE: f32 = 48.0;
 const PALETTE: u32 = 50500;
 /// Grass, in `terrain.drs`. Each frame is a variation of the same terrain.
 const GRASS: u32 = 15001;
-/// How many grass variations to load.
-const GRASS_VARIATIONS: usize = 16;
+/// How many variations of a ground texture to load.
+const GROUND_VARIATIONS: usize = 16;
 /// Side of an unskewed terrain texture, in pixels.
 const TILE_PIXELS: u32 = 32;
 // Unit and building sprites come from each type's `sprite` in the content.
-/// An oak, drawn on every rock tile so that blocked ground reads as forest.
-const TREE: u32 = 1270;
-/// Frame 0 of a full gold mine; later frames are the mine running out.
-const GOLD_MINE: u32 = 4479;
+/// Farmland, in `terrain.drs`: a farm is drawn as ground, as grass is.
+const FARM: u32 = 15004;
+// Each kind of site is drawn as the original draws the unit it stands for:
+// its graphic's pieces, each SLP's frame 0, in order, one over another.
+/// The forest oak (unit 349), drawn for every tree and on every rock tile.
+const TREE: [u32; 2] = [2296, 4652];
+/// The gold mine (unit 66). Later frames are the mine running out.
+const GOLD_MINE: [u32; 2] = [4479, 2561];
+/// The stone mine (unit 102).
+const STONE_MINE: [u32; 2] = [4482, 1034];
+/// The forage bush (unit 59).
+const BUSH: [u32; 1] = [2560];
 /// Gaia plus eight players: one decoded copy of each sprite per player
 /// colour.
 const PLAYER_SLOTS: usize = 9;
@@ -69,8 +77,12 @@ pub struct Sprite {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Sprites {
     pub grass: Vec<TextureId>,
+    /// The farm ground's variations, one tile each.
+    pub farm: Vec<TextureId>,
     pub tree: Sprite,
     pub gold_mine: Sprite,
+    pub stone_mine: Sprite,
+    pub bush: Sprite,
     /// The interface image, drawn stretched over the whole window.
     pub interface: Sprite,
     /// Each unit type's icon, indexed by type ID.
@@ -125,16 +137,39 @@ impl Sprites {
                 .zip(&content.buildings)
                 .map(|(set, stats)| body(&set[1], building_scale(&set[1], stats.size)))
                 .collect(),
+            sites: Resource::ALL
+                .map(|resource| Some(body(self.site(resource), 1.0 / UNIT_PIXELS_PER_TILE))),
             ..Bodies::default()
+        }
+    }
+
+    /// The picture of a site of `resource` other than a farm, which is
+    /// drawn as ground.
+    pub fn site(&self, resource: Resource) -> &Sprite {
+        match resource {
+            Resource::Food => &self.bush,
+            Resource::Wood => &self.tree,
+            Resource::Gold => &self.gold_mine,
+            Resource::Stone => &self.stone_mine,
         }
     }
 
     /// The grass texture for a tile. Varies from tile to tile, the same way
     /// every frame, so the ground does not flicker.
     pub fn grass_at(&self, x: i32, y: i32) -> TextureId {
-        let hash = (x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663);
-        self.grass[hash as usize % self.grass.len()]
+        self.grass[variation(x, y, self.grass.len())]
     }
+
+    /// The farm ground texture for a tile, varied as [`Self::grass_at`] is.
+    pub fn farm_at(&self, x: i32, y: i32) -> TextureId {
+        self.farm[variation(x, y, self.farm.len())]
+    }
+}
+
+/// Which of `count` variations of a ground texture tile (x, y) gets.
+fn variation(x: i32, y: i32, count: usize) -> usize {
+    let hash = (x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663);
+    hash as usize % count
 }
 
 /// Tiles per sprite pixel for a building: its sprite is drawn as wide as its
@@ -159,8 +194,11 @@ struct Frame {
 #[derive(Clone, Debug)]
 pub struct GameImages {
     grass: Vec<Image>,
+    farm: Vec<Image>,
     tree: Frame,
     gold_mine: Frame,
+    stone_mine: Frame,
+    bush: Frame,
     interface: Frame,
     unit_icons: Vec<Frame>,
     building_icons: Vec<Frame>,
@@ -184,6 +222,8 @@ impl GameImages {
         }
         let tree = upload_one(renderer, &self.tree);
         let gold_mine = upload_one(renderer, &self.gold_mine);
+        let stone_mine = upload_one(renderer, &self.stone_mine);
+        let bush = upload_one(renderer, &self.bush);
         let interface = upload_one(renderer, &self.interface);
         let mut upload_all = |frames: &[Frame]| -> Vec<Sprite> {
             frames.iter().map(|f| upload_one(renderer, f)).collect()
@@ -200,15 +240,21 @@ impl GameImages {
             .iter()
             .map(|frames| upload_set(frames))
             .collect();
-        let grass = self
-            .grass
-            .iter()
-            .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
-            .collect();
+        let mut ground = |images: &[Image]| -> Vec<TextureId> {
+            images
+                .iter()
+                .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
+                .collect()
+        };
+        let grass = ground(&self.grass);
+        let farm = ground(&self.farm);
         Sprites {
             grass,
+            farm,
             tree,
             gold_mine,
+            stone_mine,
+            bush,
             interface,
             unit_icons,
             building_icons,
@@ -493,22 +539,35 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
     if progress.is_empty() {
         return Err(AssetError::EmptySprite { id: PROGRESS_BAR });
     }
-    // Neutral objects belong to Gaia: player slot 0's colours.
-    let neutral = |id: u32| decode(id, 0);
-
-    let grass_slp = archives.sprite(GRASS)?;
-    let variations = grass_slp.frames().count().min(GRASS_VARIATIONS);
-    if variations == 0 || grass_slp.frames().any(|f| f.width == 0 || f.height == 0) {
-        return Err(AssetError::EmptySprite { id: GRASS });
-    }
-    let grass = (0..variations)
-        .map(|frame| {
-            grass_slp
-                .decode(frame, &palette, 0)
-                .map(|diamond| unskew_tile(&diamond, TILE_PIXELS))
-                .map_err(|error| AssetError::Slp { id: GRASS, error })
+    // Neutral objects belong to Gaia: player slot 0's colours, each drawn
+    // from its pieces.
+    let neutral = |name: &str, ids: &[u32]| -> Result<Frame, AssetError> {
+        let frames = ids
+            .iter()
+            .map(|&id| decode(id, 0))
+            .collect::<Result<Vec<_>, _>>()?;
+        compose(&frames).ok_or_else(|| AssetError::PartsTooFarApart {
+            entry: name.to_string(),
         })
-        .collect::<Result<Vec<_>, _>>()?;
+    };
+
+    // A ground texture: its first variations, each unskewed to a square tile.
+    let ground = |id: u32| -> Result<Vec<Image>, AssetError> {
+        let slp = archives.sprite(id)?;
+        let variations = slp.frames().count().min(GROUND_VARIATIONS);
+        if variations == 0 || slp.frames().any(|f| f.width == 0 || f.height == 0) {
+            return Err(AssetError::EmptySprite { id });
+        }
+        (0..variations)
+            .map(|frame| {
+                slp.decode(frame, &palette, 0)
+                    .map(|diamond| unskew_tile(&diamond, TILE_PIXELS))
+                    .map_err(|error| AssetError::Slp { id, error })
+            })
+            .collect()
+    };
+    let grass = ground(GRASS)?;
+    let farm = ground(FARM)?;
 
     // Each type's look, found by its name, in the content's order.
     let no_look = |entry: &str| AssetError::NoLook {
@@ -537,9 +596,12 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
 
     Ok(GameImages {
         grass,
-        tree: neutral(TREE)?,
-        gold_mine: neutral(GOLD_MINE)?,
-        interface: neutral(INTERFACE)?,
+        farm,
+        tree: neutral("tree", &TREE)?,
+        gold_mine: neutral("gold mine", &GOLD_MINE)?,
+        stone_mine: neutral("stone mine", &STONE_MINE)?,
+        bush: neutral("forage bush", &BUSH)?,
+        interface: neutral("interface", &[INTERFACE])?,
         unit_icons: unit_looks
             .iter()
             .map(|(name, look)| icon(&unit_icons, UNIT_ICONS, name, look.icon))

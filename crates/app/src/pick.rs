@@ -5,8 +5,8 @@
 
 use render::Vec2;
 use sim::{
-    Building, BuildingId, BuildingKind, EntityId, FxVec2, PlayerId, SiteId, TilePos, UnitId,
-    UnitKind, WorldView,
+    Building, BuildingId, BuildingKind, EntityId, FxVec2, PlayerId, Resource, SiteId, TilePos,
+    UnitId, UnitKind, WorldView,
 };
 
 /// Converts a fixed-point world position into the renderer's floats.
@@ -63,11 +63,17 @@ impl Body {
 /// Buildings too, but measured from the centre of the footprint, where the
 /// sprite's ground point is drawn. A building type with no body is picked by
 /// its footprint alone.
+///
+/// Sites by their resource, from the centre of the tile: a tree's crown is
+/// drawn over the tiles behind it. A farm is flat ground and is picked by
+/// its tiles alone.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Bodies {
     pub units: Vec<Body>,
     pub fallback: Body,
     pub buildings: Vec<Body>,
+    /// In [`Resource::ALL`]'s order.
+    pub sites: [Option<Body>; 4],
 }
 
 impl Default for Bodies {
@@ -83,6 +89,7 @@ impl Bodies {
             units: Vec::new(),
             fallback: body,
             buildings: Vec::new(),
+            sites: [None; 4],
         }
     }
 
@@ -92,7 +99,17 @@ impl Bodies {
             units: self.units.iter().map(|b| b.at_least(min)).collect(),
             fallback: self.fallback.at_least(min),
             buildings: self.buildings.clone(),
+            sites: self.sites,
         }
+    }
+
+    /// The body drawn for sites of `resource`, other than farms.
+    pub fn site(&self, resource: Resource) -> Option<Body> {
+        self.sites[resource_slot(resource)]
+    }
+
+    pub fn set_site(&mut self, resource: Resource, body: Body) {
+        self.sites[resource_slot(resource)] = Some(body);
     }
 
     pub fn building(&self, kind: BuildingKind) -> Option<Body> {
@@ -105,6 +122,13 @@ impl Bodies {
             .copied()
             .unwrap_or(self.fallback)
     }
+}
+
+fn resource_slot(resource: Resource) -> usize {
+    Resource::ALL
+        .iter()
+        .position(|r| *r == resource)
+        .expect("every resource is in ALL")
 }
 
 /// The tile a world position falls in.
@@ -177,11 +201,25 @@ pub fn footprint_centre(building: &Building) -> Vec2 {
     )
 }
 
-/// The mine covering `world`, if any.
-pub fn site_at(view: WorldView<'_>, world: Vec2) -> Option<SiteId> {
+/// The site under `world`: on its tiles or on its drawn picture. A tree's
+/// crown is drawn over the tiles behind it, so where they overlap, the one
+/// drawn in front (lower on screen) wins.
+pub fn site_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies) -> Option<SiteId> {
     let tile = tile_at(world);
     view.sites()
-        .find(|(_, m)| m.footprint().any(|t| t == tile))
+        .filter(|(_, s)| {
+            s.footprint().any(|t| t == tile)
+                || (s.blocks
+                    && bodies.site(s.resource).is_some_and(|body| {
+                        let (lo, hi) = body.at(to_screen_space(s.center()));
+                        (lo.x..=hi.x).contains(&world.x) && (lo.y..=hi.y).contains(&world.y)
+                    }))
+        })
+        .max_by(|(_, a), (_, b)| {
+            to_screen_space(a.center())
+                .y
+                .total_cmp(&to_screen_space(b.center()).y)
+        })
         .map(|(id, _)| id)
 }
 
@@ -193,7 +231,7 @@ pub fn entity_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies, min: f32) ->
     unit_at(view, world, bodies, min)
         .map(EntityId::Unit)
         .or_else(|| building_at(view, world, bodies).map(EntityId::Building))
-        .or_else(|| site_at(view, world).map(EntityId::Site))
+        .or_else(|| site_at(view, world, bodies).map(EntityId::Site))
 }
 
 /// The player's own units whose drawn bodies touch a world-space rectangle.

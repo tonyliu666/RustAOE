@@ -80,9 +80,10 @@ The first build takes a couple of minutes; after that it is seconds. `--release`
 matters: a debug build simulates fine but the window feels sluggish.
 
 You should see grass, the original's Dark Age town centre (three thatched
-roofs on wooden posts) and barracks (a stone and palisade yard), three
-villagers, and a gold mine. The other base is far to the bottom-right, behind a
-band of forest.
+roofs on wooden posts) and barracks (a stone and palisade yard), a mill,
+a lumber camp and a mining camp, three villagers, and around them a woodline,
+gold and stone mines, forage bushes, and two farms. The other base is far to
+the bottom-right, behind a band of forest.
 
 ## 4. Controls
 
@@ -96,8 +97,8 @@ band of forest.
 | Left drag | Box-select your units (a box never selects buildings) |
 | Left click empty ground | Clear the selection |
 | Right click ground | Move there |
-| Right click a gold mine | Send selected villagers to gather |
-| Right click your town centre | Selected villagers carrying gold drop it off there now, before they are full, then go back to their mine |
+| Right click a tree, a gold or stone mine, a forage bush, or a farm | Send selected villagers to gather it |
+| Right click your town centre, mill, lumber camp, or mining camp | Selected villagers carrying a load that building takes drop it off there now, before they are full, then go back to where they were gathering |
 | Right click an enemy | Attack it |
 | Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 food; barracks: soldier, 60 gold) |
 | `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
@@ -154,24 +155,40 @@ handover: your view and your selected units are still there when you come back.
 
 ## 5. Play the first game in three minutes
 
-**What you start with.** Each player has a town centre, a barracks (the
-smaller building to the town centre's right), three villagers standing below
-the town centre, a gold mine to the lower left, 200 food, and 200 gold. There
-are **no
-soldiers on the map at the start**: you train them (step 3). Player 1 starts in
-the top-left of the map, player 2 in the bottom-right, with a band of forest
-between them. The top bar shows your resources; the line under it says whose
-turn it is.
+**What you start with.** Each player has, around their town centre:
 
-1. **Gather.** Box-select your three villagers. Right click the gold mine near
+- a barracks to its right;
+- three villagers standing below it;
+- a woodline to its left, with a lumber camp beside it (takes wood);
+- seven gold mines below and to the left, with a mining camp (takes gold and
+  stone), and five stone mines in a row further below;
+- a mill to the lower right (takes food), with six forage bushes to its right
+  and two farms below it;
+- 200 food and 200 gold, and no wood or stone.
+
+The town centre takes every resource. The amounts are the original's: a gold
+mine holds 800, a stone mine 350, a forage bush 125, a farm 175, a tree 100.
+A tree or mine that runs out disappears. There are **no soldiers on the map at
+the start**: you train them (step 3). Player 1 starts in the top-left of the
+map, player 2 in the bottom-right, with a band of forest between them three
+trees deep, with two gaps to walk through (or cut your own). The top bar shows
+your resources; the line under it says whose turn it is.
+
+1. **Gather.** Box-select your three villagers. Right click a gold mine near
    your base. They walk over, mine a load of ten gold (one gold every 2
-   seconds, so about 20 seconds a load), carry it back to the town centre on
-   their own, deposit it, and go again: one order, no micromanagement. The
-   gold in the top bar goes up when a load is deposited, not while it is
-   mined. A villager mines and deposits only once it touches the mine or the
-   town centre, as in the original. To bank a part load early, select the
-   villager and right click your town centre: it drops off what it carries
-   and walks back to the mine. Left click one villager to watch: the
+   seconds, so about 20 seconds a load), carry it to the nearest building
+   that takes gold (the mining camp) on their own, deposit it, and go again:
+   one order, no micromanagement. The gold in the top bar goes up when a load
+   is deposited, not while it is mined. A villager mines and deposits only
+   once it touches the mine or the building, as in the original. Trees,
+   stone, bushes, and farms work the same way, each load going to the nearest
+   building that takes it: wood to the lumber camp, food to the mill. A
+   villager on a farm stands on it to work. Click anywhere on a tree's
+   picture, crown included; a tree inside the woodline that nobody can stand
+   beside sends the villagers to the nearest tree on its edge, as in the
+   original. To bank a part load early, select
+   the villager and right click a building that takes it: it drops off what
+   it carries and walks back. Left click one villager to watch: the
    information panel shows its
    name, its hit points, and `carrying 4 gold` as the load grows to ten,
    back to nothing once it is deposited.
