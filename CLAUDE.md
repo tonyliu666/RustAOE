@@ -1,0 +1,171 @@
+# CLAUDE.md
+
+A Rust remake of Age of Empires II: The Conquerors, rebuilt rule by rule
+against the original. Read this first in a new session, then the plan and
+the current phase's spec.
+
+## Where things are
+
+- **Plan:** `docs/superpowers/plans/2026-10-24-exe-parity-plan.md`. Phases,
+  gates, and the open questions list.
+- **Current spec:** `docs/superpowers/specs/2026-10-25-phase2-four-resources.md`
+  (Phase 2: four resources). Each step has a "Step N result" section.
+- **Progress log:** `.superpowers/sdd/2026-10-24-exe-parity-plan/progress.md`.
+  Add one line per finished step.
+- **Player guide:** `QUICKSTART.md`, covering how to run, the controls, and a
+  walkthrough.
+- **Benchmarks:** `docs/benchmarks.md`.
+- **Reverse engineering:** `reverse/README.md` and `reverse/tools/`. Only
+  these are tracked; decompiled output is not.
+
+### Crates
+
+| Crate | What it holds |
+| --- | --- |
+| `sim` | The deterministic simulation. Fixed-point `Fx`, never floats. |
+| `render` | The renderer abstraction, with a `RecordingRenderer` for tests. |
+| `app` | The binary: `session`, `draw`, `ui`, `pick`, `sprites`, `looks`, `content_file`, `replay_file`. |
+| `assets` | DRS, SLP, and palette readers, plus the `.dat` reader `assets::dat`. |
+| `datconv` | A dev tool that converts the `.dat` to content RON. |
+
+### Data, presentation, and the install
+
+- Game data lives in `crates/app/content/default.ron`. The rules go to
+  `sim::Content`; the looks (sprite, parts, icon) go to `app::Looks`,
+  matched by type name. Replays never carry looks.
+- The original install is at `aoe2-install/` (gitignored), and is passed as
+  `--assets ./aoe2-install`.
+- Run the game with `cargo run --release -p app -- --assets ./aoe2-install`.
+
+## How the user wants work done
+
+- **Announce each step's plan** and wait for the user's go-ahead before
+  doing it, unless they say to go straight on.
+- **TDD for every rule.**
+  1. Write the test and watch it fail (RED) for the right reason.
+  2. Make it pass.
+  3. Mutation-check it: break the rule on purpose with a temporary script
+     edit, confirm a test catches it, and restore the code.
+  4. Record the results in the spec and in `progress.md`.
+- **After each phase,** run two subagents:
+  - a code review;
+  - an unanchored direction check against `reverse/` and the plan. Feed it
+    no conclusions.
+- **After player-facing work,** update `QUICKSTART.md` and tell the user
+  exactly how to try it.
+- **Screenshots:**
+  - Never move the user's mouse (no XWarpPointer).
+  - To see something, add a temporary `AOE_PROBE_*` env-var block in
+    `crates/app/src/main.rs` (for example, a wider zoom or commands pushed
+    into `pending`).
+  - Build in release, run, capture with `xwd -name "RTS proof of concept"`,
+    and convert to PNG with PIL.
+  - Then restore `main.rs` from a backup and check with
+    `grep -c PROBE crates/app/src/main.rs`.
+- **Commit or push only when asked.**
+  - Branch: `feat/rts-poc-milestone-1`. Last push: 4b9c616. Everything since
+    is unpushed.
+  - Commit messages are plain English prose and end with the
+    `Co-Authored-By` line.
+- **Language:**
+  - Reply to the user in Traditional Chinese, terse.
+  - Docs, code comments, and commit messages are in normal English.
+- **Follow the original's behaviour.**
+  - Check the `.dat` (through `assets::dat` or `datconv`) and the install's
+    archives instead of guessing.
+  - When something is judged by eye or is provisional, say so in the spec.
+- **Check before every finish:**
+  - `cargo test -q --workspace`
+  - `cargo clippy -q --workspace --all-targets -- -D warnings`
+  - `cargo fmt`
+
+## Rules and gotchas learned
+
+- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 13).
+  - Bump it whenever playback or the layout changes.
+  - Add a test in `crates/app/tests/replay_file.rs` that refuses the previous
+    version.
+- **The extracted install is untrusted.**
+  - Never run its binaries.
+  - Run any Python that reads it with `python3 -I`.
+  - Never commit game assets (`aoe2-install/`, `/all.ron`, `/original.ron`).
+- **Shell:**
+  - zsh does not word-split `$v`; use `${=v}`.
+  - `/tmp` gets wiped, so recreate helper scripts there.
+  - Never `pkill -f` broadly; it can kill your own shell.
+- **Editing:**
+  - After `cargo fmt`, re-read a file before any exact-text edit, because
+    the layout may have changed.
+  - Python replace scripts should assert the old text occurs exactly once.
+- **Tests use a fake install,** `crates/app/tests/common/mod.rs`.
+  - `graphics()` lists every SLP the default content loads; add new ones
+    there.
+  - `terrain.drs` holds grass (15001) and farm ground (15004).
+  - The fake `sprites()` builds a `Sprites` by hand.
+- **Inspecting SLPs:**
+  - `cargo run -p assets --example slp_dump -- INTERFAC.DRS ARCHIVE.DRS OUT_DIR PLAYER -- IDS...`
+  - Write the output outside the repo.
+  - For `.dat` lookups, write a throwaway example under
+    `crates/assets/examples/` and delete it afterwards.
+
+### Sim rules
+
+- **Range** is measured edge to edge (`in_reach`); melee is 0.
+  `World::CONTACT` = 1/8 tile, provisional.
+- **Gathering happens on touch** (`touches`, `nearest_point`).
+  - A villager gathers and deposits only when its edge touches the footprint.
+  - When a load is full, it returns automatically to the nearest building
+    that takes it (`BuildingStats::drop_off`), then goes back.
+  - A drop-off by hand (`Command::Deposit`) banks the load, then the
+    villager stands idle, as the original does.
+- **Sites:** `Site { origin, resource, remaining, size, blocks }`.
+  - Mines, bushes, and trees are 1 tile and block it.
+  - Farms are 3×3 and don't block.
+  - A used-up site is removed.
+  - A gather order on a site with no walkable tile beside it goes to the
+    nearest reachable site of the same resource; with none, the villagers
+    stand.
+- **Drawing:**
+  - Sites are drawn from the original graphics' pieces: gold [4479, 2561],
+    stone [4482, 1034], bush [2560], forest oak [2296, 4652].
+  - Farms are drawn as terrain 15004, tile by tile.
+  - Sites are drawn back to front and picked by their drawn rectangle; farms
+    are picked by their tiles.
+
+## Where we are (2026-10-25)
+
+Phase 2, four resources:
+
+| Step | State |
+| --- | --- |
+| 1, 1b, 1c, 2, 3, 4 | Done and committed. |
+| 4: the map | Done; includes the woodline fix and drop-off-stands. Last commit 44376b2. |
+| 5: the original's numbers | Next. |
+| 6: gathering in the interface | Not started. |
+| 7: wrap-up | Not started. |
+
+**Step 5, the original's numbers:**
+- `datconv` writes the gathering table and the new types.
+- `default.ron` adopts the converted values:
+  - per-resource gather rates and carry capacity;
+  - the villager's attack (3 damage);
+  - the militia's real cost, 60 food + 20 gold. It is still 60 gold.
+- Bump the replay version.
+
+**Step 6, gathering in the interface:**
+- Job cursors (the pickaxe and others).
+- The carried load and unit details in the information panel.
+
+**Step 7, wrap-up:**
+- QUICKSTART and a screenshot check.
+- The end-of-phase code review and the unanchored direction check.
+
+Known provisional items:
+- Annex offsets are not added.
+- The train queue limit is not in the `.dat`.
+- Button slots.
+- The contact tolerance.
+- Picking uses whole rectangles, not pixel outlines.
+- "Reachable" means a walkable tile beside the site, not a found path.
+- Farm crops don't run down yet.
+- The terrain table in the `.dat` is skipped, not read.

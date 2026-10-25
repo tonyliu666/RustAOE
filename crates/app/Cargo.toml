@@ -1,0 +1,21 @@
+[package]
+name = "app"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+[features]
+default = ["window"]
+# Drawing to a real window. Off in CI, where the draw logic is exercised
+# against `render::RecordingRenderer` instead.
+window = ["render/backend-macroquad", "dep:macroquad"]
+
+[dependencies]
+render = { path = "../render" }
+sim = { path = "../sim" }
+assets = { path = "../assets" }
+macroquad = { version = "0.4", optional = true }
+ron = "0.12.2"
+serde = { version = "1.0.229", features = ["derive"] }
+smallvec = "1.15.2"

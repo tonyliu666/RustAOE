@@ -1,0 +1,13 @@
+[package]
+name = "assets"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Readers for the original game's data formats. Pure parsing over byte
+# slices: no I/O, no game logic, and no dependency on `sim` or `render`, so
+# every format is tested with bytes built in the test, never with game files.
+[dependencies]
+# Raw deflate, for the compressed .dat. Pure Rust; std has no decompressor.
+miniz_oxide = "0.8"

@@ -1,3 +1,14 @@
 /target
 **/*.rs.bk
 *.replay
+reverse/*
+# Our notes and tools are tracked; decompiled output and game data are not.
+!reverse/README.md
+!reverse/tools/
+sample/*
+# The extracted game install (QUICKSTART step 2): game data, never committed.
+/aoe2-install/
+
+# Content converted by datconv from the user's own .dat: game data, not ours.
+/all.ron
+/original.ron

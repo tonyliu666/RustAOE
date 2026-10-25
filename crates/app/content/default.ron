@@ -1,0 +1,123 @@
+// The numbers the game plays by.
+//
+// Read once at startup. Every field is required, and an unknown field is an
+// error, so a typo cannot load quietly and do nothing.
+//
+// Unit and building types are lists: adding a type is adding an entry. Each
+// has a unique `name`, which other entries use to refer to it (`trains`), and
+// a `sprite`: the SLP ID to draw it with, found in the original game's
+// archives in the original's search order. `parts`, when not
+// empty, lists the SLPs drawn instead, in order, as `(slp, x, y)`: each at the
+// ground point moved x pixels right and y down, placed by its own hotspot, as
+// the original draws a graphic's pieces and a building's annexes.
+//
+// Times are in ticks; the simulation runs at 20 ticks per second.
+// Fractions are written `(numerator, denominator)`: `(1, 8)` is one eighth.
+// Distances are in tiles.
+//
+// Costs list only the resources they use: `(food: 50, gold: 20)`; a resource
+// left out costs nothing. The villager costs 50 food, as in the original;
+// food cannot be gathered until Phase 2 of the exe-parity plan, so each player
+// starts with 200 food (the original's standard start) and 200 gold. The
+// soldier costs gold until Phase 2 gives it the militia's 60 food and 20 gold.
+(
+    units: [
+        (
+            name: "villager",
+            sprite: 1473,
+            parts: [],
+            icon: 15,               // its button: a frame in interfac.drs 50730
+            gathers: true,          // may gather and carry loads
+            max_hp: 40,
+            speed: (1, 8),          // tiles per tick: 2.5 tiles per second
+            damage: 0,              // zero: cannot be ordered to attack
+            range: (0, 1),
+            attack_cooldown: 0,
+            radius: (1, 4),
+            cost: (food: 50),
+            train_ticks: 100,       // 5 seconds
+        ),
+        (
+            name: "soldier",
+            sprite: 993,           // the militia standing (SPRMN_FN, unit 74)
+            parts: [],
+            icon: 8,
+            gathers: false,
+            max_hp: 60,
+            speed: (1, 8),
+            damage: 8,
+            range: (0, 1),          // between edges, as in the original: melee
+            attack_cooldown: 20,    // one hit per second
+            radius: (1, 4),
+            cost: (gold: 60),
+            train_ticks: 120,       // 6 seconds
+        ),
+    ],
+    buildings: [
+        (
+            name: "town_center",
+            // The Dark Age British town centre (unit 109): its graphic's
+            // pieces and its three annexes', each placed by its own hotspot.
+            sprite: 3596,
+            parts: [
+                (889, 0, 0), (3596, 0, 0), (4612, 0, 0), (891, 0, 0),
+                (3595, 0, 0), (4611, 0, 0), (3594, 0, 0), (4610, 0, 0),
+            ],
+            icon: 28,               // a frame in interfac.drs 50705
+            size: 4,                // footprint, in tiles a side
+            max_hp: 1000,
+            drop_off: [food, wood, gold, stone],  // what villagers may deposit here
+            trains: ["villager"],
+        ),
+        (
+            name: "barracks",
+            sprite: 2683,           // the Dark Age British barracks (unit 12)
+            parts: [],
+            icon: 2,
+            size: 3,
+            max_hp: 600,
+            drop_off: [],
+            trains: ["soldier"],
+        ),
+        // The drop-off camps, converted from the .dat (units 68, 562, 584).
+        (
+            name: "mill",
+            sprite: 3482,
+            parts: [(3483, 0, 0), (3482, 0, 0)],
+            icon: 19,
+            size: 2,
+            max_hp: 1000,
+            drop_off: [food],
+            trains: [],
+        ),
+        (
+            name: "lumber_camp",
+            sprite: 3507,
+            parts: [],
+            icon: 40,
+            size: 2,
+            max_hp: 1000,
+            drop_off: [wood],
+            trains: [],
+        ),
+        (
+            name: "mining_camp",
+            sprite: 3495,
+            parts: [],
+            icon: 39,
+            size: 2,
+            max_hp: 1000,
+            drop_off: [gold, stone],
+            trains: [],
+        ),
+    ],
+    // How a villager gathers each resource: how much it carries, and ticks
+    // per unit gathered. One unit every 2 seconds for each until Phase 2 step
+    // 5 takes the original's numbers.
+    gather: (
+        food: (carry_capacity: 10, ticks_per_unit: 40),
+        wood: (carry_capacity: 10, ticks_per_unit: 40),
+        gold: (carry_capacity: 10, ticks_per_unit: 40),
+        stone: (carry_capacity: 10, ticks_per_unit: 40),
+    ),
+)
