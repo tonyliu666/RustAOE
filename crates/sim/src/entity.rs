@@ -106,6 +106,11 @@ pub enum Order {
         phase: GatherPhase,
         route: Route,
     },
+    /// Taking a load to a drop-off by hand, with no mine to go back to.
+    Deposit {
+        building: BuildingId,
+        route: Route,
+    },
 }
 
 /// How a unit is finding its way to the current goal.

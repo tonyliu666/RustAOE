@@ -294,6 +294,25 @@ impl Session {
                     mine,
                 })
             }
+            // Your own drop-off with loaded villagers selected: they drop
+            // their loads off there, early, then go back to work. Units
+            // carrying nothing are left as they are.
+            Some(EntityId::Building(building))
+                if self.is_drop_off(building, view)
+                    && units
+                        .iter()
+                        .any(|id| view.unit(*id).is_some_and(|u| u.carrying > 0)) =>
+            {
+                Some(Command::Deposit {
+                    player,
+                    units: units
+                        .iter()
+                        .copied()
+                        .filter(|id| view.unit(*id).is_some_and(|u| u.carrying > 0))
+                        .collect(),
+                    building,
+                })
+            }
             Some(target) if self.is_enemy(target, view) => Some(Command::Attack {
                 player,
                 units,
@@ -305,6 +324,12 @@ impl Session {
                 target: pick::tile_at(cursor),
             }),
         }
+    }
+
+    /// Whether `building` is one of the active player's drop-offs.
+    fn is_drop_off(&self, building: BuildingId, view: WorldView<'_>) -> bool {
+        view.building(building)
+            .is_some_and(|b| b.owner == self.active && view.content().building(b.kind).drop_off)
     }
 
     fn is_enemy(&self, target: EntityId, view: WorldView<'_>) -> bool {

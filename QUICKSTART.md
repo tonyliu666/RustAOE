@@ -97,6 +97,7 @@ band of forest.
 | Left click empty ground | Clear the selection |
 | Right click ground | Move there |
 | Right click a gold mine | Send selected villagers to gather |
+| Right click your town centre | Selected villagers carrying gold drop it off there now, before they are full, then go back to their mine |
 | Right click an enemy | Attack it |
 | Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 food; barracks: soldier, 60 gold) |
 | `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
@@ -167,7 +168,11 @@ turn it is.
    seconds, so about 20 seconds a load), carry it back to the town centre on
    their own, deposit it, and go again: one order, no micromanagement. The
    gold in the top bar goes up when a load is deposited, not while it is
-   mined. Left click one villager to watch: the information panel shows its
+   mined. A villager mines and deposits only once it touches the mine or the
+   town centre, as in the original. To bank a part load early, select the
+   villager and right click your town centre: it drops off what it carries
+   and walks back to the mine. Left click one villager to watch: the
+   information panel shows its
    name, its hit points, and `carrying 4 gold` as the load grows to ten,
    back to nothing once it is deposited.
 2. **Grow.** Left click your town centre. The command panel at the bottom
@@ -320,7 +325,6 @@ These are planned, each in its own phase of the plan; they are not bugs:
 no AI opponent, no fog of war, no building construction in game, no networking,
 no sound, two unit types by default (more can be added in content), only gold
 can be gathered, no tech tree, no save/load, no map editor, no minimap, no
-population count. Gathering has no pickaxe cursor yet, and a villager cannot
-be sent to deposit a part load by hand; these come with Phase 2. Units show one still frame facing south, buildings are the British
+population count. Gathering has no pickaxe cursor yet; it comes with Phase 2. Units show one still frame facing south, buildings are the British
 Dark Age ones for every player, and the view is top-down rather than the
 original's isometric one.

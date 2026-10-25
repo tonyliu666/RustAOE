@@ -292,6 +292,13 @@ pub enum Command {
         player: PlayerId,
         units: SmallVec<[UnitId; 32]>,
     },
+    /// Loaded villagers drop off their loads at `building` before they are
+    /// full, then go back to the mine they were working.
+    Deposit {
+        player: PlayerId,
+        units: SmallVec<[UnitId; 32]>,
+        building: BuildingId,
+    },
 }
 
 impl Command {
@@ -302,7 +309,8 @@ impl Command {
             | Command::Attack { player, .. }
             | Command::Gather { player, .. }
             | Command::Train { player, .. }
-            | Command::Stop { player, .. } => *player,
+            | Command::Stop { player, .. }
+            | Command::Deposit { player, .. } => *player,
         }
     }
 }
@@ -342,9 +350,6 @@ impl World {
     /// A budget rather than solving every request immediately, so that a
     /// hundred separate orders in one tick cannot spike past the tick budget.
     pub const PATH_BUDGET_PER_TICK: usize = 16;
-    /// How close a unit must be to a target to interact with it, in tiles,
-    /// measured from the target's edge.
-    pub const INTERACT_RANGE: Fx = Fx::from_frac(3, 2);
 
     /// A world playing by the default content.
     pub fn new(seed: u64, map: MapSpec) -> World {
@@ -562,6 +567,11 @@ impl World {
                         self.units[id].order = Order::Idle;
                     }
                 }
+                Command::Deposit {
+                    player,
+                    units,
+                    building,
+                } => self.order_deposit(*player, units, *building),
             }
         }
     }
@@ -642,6 +652,40 @@ impl World {
                 mine,
                 phase: GatherPhase::ToMine,
                 route: route.clone(),
+            };
+            self.units[id].stuck_ticks = 0;
+        }
+    }
+
+    /// Sends loaded villagers to drop off at one of their owner's drop-offs.
+    /// One that was gathering goes back to its mine afterwards; one that
+    /// was not stands. Units carrying nothing, and buildings that are not
+    /// the player's drop-offs, are ignored.
+    fn order_deposit(&mut self, player: PlayerId, units: &[UnitId], building: BuildingId) {
+        let Some(target) = self.buildings.get(building) else {
+            return;
+        };
+        if target.owner != player || !self.content.building(target.kind).drop_off {
+            return;
+        }
+        let (origin, size) = (target.origin, target.size);
+        let ids: Vec<UnitId> = self
+            .owned(player, units)
+            .into_iter()
+            .filter(|id| self.units[*id].carrying > 0)
+            .collect();
+        let route = self.plan_adjacent(&ids, origin, size);
+        for id in ids {
+            self.units[id].order = match self.units[id].order {
+                Order::Gather { mine, .. } => Order::Gather {
+                    mine,
+                    phase: GatherPhase::ToDropOff { building },
+                    route: route.clone(),
+                },
+                _ => Order::Deposit {
+                    building,
+                    route: route.clone(),
+                },
             };
             self.units[id].stuck_ticks = 0;
         }
@@ -816,6 +860,10 @@ impl World {
     fn run_gathering(&mut self) {
         let ids: Vec<UnitId> = self.units.keys().collect();
         for id in ids {
+            if let Order::Deposit { building, .. } = self.units[id].order {
+                self.deposit_and_stand(id, building);
+                continue;
+            }
             let Order::Gather { mine, phase, .. } = self.units[id].order.clone() else {
                 continue;
             };
@@ -832,7 +880,7 @@ impl World {
             self.units[id].order = Order::Idle;
             return;
         };
-        let (center, remaining) = (target.center(), target.remaining);
+        let remaining = target.remaining;
         if remaining <= 0 {
             // The seam ran out on the way over. Bank whatever is in hand
             // rather than stranding it.
@@ -840,7 +888,8 @@ impl World {
             self.send_to_drop_off(id, mine);
             return;
         }
-        if self.within(id, center, Mine::SIZE) {
+        let origin = target.origin;
+        if self.touches(id, origin, Mine::SIZE) {
             self.units[id].order = Order::Gather {
                 mine,
                 phase: GatherPhase::Mining,
@@ -878,20 +927,12 @@ impl World {
             self.send_to_drop_off(id, mine);
             return;
         };
-        let (center, size) = (target.center(), target.size);
-        if !self.within(id, center, size) {
+        let (origin, size) = (target.origin, target.size);
+        if !self.touches(id, origin, size) {
             return;
         }
 
-        let unit = &mut self.units[id];
-        let owner = unit.owner;
-        let carried = std::mem::take(&mut unit.carrying);
-        // Saturating for the same reason as `damage`: content decides how
-        // much a load holds, so the sum must not differ between builds.
-        let gold = self.players[owner.index()]
-            .resources
-            .get_mut(Resource::Gold);
-        *gold = gold.saturating_add(carried);
+        self.bank(id);
 
         // Head back for another load, unless the seam is gone.
         let seam_alive = self.mines.get(mine).is_some_and(|m| m.remaining > 0);
@@ -904,6 +945,34 @@ impl World {
                 route,
             };
         } else {
+            self.units[id].order = Order::Idle;
+        }
+    }
+
+    /// Banks a villager's load into its owner's stock.
+    fn bank(&mut self, id: UnitId) {
+        let unit = &mut self.units[id];
+        let owner = unit.owner;
+        let carried = std::mem::take(&mut unit.carrying);
+        // Saturating for the same reason as `damage`: content decides how
+        // much a load holds, so the sum must not differ between builds.
+        let gold = self.players[owner.index()]
+            .resources
+            .get_mut(Resource::Gold);
+        *gold = gold.saturating_add(carried);
+    }
+
+    /// A villager dropping off by hand with no mine to go back to: banks
+    /// once it touches the drop-off, then stands.
+    fn deposit_and_stand(&mut self, id: UnitId, building: BuildingId) {
+        let Some(target) = self.buildings.get(building) else {
+            // The drop-off is gone; the load stays carried.
+            self.units[id].order = Order::Idle;
+            return;
+        };
+        let (origin, size) = (target.origin, target.size);
+        if self.touches(id, origin, size) {
+            self.bank(id);
             self.units[id].order = Order::Idle;
         }
     }
@@ -937,12 +1006,41 @@ impl World {
         };
     }
 
-    /// Whether a unit is close enough to interact with a `size`-tile entity
-    /// centred at `center`.
-    fn within(&self, id: UnitId, center: FxVec2, size: i32) -> bool {
-        let reach = Fx::from_frac(size, 2) + World::INTERACT_RANGE;
-        let limit = reach.to_bits() as i64;
-        (self.units[id].pos - center).length_squared() <= limit * limit
+    /// The point of a square footprint nearest a unit's centre, and the
+    /// offset to it.
+    fn nearest_point(&self, id: UnitId, origin: TilePos, size: i32) -> FxVec2 {
+        let pos = self.units[id].pos;
+        let clamp = |p: Fx, from: i32| p.clamp(Fx::from_int(from), Fx::from_int(from + size));
+        FxVec2::new(clamp(pos.x, origin.x), clamp(pos.y, origin.y)) - pos
+    }
+
+    /// Whether a unit touches a square footprint: its edge within
+    /// [`World::CONTACT`] of the footprint's, as for a melee attack. A
+    /// villager mines and deposits only so close.
+    fn touches(&self, id: UnitId, origin: TilePos, size: i32) -> bool {
+        let radius = self.content.unit(self.units[id].kind).radius;
+        let limit = i64::from((radius + World::CONTACT).to_bits());
+        self.nearest_point(id, origin, size).length_squared() <= limit * limit
+    }
+
+    /// The footprint a gathering villager is walking to: its mine, or the
+    /// drop-off it is taking a load to. `None` while it mines.
+    fn gather_footprint(&self, id: UnitId) -> Option<(TilePos, i32)> {
+        match self.units[id].order {
+            Order::Gather {
+                mine,
+                phase: GatherPhase::ToMine,
+                ..
+            } => self.mines.get(mine).map(|m| (m.origin, Mine::SIZE)),
+            Order::Gather {
+                phase: GatherPhase::ToDropOff { building },
+                ..
+            }
+            | Order::Deposit { building, .. } => {
+                self.buildings.get(building).map(|b| (b.origin, b.size))
+            }
+            _ => None,
+        }
     }
 
     // --- Phase 4: path budget ---------------------------------------------
@@ -1073,6 +1171,19 @@ impl World {
             let target_pos = self.position_of(target)?;
             let offset = target_pos - pos;
             return (!self.in_reach(id, target)?).then(|| offset.with_length(Fx::ONE));
+        }
+
+        // A gathering villager's route ends on the tile beside its mine or
+        // drop-off; from there it walks the last stretch until it touches,
+        // since it mines and deposits only then.
+        if let Some((origin, size)) = self.gather_footprint(id) {
+            if self.touches(id, origin, size) {
+                return None;
+            }
+            if matches!(self.units[id].order.route(), None | Some(Route::Arrived)) {
+                let offset = self.nearest_point(id, origin, size);
+                return (offset.length_squared() > 0).then(|| offset.with_length(Fx::ONE));
+            }
         }
 
         match self.units[id].order.route()?.clone() {
@@ -1314,7 +1425,8 @@ impl Order {
             Order::Idle => None,
             Order::Move { route, .. }
             | Order::Attack { route, .. }
-            | Order::Gather { route, .. } => Some(route),
+            | Order::Gather { route, .. }
+            | Order::Deposit { route, .. } => Some(route),
         }
     }
 
@@ -1323,7 +1435,8 @@ impl Order {
             Order::Idle => {}
             Order::Move { route, .. }
             | Order::Attack { route, .. }
-            | Order::Gather { route, .. } => {
+            | Order::Gather { route, .. }
+            | Order::Deposit { route, .. } => {
                 *route = new_route;
             }
         }
@@ -1477,6 +1590,7 @@ fn order_words(order: &Order) -> [u64; 5] {
             };
             [3, mine.data().as_ffi(), phase, building, 0]
         }
+        Order::Deposit { building, .. } => [4, building.data().as_ffi(), 0, 0, 0],
     }
 }
 

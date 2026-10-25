@@ -1077,3 +1077,63 @@ fn a_drag_into_the_panels_selects_only_what_shows_above_them() {
     assert_eq!(session.selection().len(), 2, "{:?}", session.selection());
     assert!(!session.selection().contains(&hidden));
 }
+
+// --- dropping off by hand ------------------------------------------------------------
+
+#[test]
+fn right_clicking_your_drop_off_with_a_loaded_villager_drops_the_load_off() {
+    // A second mine at (8, 5), in the open middle of this window, so the
+    // villager mining it can be clicked; its town centre covers (0, 0) to
+    // (3, 3).
+    let mut world = World::new(3, map().with_mine(TilePos::new(8, 5), 500));
+    let villager = units_of(&world, PlayerId::ONE)
+        .into_iter()
+        .find(|id| {
+            world
+                .view()
+                .unit(*id)
+                .is_some_and(|u| u.kind == UnitKind::VILLAGER)
+        })
+        .expect("the villager");
+    let (mine, _) = world
+        .view()
+        .mines()
+        .find(|(_, m)| m.origin == TilePos::new(8, 5))
+        .expect("the near mine");
+    world.step(&[Command::Gather {
+        player: PlayerId::ONE,
+        units: [villager].into_iter().collect(),
+        mine,
+    }]);
+    for _ in 0..2000 {
+        if world.view().unit(villager).is_some_and(|u| u.carrying > 0) {
+            break;
+        }
+        world.step(&[]);
+    }
+    assert!(world.view().unit(villager).is_some_and(|u| u.carrying > 0));
+    let mut session = session();
+    let feet = app::to_screen_space(world.view().unit(villager).expect("the villager").pos);
+    click(&mut session, &world, MouseButton::Left, at(feet));
+    assert_eq!(session.selection(), [villager]);
+    let town_centre = building_of(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(TOWN_CENTRE_MIDDLE),
+    );
+
+    match commands.as_slice() {
+        [Command::Deposit {
+            player,
+            units,
+            building,
+        }] => {
+            assert_eq!((*player, *building), (PlayerId::ONE, town_centre));
+            assert_eq!(units.as_slice(), [villager], "only the loaded villager");
+        }
+        other => panic!("expected a drop-off, got {other:?}"),
+    }
+}

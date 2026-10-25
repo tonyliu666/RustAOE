@@ -314,11 +314,22 @@ fn a_replay_from_before_pictures_left_the_replay_is_refused_by_version() {
     let error = load_text("version-seven", "(version: 7, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 7, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_mining_on_touch_is_refused_by_version() {
+    // Version 8 mined from a tile and a half away and had no Deposit command.
+    let error = load_text("version-eight", "(version: 8, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 7,
-                expected: 8
+                found: 8,
+                expected: 9
             })
         ),
         "{error:?}"

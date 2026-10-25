@@ -139,3 +139,21 @@ while a gatherer carries a load, `carrying N gold` below them (at 800x600,
 baseline (271, 522)). Only gold can be carried until step 2, which writes
 the load's own resource there. Checked in a screenshot: `villager`, `40/40`,
 `carrying 4 gold`.
+
+## Step 1c: mining and depositing on touch; dropping off by hand (2026-10-25)
+
+Found by the user: a villager mined from a distance. It mined and deposited
+within a tile and a half of the target (`World::INTERACT_RANGE`), and, worse,
+a villager whose route back to the mine ended on a corner tile stood there for
+good, outside that range with its route marked arrived. Now a villager mines
+and deposits only when it touches the mine or the drop-off, as a melee attack
+needs (edges within `World::CONTACT`); when its route ends short, it walks
+the last stretch to the footprint's nearest point. `INTERACT_RANGE` is gone.
+
+Asked for by the user: `Command::Deposit` sends loaded villagers to one of
+their owner's drop-offs early. One that was gathering goes back to its mine
+afterwards; one that was not (`Order::Deposit`) stands. A right-click on your
+own drop-off with loaded villagers selected issues it for those carrying a
+load. The automatic walk back when the load is full is unchanged, as in the
+original. Replay format 9: the rule and the command set changed (the version
+Phase 2 was to move to anyway).
