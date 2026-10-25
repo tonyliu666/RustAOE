@@ -229,13 +229,7 @@ fn a_replay_from_the_middle_of_phase_1_5_is_refused_by_version() {
     let error = load_text("version-two", "(version: 2, seed: 1)");
 
     assert!(
-        matches!(
-            error,
-            Err(app::ReplayError::Version {
-                found: 2,
-                expected: 3
-            })
-        ),
+        matches!(error, Err(app::ReplayError::Version { found: 2, .. })),
         "{error:?}"
     );
 }
@@ -255,4 +249,20 @@ fn a_replay_whose_map_names_a_type_its_content_lacks_is_refused_rather_than_cras
         "{error:?}"
     );
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_replay_from_before_icons_is_refused_by_version() {
+    let error = load_text("version-three", "(version: 3, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 3,
+                expected: 4
+            })
+        ),
+        "{error:?}"
+    );
 }

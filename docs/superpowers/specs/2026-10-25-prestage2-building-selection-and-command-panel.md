@@ -1,7 +1,7 @@
 # Pre-stage 2: selecting buildings and the command panel
 
 **Date:** 2026-10-25
-**Status:** Proposed, awaiting review
+**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (step 1 done)
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.6 step 3b
 **Pulls forward:** part of plan Phase 8 (user interface)
 
@@ -32,7 +32,7 @@ Found by decoding every sprite in `interfac.drs` and looking at them:
 | --- | --- | --- |
 | In-game interface | 51101 to 51118 (800x600), 51121 to 51138 (1024x768), 51141 to 51160 (1280x1024) | One per civilisation. Top bar with the wood, food, gold, stone, and population slots; bottom row of command panel, parchment information panel, and minimap frame. The middle is transparent: the map shows through |
 | Unit icons | 50730, 134 frames of 36x36 | Frame 15 is the male villager, frame 8 a sword-and-shield infantryman (the militia). Confirmed against the `.dat`'s icon IDs in Phase 1.6 step 4 |
-| Building icons | 50705 to 50708, 52 frames of 36x36 each | One set per architecture; the town centre's and barracks' frames are picked by eye |
+| Building icons | 50705 to 50708, 52 frames of 36x36 each | One set per architecture. In 50705, frame 2 (crossed swords) is the barracks and frame 28 (a man and a woman) the town centre, picked by eye; other frames include the archery range (0), blacksmith (4), castle (7), stable (23), and house (34) |
 | Progress bar | 50764, 100 frames of 100x12 | Frame *n* is *n* percent full |
 
 The interface image for the window's size is drawn over the map, scaled to the
@@ -99,3 +99,10 @@ minimap exists.
    screenshot.
 2. Clicks on the interface never act on the map.
 3. Tests and clippy pass; no asset committed.
+
+## Step 1 result (2026-10-25)
+
+`UnitStats::icon` and `BuildingStats::icon` (frames in 50730 and 50705), read
+from RON and required there. Defaults: villager 15, soldier 8, town centre 28,
+barracks 2. Replay format version 4; versions 1 to 3 are refused by version.
+Breaking the loader on purpose (ignoring the file's `icon`) fails the test.

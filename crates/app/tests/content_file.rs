@@ -176,6 +176,7 @@ fn a_unit_type_added_only_in_the_file_loads_and_can_be_trained() {
     let archer = r#"(
             name: "archer",
             sprite: 1270,
+            icon: 17,
             gathers: false,
             max_hp: 30,
             speed: (1, 8),
@@ -220,5 +221,22 @@ fn a_building_that_trains_a_unit_type_the_file_does_not_have_is_an_error() {
             "barracks.trains".to_string(),
             "names a unit type the content does not have"
         )
+    );
+}
+
+#[test]
+fn an_icon_is_read_from_the_file() {
+    let content = parse_content(&default_with("icon: 15,", "icon: 99,")).expect("parses");
+
+    assert_eq!(content.unit(UnitKind::VILLAGER).icon, 99);
+}
+
+#[test]
+fn a_type_without_an_icon_is_an_error() {
+    let result = parse_content(&default_with("icon: 15,", ""));
+
+    assert!(
+        matches!(result, Err(ContentFileError::Malformed(_))),
+        "{result:?}"
     );
 }

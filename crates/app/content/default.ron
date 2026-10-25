@@ -21,6 +21,7 @@
         (
             name: "villager",
             sprite: 1473,
+            icon: 15,               // its button: a frame in interfac.drs 50730
             gathers: true,          // may gather and carry loads
             max_hp: 40,
             speed: (1, 8),          // tiles per tick: 2.5 tiles per second
@@ -34,6 +35,7 @@
         (
             name: "soldier",
             sprite: 1181,          // the militia
+            icon: 8,
             gathers: false,
             max_hp: 60,
             speed: (1, 8),
@@ -49,6 +51,7 @@
         (
             name: "town_center",
             sprite: 901,
+            icon: 28,               // a frame in interfac.drs 50705
             size: 4,                // footprint, in tiles a side
             max_hp: 1000,
             drop_off: true,
@@ -57,6 +60,7 @@
         (
             name: "barracks",
             sprite: 131,
+            icon: 2,
             size: 3,
             max_hp: 600,
             drop_off: false,

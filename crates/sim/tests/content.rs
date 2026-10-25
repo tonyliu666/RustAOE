@@ -605,3 +605,18 @@ fn the_built_in_map_needs_a_town_centre_and_says_so() {
 
     assert!(error.to_string().contains("town_center"), "{error}");
 }
+
+// --- icons ------------------------------------------------------------------
+
+#[test]
+fn the_default_types_carry_the_originals_icons() {
+    // Frames in the original's icon sprites: units in interfac.drs 50730,
+    // buildings in 50705. Picked by eye; Phase 1.6 confirms them against the
+    // .dat's icon IDs.
+    let content = Content::default();
+
+    assert_eq!(content.unit(UnitKind::VILLAGER).icon, 15);
+    assert_eq!(content.unit(UnitKind::SOLDIER).icon, 8);
+    assert_eq!(content.building(BuildingKind::TOWN_CENTER).icon, 28);
+    assert_eq!(content.building(BuildingKind::BARRACKS).icon, 2);
+}
