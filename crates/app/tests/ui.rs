@@ -91,3 +91,53 @@ fn a_point_outside_the_window_is_not_on_the_interface() {
     assert!(!layout.blocks(Vec2::new(-5.0, 500.0)));
     assert!(!layout.blocks(Vec2::new(400.0, 650.0)));
 }
+
+#[test]
+fn the_information_panel_has_room_for_the_building_and_what_it_trains() {
+    let layout = Layout::new(Vec2::new(800.0, 600.0));
+    let info = layout.info_panel;
+
+    assert_eq!(layout.building_icon.size, Vec2::new(36.0, 36.0));
+    assert_eq!(layout.training_icon.size, Vec2::new(36.0, 36.0));
+    let mut parts = vec![
+        layout.building_icon,
+        layout.training_icon,
+        layout.progress_bar,
+    ];
+    parts.extend(layout.queue_icons);
+    for part in &parts {
+        assert!(info.contains_rect(*part), "{part:?}");
+    }
+    for point in [layout.name_at, layout.hit_points_at] {
+        assert!(info.contains(point), "{point:?}");
+    }
+    // Nothing overlaps: each part is drawn on its own patch of parchment.
+    for (i, a) in parts.iter().enumerate() {
+        for b in &parts[i + 1..] {
+            let apart = a.max().x <= b.min.x
+                || b.max().x <= a.min.x
+                || a.max().y <= b.min.y
+                || b.max().y <= a.min.y;
+            assert!(apart, "{a:?} overlaps {b:?}");
+        }
+    }
+}
+
+#[test]
+fn there_is_a_queue_slot_for_every_unit_waiting_behind_the_one_in_training() {
+    let layout = Layout::new(Vec2::new(800.0, 600.0));
+
+    assert_eq!(layout.queue_icons.len(), sim::Building::QUEUE_LIMIT - 1);
+}
+
+#[test]
+fn the_panel_text_grows_with_the_window() {
+    let small = Layout::new(Vec2::new(800.0, 600.0));
+    let big = Layout::new(Vec2::new(1600.0, 1200.0));
+
+    assert!((big.text_px - 2.0 * small.text_px).abs() < 1e-3);
+    assert!(close(
+        Rect::new(big.name_at, Vec2::ZERO),
+        Rect::new(small.name_at * 2.0, Vec2::ZERO)
+    ));
+}

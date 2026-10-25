@@ -1,7 +1,7 @@
 # Pre-stage 2: selecting buildings and the command panel
 
 **Date:** 2026-10-25
-**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 4 done)
+**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 5 done)
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.6 step 3b
 **Pulls forward:** part of plan Phase 8 (user interface)
 
@@ -180,3 +180,16 @@ two-handed swordsman. The villager keeps sprite 1473 (its attack pose, by the
 user's choice) until standing graphics come from the `.dat` in Phase 1.6
 step 4. These offsets are a probe, not the reader: Phase 1.6 step 3b still
 walks every section.
+
+## Step 5 result (2026-10-25)
+
+The information panel, measured at 800x600 inside the parchment: the
+building's icon (227, 473, 36x36) with its name and `hp/max` beside it
+(baselines at (271, 486) and (271, 504), 16-pixel text scaled with the
+window); the unit in training's icon (227, 517); the progress bar
+(271, 529, 100x12); four 24-pixel queue slots from (227, 560) every 28
+pixels. Each building type's icon is its frame of 50705, and every frame of
+the bar 50764 is loaded; the frame drawn is the percent done, elapsed over
+the unit's training ticks. Training and the queue are shown only for your own
+building; anyone's shows its name and hit points. Breaking each rule on
+purpose fails a test.

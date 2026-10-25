@@ -260,6 +260,11 @@ fn each_unit_types_icon_is_its_frame_of_the_unit_icons() {
     };
     assert_eq!(width(UnitKind::VILLAGER), Some(16));
     assert_eq!(width(UnitKind::SOLDIER), Some(9));
+    // Taken from the unit icons, not the building icons (colour 7).
+    let pixels = renderer
+        .texture_pixels(sprites.unit_icon(UnitKind::VILLAGER).texture)
+        .expect("uploaded");
+    assert_eq!(&pixels[0..4], colour(9));
     remove(&dir);
 }
 
@@ -276,5 +281,69 @@ fn an_icon_frame_the_install_does_not_have_is_an_error_naming_the_entry() {
         "{:?}",
         result.err()
     );
+    remove(&dir);
+}
+
+#[test]
+fn each_building_types_icon_is_its_frame_of_the_building_icons() {
+    // The town centre's is frame 28, the barracks' frame 2.
+    let dir = install(
+        "building-icons",
+        graphics(&[(50705, common::icons_in(30, 7))]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let width = |kind| {
+        renderer
+            .texture_size(sprites.building_icon(kind).texture)
+            .map(|(w, _)| w)
+    };
+    assert_eq!(width(BuildingKind::TOWN_CENTER), Some(29));
+    assert_eq!(width(BuildingKind::BARRACKS), Some(3));
+    remove(&dir);
+}
+
+#[test]
+fn a_building_icon_the_install_does_not_have_is_an_error_naming_the_entry() {
+    let mut content = Content::default();
+    content.building_mut(BuildingKind::BARRACKS).icon = 99;
+    let dir = install(
+        "building-icon-missing",
+        graphics(&[]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+
+    let result = load_images(&dir, &content);
+
+    assert!(
+        matches!(&result, Err(AssetError::MissingIcon { entry, frame: 99 }) if entry == "barracks"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn every_frame_of_the_progress_bar_is_loaded_in_order() {
+    let dir = install("progress", graphics(&[]), slp(1, 2, &TWO_PIXELS));
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    assert_eq!(sprites.progress.len(), 100);
+    // Frame n of the fake bar is n + 1 pixels wide.
+    for (n, frame) in sprites.progress.iter().enumerate() {
+        assert_eq!(
+            renderer.texture_size(frame.texture),
+            Some((n as u32 + 1, 1))
+        );
+    }
     remove(&dir);
 }

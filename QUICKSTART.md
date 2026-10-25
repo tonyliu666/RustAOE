@@ -125,8 +125,12 @@ resource slots, and along the bottom the command panel (left), the
 information panel (middle, parchment), and the minimap frame (right). Clicks
 on the interface never reach the map: a left click there keeps your
 selection, a right click there orders nothing, and a box cannot be started
-there. Select one of your buildings and the command panel shows a button for each
-unit it trains; the other panels are still empty. The map
+there. Select a building and the information panel (the parchment) shows its icon,
+name, and hit points. For one of your own, the command panel shows a button
+for each unit it trains, and while it trains, the information panel shows the
+unit in training with a progress bar filling up, and small icons of the units
+queued behind it (up to five in all). An enemy building shows its name and hit
+points only. The top bar and the minimap are still empty. The map
 shows through the open middle; the game opens with your base in the middle of
 it.
 
@@ -157,8 +161,9 @@ between them. The overlay at the top shows whose turn it is and their resources.
    cannot queue five units on one unit's worth of gold.
 3. **Build an army.** Left click your barracks; its command panel shows the
    soldier's icon. Click it (or press `1`) to train a soldier for 60 gold.
-   About 6 seconds later it appears next to the barracks. Click again to
-   queue more, up to five, while you can pay. The soldier is the
+   The information panel's progress bar fills over about 6 seconds, and then
+   the soldier appears next to the barracks. Click again to queue more, up to
+   five, while you can pay; the queued ones wait as small icons under the bar. The soldier is the
    original's militia, and its button shows the militia's icon. Villagers take
    5 seconds.
 4. **Switch sides.** Press `Tab` and do the same for the other player. Each

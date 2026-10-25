@@ -37,8 +37,17 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         sprite(renderer, (36, 36), (0.0, 0.0)),
         sprite(renderer, (36, 36), (0.0, 0.0)),
     ];
+    let building_icons = vec![
+        sprite(renderer, (36, 36), (0.0, 0.0)),
+        sprite(renderer, (36, 36), (0.0, 0.0)),
+    ];
+    let progress = (0..100)
+        .map(|_| sprite(renderer, (100, 12), (0.0, 0.0)))
+        .collect();
     Sprites {
         unit_icons,
+        building_icons,
+        progress,
         grass,
         tree,
         gold_mine,
@@ -140,22 +149,28 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 
 /// The sprite IDs the game loads, with the sprite each gets.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
-    [1473u32, 993, 901, 131, 1270, 4479, 51101, 50730]
-        .into_iter()
-        .map(|id| {
-            let bytes = overrides.iter().find(|(o, _)| *o == id).map_or_else(
-                || {
-                    if id == 50730 {
-                        icons(16)
-                    } else {
-                        slp(1, 2, &TWO_PIXELS)
-                    }
-                },
-                |(_, b)| b.clone(),
-            );
-            (SLP, id, bytes)
-        })
-        .collect()
+    [
+        1473u32, 993, 901, 131, 1270, 4479, 51101, 50730, 50705, 50764,
+    ]
+    .into_iter()
+    .map(|id| {
+        let bytes = overrides.iter().find(|(o, _)| *o == id).map_or_else(
+            || {
+                if id == 50730 {
+                    icons(16)
+                } else if id == 50705 {
+                    icons_in(30, 7)
+                } else if id == 50764 {
+                    icons(100)
+                } else {
+                    slp(1, 2, &TWO_PIXELS)
+                }
+            },
+            |(_, b)| b.clone(),
+        );
+        (SLP, id, bytes)
+    })
+    .collect()
 }
 
 /// Writes a fake install to a fresh scratch directory: the palette, every
@@ -198,14 +213,27 @@ pub fn remove(dir: &Path) {
 /// A sprite of `frames` frames where frame n is one row n + 1 pixels wide,
 /// so a frame is told by its width: a stand-in for the unit icons (50730).
 pub fn icons(frames: usize) -> Vec<u8> {
+    icons_in(frames, 9)
+}
+
+/// [`icons`] drawn in palette colour `colour`, so that two icon sprites can
+/// be told apart.
+pub fn icons_in(frames: usize, colour: u8) -> Vec<u8> {
     let mut out = b"2.0N".to_vec();
     out.extend((frames as i32).to_le_bytes());
     out.extend([0u8; 24]);
     let bodies: Vec<Vec<u8>> = (0..frames)
         .map(|f| {
-            // One row: a block of f + 1 copies of colour 9, then end of row.
-            let mut row = vec![((f as u8 + 1) << 2)];
-            row.extend(std::iter::repeat_n(9u8, f + 1));
+            // One row of f + 1 pixels of colour 9, in runs of at most 63
+            // (a run's length is six bits), then end of row.
+            let mut row = Vec::new();
+            let mut left = f + 1;
+            while left > 0 {
+                let run = left.min(63);
+                row.push((run as u8) << 2);
+                row.extend(std::iter::repeat_n(colour, run));
+                left -= run;
+            }
             row.push(0x0F);
             row
         })

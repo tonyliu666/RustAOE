@@ -28,9 +28,27 @@ const BUTTON_ROWS: usize = 3;
 const BUTTON_ORIGIN: Vec2 = Vec2::new(7.0, 465.0);
 const BUTTON_STEP: f32 = 41.0;
 const BUTTON_SIZE: f32 = 36.0;
+// The information panel, top to bottom: the selected building's icon with
+// its name and hit points beside it, then the unit in training with its
+// progress bar, then the units queued behind it.
+const BUILDING_ICON: (f32, f32, f32, f32) = (227.0, 473.0, 36.0, 36.0);
+/// Where the name's and the hit points' text sits: the left end of its
+/// baseline.
+const NAME_AT: Vec2 = Vec2::new(271.0, 486.0);
+const HIT_POINTS_AT: Vec2 = Vec2::new(271.0, 504.0);
+/// The panel's text height at 800x600.
+const TEXT_PX: f32 = 16.0;
+const TRAINING_ICON: (f32, f32, f32, f32) = (227.0, 517.0, 36.0, 36.0);
 /// The progress bar's slot: beside the icon of the unit in training, at the
 /// size of the original's bar sprite (`interfac.drs` 50764, 100x12).
-const PROGRESS_BAR: (f32, f32, f32, f32) = (271.0, 499.0, 100.0, 12.0);
+const PROGRESS_BAR: (f32, f32, f32, f32) = (271.0, 529.0, 100.0, 12.0);
+/// The queue's small icons: the first one's corner, their size, and the
+/// distance from one to the next.
+const QUEUE_ORIGIN: Vec2 = Vec2::new(227.0, 560.0);
+const QUEUE_ICON: f32 = 24.0;
+const QUEUE_STEP: f32 = 28.0;
+/// Units waiting behind the one in training.
+const QUEUE_SLOTS: usize = sim::Building::QUEUE_LIMIT - 1;
 
 /// An axis-aligned rectangle in screen pixels.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -75,6 +93,10 @@ impl Rect {
     }
 }
 
+fn point(at: Vec2, scale: Vec2) -> Vec2 {
+    Vec2::new(at.x * scale.x, at.y * scale.y)
+}
+
 fn rect((x, y, w, h): (f32, f32, f32, f32)) -> Rect {
     Rect::new(Vec2::new(x, y), Vec2::new(w, h))
 }
@@ -89,7 +111,15 @@ pub struct Layout {
     /// The command panel's buttons, row by row, left to right.
     pub buttons: [Rect; BUTTON_COLUMNS * BUTTON_ROWS],
     pub info_panel: Rect,
+    pub building_icon: Rect,
+    pub name_at: Vec2,
+    pub hit_points_at: Vec2,
+    /// The information panel's text height, in screen pixels.
+    pub text_px: f32,
+    pub training_icon: Rect,
     pub progress_bar: Rect,
+    /// One slot per unit waiting behind the one in training, oldest first.
+    pub queue_icons: [Rect; QUEUE_SLOTS],
     pub minimap: Rect,
 }
 
@@ -107,7 +137,16 @@ impl Layout {
             command_panel: rect(COMMAND_PANEL).scaled(scale),
             buttons,
             info_panel: rect(INFO_PANEL).scaled(scale),
+            building_icon: rect(BUILDING_ICON).scaled(scale),
+            name_at: point(NAME_AT, scale),
+            hit_points_at: point(HIT_POINTS_AT, scale),
+            text_px: TEXT_PX * scale.y,
+            training_icon: rect(TRAINING_ICON).scaled(scale),
             progress_bar: rect(PROGRESS_BAR).scaled(scale),
+            queue_icons: std::array::from_fn(|i| {
+                let at = QUEUE_ORIGIN + Vec2::new(QUEUE_STEP * i as f32, 0.0);
+                Rect::new(at, Vec2::new(QUEUE_ICON, QUEUE_ICON)).scaled(scale)
+            }),
             minimap: rect(MINIMAP).scaled(scale),
         }
     }

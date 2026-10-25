@@ -28,6 +28,8 @@ const OVERLAY_ORIGIN: Vec2 = Vec2::new(8.0, 24.0);
 const OVERLAY_PX: f32 = 20.0;
 /// Vertical gap between overlay lines, in screen pixels.
 const OVERLAY_LINE: f32 = 22.0;
+/// The information panel's text: dark ink on the parchment.
+const INK: Color = Color::rgb(0.12, 0.08, 0.04);
 /// Height of a health bar, in tiles.
 const HEALTH_BAR_HEIGHT: f32 = 0.12;
 
@@ -68,6 +70,7 @@ pub fn draw_world<R: Renderer>(
     draw_drag_box(renderer, hud);
     draw_interface(renderer, camera, sprites);
     draw_command_panel(renderer, camera, view, hud, sprites);
+    draw_info_panel(renderer, camera, view, hud, sprites);
     draw_overlay(renderer, camera, view, hud);
     renderer.end_frame();
 }
@@ -106,6 +109,62 @@ fn draw_command_panel<R: Renderer>(
     for (kind, button) in trains.into_iter().zip(layout.buttons) {
         let (at, size) = screen_rect(camera, button);
         renderer.sprite(sprites.unit_icon(kind).texture, at, size);
+    }
+}
+
+/// Draws what the information panel says about the selected building: its
+/// icon, name, and hit points, and, for your own building, the unit in
+/// training with its progress bar and the units queued behind it.
+fn draw_info_panel<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    let Some(building) = hud.building.and_then(|id| view.building(id)) else {
+        return;
+    };
+    let layout = Layout::new(camera.viewport);
+    let stats = view.content().building(building.kind);
+    let mut icon = |texture, rect| {
+        let (at, size) = screen_rect(camera, rect);
+        renderer.sprite(texture, at, size);
+    };
+    icon(
+        sprites.building_icon(building.kind).texture,
+        layout.building_icon,
+    );
+    for (text, at) in [
+        (stats.name.clone(), layout.name_at),
+        (
+            format!("{}/{}", building.hp.max(0), stats.max_hp),
+            layout.hit_points_at,
+        ),
+    ] {
+        renderer.text(&text, camera.screen_to_world(at), layout.text_px, INK);
+    }
+
+    // What a building trains is its owner's business.
+    if building.owner != hud.active_player {
+        return;
+    }
+    let Some((&head, waiting)) = building.queue.split_first() else {
+        return;
+    };
+    let mut icon = |texture, rect| {
+        let (at, size) = screen_rect(camera, rect);
+        renderer.sprite(texture, at, size);
+    };
+    icon(sprites.unit_icon(head).texture, layout.training_icon);
+    let total = view.content().unit(head).train_ticks.max(1);
+    let done = total.saturating_sub(building.train_ticks);
+    // Frame n is n percent full; a unit counted down to its last tick shows
+    // the fullest frame there is.
+    let frame = (done as usize * 100 / total as usize).min(sprites.progress.len() - 1);
+    icon(sprites.progress[frame].texture, layout.progress_bar);
+    for (&kind, slot) in waiting.iter().zip(layout.queue_icons) {
+        icon(sprites.unit_icon(kind).texture, slot);
     }
 }
 

@@ -431,3 +431,179 @@ fn with_no_building_selected_there_are_no_buttons() {
     let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
     assert_eq!(drawn_with(&renderer, soldier), []);
 }
+
+// --- the information panel --------------------------------------------------------
+
+fn texts(renderer: &RecordingRenderer) -> Vec<(String, Vec2)> {
+    renderer
+        .texts()
+        .map(|(text, pos)| (text.to_string(), pos))
+        .collect()
+}
+
+/// Selects player one's barracks in `world` and draws a frame.
+fn draw_with_barracks_selected(renderer: &mut RecordingRenderer, world: &World) -> Sprites {
+    let hud = Hud {
+        building: Some(barracks_of(world, PlayerId::ONE)),
+        ..hud(&[], None)
+    };
+    draw(renderer, world, &hud)
+}
+
+/// [`two_barracks`] with player one training `count` soldiers, stepped
+/// until the first has `remaining` ticks left.
+fn training(count: usize, remaining: u32) -> World {
+    let map = MapSpec::new(16, 16)
+        .with_starting_gold(1000)
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(1, 1))
+        .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(10, 1));
+    let mut world = World::new(7, map);
+    let barracks = barracks_of(&world, PlayerId::ONE);
+    let orders: Vec<Command> = (0..count)
+        .map(|_| Command::Train {
+            player: PlayerId::ONE,
+            building: barracks,
+            unit: UnitKind::SOLDIER,
+        })
+        .collect();
+    world.step(&orders);
+    while world
+        .view()
+        .building(barracks)
+        .expect("standing")
+        .train_ticks
+        > remaining
+    {
+        world.step(&[]);
+    }
+    world
+}
+
+#[test]
+fn the_information_panel_shows_the_selected_buildings_icon_name_and_hit_points() {
+    let mut renderer = RecordingRenderer::new();
+    let world = two_barracks();
+
+    let sprites = draw_with_barracks_selected(&mut renderer, &world);
+
+    let layout = app::Layout::new(camera().viewport);
+    let icon = sprites.building_icon(BuildingKind::BARRACKS).texture;
+    assert_eq!(
+        drawn_with(&renderer, icon),
+        [in_world(layout.building_icon)]
+    );
+    let camera = camera();
+    let texts = texts(&renderer);
+    let max_hp = world
+        .view()
+        .content()
+        .building(BuildingKind::BARRACKS)
+        .max_hp;
+    assert!(
+        texts.contains(&(
+            "barracks".to_string(),
+            camera.screen_to_world(layout.name_at)
+        )),
+        "{texts:?}"
+    );
+    assert!(
+        texts.contains(&(
+            format!("{max_hp}/{max_hp}"),
+            camera.screen_to_world(layout.hit_points_at)
+        )),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn with_nothing_training_there_is_no_progress_bar() {
+    let mut renderer = RecordingRenderer::new();
+    let world = two_barracks();
+
+    let sprites = draw_with_barracks_selected(&mut renderer, &world);
+
+    for frame in &sprites.progress {
+        assert_eq!(drawn_with(&renderer, frame.texture), []);
+    }
+}
+
+#[test]
+fn the_progress_bar_shows_how_much_of_the_unit_is_trained() {
+    // With 70 percent of the soldier's training time left it is 30 percent
+    // done, and frame n of the original's bar is n percent full.
+    let total = sim::Content::default().unit(UnitKind::SOLDIER).train_ticks;
+    assert_eq!(total % 10, 0, "a time that splits into tenths");
+    let mut renderer = RecordingRenderer::new();
+    let world = training(1, total / 10 * 7);
+
+    let sprites = draw_with_barracks_selected(&mut renderer, &world);
+
+    let layout = app::Layout::new(camera().viewport);
+    let drawn: Vec<usize> = sprites
+        .progress
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| !drawn_with(&renderer, s.texture).is_empty())
+        .map(|(frame, _)| frame)
+        .collect();
+    assert_eq!(drawn, [30]);
+    assert_eq!(
+        drawn_with(&renderer, sprites.progress[30].texture),
+        [in_world(layout.progress_bar)]
+    );
+}
+
+#[test]
+fn the_unit_in_training_and_the_ones_queued_behind_it_show_their_icons() {
+    let mut renderer = RecordingRenderer::new();
+    let world = training(3, 50);
+
+    let sprites = draw_with_barracks_selected(&mut renderer, &world);
+
+    let layout = app::Layout::new(camera().viewport);
+    let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
+    let mut expected = vec![
+        in_world(layout.buttons[0]),
+        in_world(layout.training_icon),
+        in_world(layout.queue_icons[0]),
+        in_world(layout.queue_icons[1]),
+    ];
+    let mut drawn = drawn_with(&renderer, soldier);
+    let key = |r: &(Vec2, Vec2)| (r.0.x.to_bits(), r.0.y.to_bits());
+    expected.sort_by_key(key);
+    drawn.sort_by_key(key);
+    assert_eq!(drawn, expected);
+}
+
+#[test]
+fn another_players_building_shows_its_name_but_not_what_it_trains() {
+    let mut renderer = RecordingRenderer::new();
+    let world = training(2, 50);
+    // Player one's barracks is training; player two looks at it.
+    let hud = Hud {
+        active_player: PlayerId::TWO,
+        building: Some(barracks_of(&world, PlayerId::ONE)),
+        ..hud(&[], None)
+    };
+
+    let sprites = draw(&mut renderer, &world, &hud);
+
+    assert!(texts(&renderer).iter().any(|(t, _)| t == "barracks"));
+    let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
+    assert_eq!(drawn_with(&renderer, soldier), []);
+    for frame in &sprites.progress {
+        assert_eq!(drawn_with(&renderer, frame.texture), []);
+    }
+}
+
+#[test]
+fn with_nothing_selected_the_information_panel_is_empty() {
+    let mut renderer = RecordingRenderer::new();
+    let world = two_barracks();
+
+    let sprites = draw(&mut renderer, &world, &hud(&[], None));
+
+    let icon = sprites.building_icon(BuildingKind::BARRACKS).texture;
+    assert_eq!(drawn_with(&renderer, icon), []);
+    assert!(!texts(&renderer).iter().any(|(t, _)| t == "barracks"));
+}
