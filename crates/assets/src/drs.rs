@@ -165,6 +165,16 @@ impl<'a> Drs<'a> {
         self.tables.iter()
     }
 
+    /// Every file as (type, ID, byte range in the archive), in ID order.
+    ///
+    /// For indexing an archive once and dropping the parse: the ranges stay
+    /// valid for the bytes the archive was parsed from.
+    pub fn entries(&self) -> impl Iterator<Item = (&str, u32, std::ops::Range<usize>)> + '_ {
+        self.files.iter().map(|(id, (table, offset, size))| {
+            (self.tables[*table].kind(), *id, *offset..*offset + *size)
+        })
+    }
+
     /// The file type of file `id`, such as `slp`.
     pub fn kind_of(&self, id: u32) -> Option<&str> {
         let (table, _, _) = self.files.get(&id)?;

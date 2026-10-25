@@ -10,7 +10,9 @@ use crate::pick::{Bodies, Body};
 use assets::{Drs, DrsError, Image, Palette, PaletteError, Slp, SlpError};
 use render::{Renderer, TextureId, Vec2};
 use sim::{BuildingKind, Content, PlayerId, UnitKind};
+use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 /// Sprite pixels per tile for units. The original's tile is 97 pixels across
@@ -215,56 +217,112 @@ impl fmt::Display for AssetError {
 
 impl std::error::Error for AssetError {}
 
-/// An archive read into memory, remembering where it came from for errors.
+/// The original's archives, in the order it opens them (`FUN_0043ae90`):
+/// the expansion's first, then the base game's. A file is looked up by type
+/// and ID in the first archive that has it (`FUN_00543630`), so the
+/// expansion's copies override the base game's.
+const ARCHIVE_ORDER: [&str; 8] = [
+    "sounds_x1.drs",
+    "gamedata_x1.drs",
+    "gamedata_x1_p1.drs",
+    "sounds.drs",
+    "graphics.drs",
+    "terrain.drs",
+    "interfac.drs",
+    "gamedata.drs",
+];
+
+/// The archives the game cannot draw without, read first so that a missing
+/// install is reported by the first one a player would miss.
+const REQUIRED: [&str; 3] = ["interfac.drs", "graphics.drs", "terrain.drs"];
+
+/// One archive in memory, parsed once into an index of its files.
 struct Archive {
-    path: PathBuf,
     bytes: Vec<u8>,
+    /// (file type, ID) to the file's bytes.
+    index: HashMap<(String, u32), Range<usize>>,
 }
 
-impl Archive {
-    fn read(dir: &Path, name: &str) -> Result<Archive, AssetError> {
-        let path = dir.join("data").join(name);
-        let bytes = std::fs::read(&path).map_err(|error| AssetError::Io {
-            path: path.clone(),
-            error,
-        })?;
-        Drs::parse(&bytes).map_err(|error| AssetError::Drs {
-            path: path.clone(),
-            error,
-        })?;
-        Ok(Archive { path, bytes })
-    }
+/// Every archive of an install, in the original's search order.
+struct Archives {
+    dir: PathBuf,
+    /// In [`ARCHIVE_ORDER`]; archives the install lacks are left out.
+    list: Vec<Archive>,
+}
 
-    fn get(&self, id: u32) -> Result<&[u8], AssetError> {
-        let drs = Drs::parse(&self.bytes).map_err(|error| AssetError::Drs {
-            path: self.path.clone(),
-            error,
-        })?;
-        drs.get(id).ok_or_else(|| AssetError::Missing {
-            path: self.path.clone(),
-            id,
+impl Archives {
+    fn read(dir: &Path) -> Result<Archives, AssetError> {
+        let read = |name: &str| -> Result<Option<Archive>, AssetError> {
+            let path = dir.join("data").join(name);
+            let bytes = match std::fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound
+                        && !REQUIRED.contains(&name) =>
+                {
+                    return Ok(None);
+                }
+                Err(error) => return Err(AssetError::Io { path, error }),
+            };
+            let index = Drs::parse(&bytes)
+                .map_err(|error| AssetError::Drs {
+                    path: path.clone(),
+                    error,
+                })?
+                .entries()
+                .map(|(kind, id, range)| ((kind.to_string(), id), range))
+                .collect();
+            Ok(Some(Archive { bytes, index }))
+        };
+        let mut loaded: HashMap<&str, Archive> = HashMap::new();
+        for name in REQUIRED
+            .iter()
+            .chain(ARCHIVE_ORDER.iter().filter(|n| !REQUIRED.contains(n)))
+        {
+            if let Some(archive) = read(name)? {
+                loaded.insert(name, archive);
+            }
+        }
+        let list = ARCHIVE_ORDER
+            .iter()
+            .filter_map(|name| loaded.remove(name))
+            .collect();
+        Ok(Archives {
+            dir: dir.to_path_buf(),
+            list,
         })
     }
 
+    /// The first archive's file of type `kind` (`slp`, `bina`) and `id`.
+    fn get(&self, kind: &str, id: u32) -> Result<&[u8], AssetError> {
+        let key = (kind.to_string(), id);
+        self.list
+            .iter()
+            .find_map(|a| a.index.get(&key).map(|range| &a.bytes[range.clone()]))
+            .ok_or_else(|| AssetError::Missing {
+                path: self.dir.join("data"),
+                id,
+            })
+    }
+
     fn sprite(&self, id: u32) -> Result<Slp<'_>, AssetError> {
-        Slp::parse(self.get(id)?).map_err(|error| AssetError::Slp { id, error })
+        Slp::parse(self.get("slp", id)?).map_err(|error| AssetError::Slp { id, error })
     }
 }
 
 /// Reads and decodes every sprite the game draws from an install directory:
 /// the folder holding `data/interfac.drs`, `data/graphics.drs`, and
-/// `data/terrain.drs`. Each unit and building type is drawn with the sprite
+/// `data/terrain.drs`, plus the original's other archives where present,
+/// searched in the original's order. Each unit and building type is drawn with the sprite
 /// its `content` entry names.
 pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetError> {
-    let interfac = Archive::read(dir, "interfac.drs")?;
-    let palette = Palette::parse(interfac.get(PALETTE)?).map_err(AssetError::Palette)?;
-    let graphics = Archive::read(dir, "graphics.drs")?;
-    let terrain = Archive::read(dir, "terrain.drs")?;
+    let archives = Archives::read(dir)?;
+    let palette = Palette::parse(archives.get("bina", PALETTE)?).map_err(AssetError::Palette)?;
 
     // Frame 0 of each sprite: a unit's first facing; animation is a later
     // step. `player` picks the player colours.
     let decode = |id: u32, player: u8| -> Result<Frame, AssetError> {
-        let slp = graphics.sprite(id)?;
+        let slp = archives.sprite(id)?;
         let first = *slp.frames().next().ok_or(AssetError::EmptySprite { id })?;
         if first.width == 0 || first.height == 0 {
             return Err(AssetError::EmptySprite { id });
@@ -294,7 +352,7 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
     // Neutral objects belong to Gaia: player slot 0's colours.
     let neutral = |id: u32| decode(id, 0);
 
-    let grass_slp = terrain.sprite(GRASS)?;
+    let grass_slp = archives.sprite(GRASS)?;
     let variations = grass_slp.frames().count().min(GRASS_VARIATIONS);
     if variations == 0 || grass_slp.frames().any(|f| f.width == 0 || f.height == 0) {
         return Err(AssetError::EmptySprite { id: GRASS });

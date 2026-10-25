@@ -79,8 +79,12 @@ pub fn drs(files: &[([u8; 4], u32, Vec<u8>)]) -> Vec<u8> {
     [header, records, entries, data].concat()
 }
 
+/// An archive's files as (type tag, ID, bytes).
+pub type Files = Vec<([u8; 4], u32, Vec<u8>)>;
+
 pub const SLP: [u8; 4] = *b" pls";
 pub const BINA: [u8; 4] = *b"anib";
+pub const WAV: [u8; 4] = *b" vaw";
 
 /// A palette where colour `i` is `(i, 255 - i, 7)`.
 pub fn palette() -> Vec<u8> {
@@ -148,6 +152,17 @@ pub fn install(
     graphics_files: Vec<([u8; 4], u32, Vec<u8>)>,
     grass: Vec<u8>,
 ) -> PathBuf {
+    install_with(name, graphics_files, grass, &[])
+}
+
+/// [`install`], plus extra archives such as the expansion's, as
+/// `(file name, files)`.
+pub fn install_with(
+    name: &str,
+    graphics_files: Vec<([u8; 4], u32, Vec<u8>)>,
+    grass: Vec<u8>,
+    extra: &[(&str, Files)],
+) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("aoe-install-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("data")).expect("scratch directory");
@@ -157,6 +172,9 @@ pub fn install(
     write("interfac.drs", drs(&[(BINA, 50500, palette())]));
     write("graphics.drs", drs(&graphics_files));
     write("terrain.drs", drs(&[(SLP, 15001, grass)]));
+    for (file, files) in extra {
+        write(file, drs(files));
+    }
     dir
 }
 

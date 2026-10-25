@@ -4,7 +4,7 @@
 mod common;
 
 use app::{load_images, AssetError};
-use common::{colour, graphics, install, remove, slp, TWO_PIXELS};
+use common::{colour, graphics, install, install_with, remove, slp, TWO_PIXELS};
 use render::RecordingRenderer;
 use sim::{BuildingKind, Content, PlayerId, UnitKind};
 
@@ -139,5 +139,61 @@ fn a_sprite_the_install_does_not_have_is_an_error_naming_the_entry() {
         "{:?}",
         result.err()
     );
+    remove(&dir);
+}
+
+// --- archive order ---------------------------------------------------------------
+
+/// A three-pixel sprite, told apart from the two-pixel default by its width.
+fn three_pixels() -> Vec<u8> {
+    slp(1, 3, &[3 << 2, 9, 9, 9, 0x0F])
+}
+
+#[test]
+fn a_sprite_in_an_expansion_archive_overrides_the_base_games_copy() {
+    // The original opens the expansion's archives first and takes the first
+    // match (FUN_0043ae90, FUN_00543630): gamedata_x1_p1.drs before
+    // graphics.drs.
+    let dir = install_with(
+        "override",
+        graphics(&[]),
+        slp(1, 2, &TWO_PIXELS),
+        &[(
+            "gamedata_x1_p1.drs",
+            vec![(common::SLP, 1473, three_pixels())],
+        )],
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let villager = sprites.unit(UnitKind::VILLAGER, PlayerId::ONE);
+    assert_eq!(renderer.texture_size(villager.texture), Some((3, 1)));
+    remove(&dir);
+}
+
+#[test]
+fn a_sound_with_a_sprites_id_does_not_hide_the_sprite() {
+    // Archives are searched by type and ID: sounds_x1.drs comes first and
+    // holds a sound numbered like the villager's sprite.
+    let dir = install_with(
+        "sound-id",
+        graphics(&[]),
+        slp(1, 2, &TWO_PIXELS),
+        &[(
+            "sounds_x1.drs",
+            vec![(common::WAV, 1473, b"RIFF....".to_vec())],
+        )],
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let villager = sprites.unit(UnitKind::VILLAGER, PlayerId::ONE);
+    assert_eq!(renderer.texture_size(villager.texture), Some((2, 1)));
     remove(&dir);
 }

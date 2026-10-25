@@ -152,3 +152,23 @@ fn an_id_listed_twice_is_an_error() {
         Some(DrsError::DuplicateId { id: 7 })
     );
 }
+
+#[test]
+fn entries_list_each_files_type_id_and_place_in_the_archive() {
+    let bytes = sample();
+    let drs = Drs::parse(&bytes).expect("a well-formed archive");
+
+    let entries: Vec<(&str, u32, Vec<u8>)> = drs
+        .entries()
+        .map(|(kind, id, range)| (kind, id, bytes[range].to_vec()))
+        .collect();
+
+    assert_eq!(
+        entries,
+        [
+            ("slp", 1388, b"villager".to_vec()),
+            ("slp", 15001, b"grass".to_vec()),
+            ("bina", 50500, b"JASC-PAL".to_vec()),
+        ]
+    );
+}
