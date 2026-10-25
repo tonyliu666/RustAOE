@@ -54,10 +54,8 @@ fn run(options: &Options) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let data = assets::dat::decompress(&bytes)?;
     let dat = assets::dat::Dat::parse(&data)?;
-    let sprites = datconv::sprites_in(&options.install)?;
-    let converted = convert(&dat, options.civ, options.selection, &|slp| {
-        sprites.contains(&slp)
-    })?;
+    let install = datconv::Install::read(&options.install)?;
+    let converted = convert(&dat, options.civ, options.selection, &install)?;
     std::fs::write(&options.out, &converted.ron)
         .map_err(|e| format!("{}: {e}", options.out.display()))?;
     Ok(converted.report)

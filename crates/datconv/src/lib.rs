@@ -242,7 +242,7 @@ struct Facts<'a> {
     /// The civilisation's units, by ID.
     units: &'a [Option<Unit>],
     /// Whether the install holds an SLP.
-    in_install: &'a dyn Fn(u32) -> bool,
+    install: &'a Install,
     /// The classes of units that have a gather task: a villager has none of
     /// its own, but the gold miner it turns into has.
     gathering_classes: BTreeSet<i16>,
@@ -251,11 +251,7 @@ struct Facts<'a> {
 }
 
 impl<'a> Facts<'a> {
-    fn of(
-        dat: &'a Dat,
-        units: &'a [Option<Unit>],
-        in_install: &'a dyn Fn(u32) -> bool,
-    ) -> Facts<'a> {
+    fn of(dat: &'a Dat, units: &'a [Option<Unit>], install: &'a Install) -> Facts<'a> {
         let gathering_classes: BTreeSet<i16> = units
             .iter()
             .flatten()
@@ -279,7 +275,7 @@ impl<'a> Facts<'a> {
         Facts {
             dat,
             units,
-            in_install,
+            install,
             gathering_classes,
             drop_offs,
         }
@@ -308,7 +304,7 @@ fn sprite_of(
     let sprite = facts
         .dat
         .slp_of(unit.standing_graphic)
-        .filter(|slp| (facts.in_install)(*slp as u32))
+        .filter(|slp| facts.install.has(*slp as u32))
         .ok_or_else(|| {
             format!(
                 "its standing graphic {} has no sprite in the install",
@@ -363,7 +359,7 @@ fn pieces(facts: &Facts<'_>, graphic: i16, name: &str, report: &mut Vec<String>)
         .flatten()
         .map(|slp| slp as u32)
         .filter(|&slp| {
-            let here = (facts.in_install)(slp);
+            let here = facts.install.has(slp);
             if !here {
                 report.push(format!(
                     "{name}: piece SLP {slp} is in no archive, left out as the original does"
@@ -382,8 +378,8 @@ fn convert_unit(
 ) -> Result<UnitEntry, String> {
     let mut notes = Vec::new();
     let (sprite, parts) = sprite_of(facts, unit, &name, &mut notes)?;
-    if unit.icon < 0 {
-        return Err("it has no icon".to_string());
+    if unit.icon < 0 || unit.icon as usize >= facts.install.unit_icons {
+        return Err(format!("the install has no unit icon {}", unit.icon));
     }
     let creatable = unit.creatable.as_ref().ok_or("it is not trained")?;
     let speed_per_second = unit.speed.unwrap_or(0.0);
@@ -445,8 +441,8 @@ fn convert_building(
 ) -> Result<BuildingEntry, String> {
     let mut notes = Vec::new();
     let (sprite, parts) = sprite_of(facts, unit, &name, &mut notes)?;
-    if unit.icon < 0 {
-        return Err("it has no icon".to_string());
+    if unit.icon < 0 || unit.icon as usize >= facts.install.building_icons {
+        return Err(format!("the install has no building icon {}", unit.icon));
     }
     if unit.hit_points <= 0 {
         return Err("it has no hit points".to_string());
@@ -470,18 +466,18 @@ fn convert_building(
     })
 }
 
-/// Converts civilisation `civ` of `dat`. `in_install` says whether the
-/// user's install holds an SLP (see [`sprites_in`]): a piece it lacks is left
-/// out, as the original leaves it out.
+/// Converts civilisation `civ` of `dat` for the user's `install`: a piece
+/// it lacks is left out, as the original leaves it out, and a type whose
+/// sprite or icon it lacks cannot be drawn, so is left out too.
 pub fn convert(
     dat: &Dat,
     civ: usize,
     selection: Selection,
-    in_install: &dyn Fn(u32) -> bool,
+    install: &Install,
 ) -> Result<Conversion, ConvertError> {
     let civilisation = dat.civs.get(civ).ok_or(ConvertError::NoCiv(civ))?;
     let units = &civilisation.units;
-    let facts = Facts::of(dat, units, in_install);
+    let facts = Facts::of(dat, units, install);
     let mut report = Vec::new();
     let find = |id: i16, name: &'static str| {
         usize::try_from(id)
@@ -654,23 +650,60 @@ const ARCHIVES: [&str; 8] = [
     "gamedata.drs",
 ];
 
-/// Every SLP ID in the install's archives under `dir/data`. Archives the
-/// install lacks are skipped.
-pub fn sprites_in(dir: &Path) -> Result<BTreeSet<u32>, String> {
-    let mut sprites = BTreeSet::new();
-    for name in ARCHIVES {
-        let path = dir.join("data").join(name);
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("{}: {error}", path.display())),
-        };
-        let drs = Drs::parse(&bytes).map_err(|error| format!("{}: {error:?}", path.display()))?;
-        sprites.extend(
-            drs.entries()
-                .filter(|(kind, _, _)| *kind == "slp")
-                .map(|(_, id, _)| id),
-        );
+/// What the user's install holds, as far as converting needs to know: every
+/// SLP in its archives, and how many frames the unit and building icon
+/// sprites have.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Install {
+    pub sprites: BTreeSet<u32>,
+    /// Frames of the unit icons, `interfac.drs` 50730.
+    pub unit_icons: usize,
+    /// Frames of the building icons, `interfac.drs` 50705.
+    pub building_icons: usize,
+}
+
+/// The icon sprites the game draws buttons from.
+const UNIT_ICONS: u32 = 50730;
+const BUILDING_ICONS: u32 = 50705;
+
+impl Install {
+    pub fn has(&self, slp: u32) -> bool {
+        self.sprites.contains(&slp)
     }
-    Ok(sprites)
+
+    /// Reads the archives under `dir/data`; archives the install lacks are
+    /// skipped. An SLP in several archives counts the first one's frames, in
+    /// the original's order.
+    pub fn read(dir: &Path) -> Result<Install, String> {
+        let mut sprites = BTreeSet::new();
+        let (mut unit_icons, mut building_icons) = (None, None);
+        for name in ARCHIVES {
+            let path = dir.join("data").join(name);
+            let bytes = match std::fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(format!("{}: {error}", path.display())),
+            };
+            let drs =
+                Drs::parse(&bytes).map_err(|error| format!("{}: {error:?}", path.display()))?;
+            let frames = |id: u32| {
+                drs.get(id)
+                    .and_then(|b| assets::Slp::parse(b).ok())
+                    .map(|slp| slp.frames().count())
+            };
+            unit_icons = unit_icons.or_else(|| frames(UNIT_ICONS));
+            building_icons = building_icons.or_else(|| frames(BUILDING_ICONS));
+            sprites.extend(
+                drs.entries()
+                    .filter(|(kind, _, _)| *kind == "slp")
+                    .map(|(_, id, _)| id),
+            );
+        }
+        Ok(Install {
+            sprites,
+            unit_icons: unit_icons.ok_or("the install has no unit icons (interfac.drs 50730)")?,
+            building_icons: building_icons
+                .ok_or("the install has no building icons (interfac.drs 50705)")?,
+        })
+    }
 }

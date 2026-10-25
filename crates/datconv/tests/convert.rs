@@ -1,7 +1,7 @@
 //! Converting a whole `.dat`, built in the test, to the game's content.
 
 use assets::dat::{Annex, Civ, Combat, Cost, Creatable, Dat, Graphic, GraphicDelta, Task, Unit};
-use datconv::{convert, ConvertError, Selection};
+use datconv::{convert, ConvertError, Install, Selection};
 
 /// A graphic drawing `slp`, with pieces naming other graphics (-1 for this
 /// graphic's own SLP).
@@ -27,13 +27,21 @@ fn graphic(id: i16, slp: i32, pieces: &[i16]) -> Option<Graphic> {
 /// pieces and one piece of the town centre.
 const NOT_IN_THE_INSTALL: [u32; 3] = [1477, 1478, 890];
 
-fn in_the_install(slp: u32) -> bool {
-    !NOT_IN_THE_INSTALL.contains(&slp)
+/// The fake install: every SLP the fake file names except
+/// [`NOT_IN_THE_INSTALL`], and icon sprites as long as the real ones.
+fn install() -> Install {
+    Install {
+        sprites: [1479, 993, 3596, 2683, 889, 4612, 891]
+            .into_iter()
+            .collect(),
+        unit_icons: 134,
+        building_icons: 52,
+    }
 }
 
-/// [`convert`] with the fake install's sprites.
+/// [`convert`] with the fake install.
 fn convert_with(dat: &Dat, selection: Selection) -> Result<datconv::Conversion, ConvertError> {
-    convert(dat, 1, selection, &in_the_install)
+    convert(dat, 1, selection, &install())
 }
 
 fn part(resource: i16, amount: i16, used: bool) -> Cost {
@@ -393,7 +401,9 @@ fn a_piece_the_install_lacks_is_left_out_and_reported() {
 
 #[test]
 fn a_type_whose_own_sprite_the_install_lacks_cannot_be_converted() {
-    let converted = convert(&dat(), 1, Selection::All, &|slp| slp != 993).expect("converts");
+    let mut install = install();
+    install.sprites.remove(&993);
+    let converted = convert(&dat(), 1, Selection::All, &install).expect("converts");
 
     assert!(!converted.ron.contains("sprmn_74"));
     assert!(converted
@@ -455,7 +465,27 @@ fn a_missing_unit_the_game_needs_is_an_error_naming_it() {
 #[test]
 fn a_civilisation_the_file_does_not_have_is_an_error() {
     assert_eq!(
-        convert(&dat(), 7, Selection::Default, &in_the_install).err(),
+        convert(&dat(), 7, Selection::Default, &install()).err(),
         Some(ConvertError::NoCiv(7))
+    );
+}
+
+#[test]
+fn a_type_whose_icon_the_install_lacks_is_left_out_and_reported() {
+    // The building icon sprite has 52 frames: frame 60 is not one of them,
+    // and the game could not draw the button.
+    let mut dat = dat();
+    dat.civs[1].units[12].as_mut().expect("the barracks").icon = 60;
+
+    let converted = convert_with(&dat, Selection::All).expect("converts");
+
+    assert!(!converted.ron.contains("brks_12"));
+    assert!(
+        converted
+            .report
+            .iter()
+            .any(|l| l.contains("brks_12") && l.contains("icon 60")),
+        "{:#?}",
+        converted.report
     );
 }

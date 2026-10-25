@@ -2,11 +2,10 @@
 
 use datconv::{convert, Selection};
 
-/// Whether the real install holds an SLP, in any of its archives.
-fn in_the_install() -> impl Fn(u32) -> bool {
+/// What the real install holds.
+fn install() -> datconv::Install {
     let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
-    let sprites = datconv::sprites_in(std::path::Path::new(&dir)).expect("the archives read");
-    move |slp| sprites.contains(&slp)
+    datconv::Install::read(std::path::Path::new(&dir)).expect("the archives read")
 }
 
 fn real_dat() -> assets::dat::Dat {
@@ -20,8 +19,7 @@ fn real_dat() -> assets::dat::Dat {
 #[test]
 #[ignore = "needs the game's data: set AOE_ASSETS and run with --ignored"]
 fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers() {
-    let converted =
-        convert(&real_dat(), 1, Selection::Default, &in_the_install()).expect("converts");
+    let converted = convert(&real_dat(), 1, Selection::Default, &install()).expect("converts");
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
     let villager = &content.units[0];
@@ -63,7 +61,7 @@ fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers()
 #[test]
 #[ignore = "needs the game's data: set AOE_ASSETS and run with --ignored"]
 fn every_unit_and_building_of_a_civilisation_converts_to_content_the_game_loads() {
-    let converted = convert(&real_dat(), 1, Selection::All, &in_the_install()).expect("converts");
+    let converted = convert(&real_dat(), 1, Selection::All, &install()).expect("converts");
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
     let left_out = converted
@@ -78,4 +76,7 @@ fn every_unit_and_building_of_a_civilisation_converts_to_content_the_game_loads(
     );
     assert!(content.units.len() > 50, "{}", content.units.len());
     assert!(content.buildings.len() > 20, "{}", content.buildings.len());
+    // And the game can draw every one of them: sprites, parts, and icons.
+    let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
+    app::load_images(std::path::Path::new(&dir), &content).expect("the install draws it");
 }

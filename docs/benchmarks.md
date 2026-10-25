@@ -45,3 +45,30 @@ About 4% slower per step than Phase 0, still over 100x under the 5 ms budget.
 
 Re-run this benchmark at the end of Phase 6 (unit roster and combat), as the
 plan requires.
+
+## 2026-10-25: end of Phase 1.6
+
+Same machine and toolchain. Range measured between edges (`World::in_reach`).
+
+| Benchmark | Median | Range |
+| --- | --- | --- |
+| `step 200 units moving` | 47.58 µs | 47.35–47.85 µs |
+| `flow field 128x128` | 294.56 µs | 292.31–296.97 µs |
+
+About 3% slower per step than the end of Phase 1.5, still about 105x under
+the 5 ms budget.
+
+**Sprite loading** (`load_images` on the real install, release build, median
+of five; `cargo test --release -p app --test load_time -- --ignored
+--nocapture` with `AOE_ASSETS` set, and `AOE_CONTENT` naming a content file):
+
+| Content | Types | Load |
+| --- | --- | --- |
+| Default | 2 unit, 2 building (the town centre in 8 parts) | 55.3 ms |
+| `datconv --all`, British | 201 unit, 116 building | 187.6 ms |
+
+The Phase 1.6 baseline was 145 ms for the default content, before archives
+were parsed once. The full table is well under the 2-second limit the Phase
+1.6 spec set for decoding lazily, so every type is still decoded at startup,
+nine times (one per player colour). Lookups stay a direct index:
+`Content::unit` and `Sprites::unit` index a `Vec` by type ID.

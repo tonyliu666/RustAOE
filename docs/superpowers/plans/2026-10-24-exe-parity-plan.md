@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
 **Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
-**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 steps 1 to 5, 5b (drawing in parts), and 5c (range between edges) done; step 6 (performance checkpoint) next. Phase 1.6 finishes before more interface work.
+**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 steps 1 to 6 done (with 5b, drawing in parts, and 5c, range between edges); its end-of-phase review next. Phase 1.6 finishes before more interface work.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
