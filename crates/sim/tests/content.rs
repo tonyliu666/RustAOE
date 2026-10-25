@@ -17,7 +17,11 @@ const SEED: u64 = 0xC0DE;
 /// player two so that nobody has already lost.
 fn base_map() -> MapSpec {
     MapSpec::new(32, 32)
-        .with_starting_gold(200)
+        .with_starting_resources(Resources {
+            food: 200,
+            gold: 200,
+            ..Resources::default()
+        })
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
         .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(12, 4))
         .with_building(
@@ -55,7 +59,7 @@ fn run(world: &mut World, ticks: u64) {
 #[test]
 fn training_charges_the_cost_from_content() {
     let mut content = Content::default();
-    content.unit_mut(UnitKind::VILLAGER).cost.gold = 30;
+    content.unit_mut(UnitKind::VILLAGER).cost.food = 30;
     let mut world = World::with_content(SEED, base_map(), content);
     let town_center = building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
 
@@ -65,7 +69,7 @@ fn training_charges_the_cost_from_content() {
         unit: UnitKind::VILLAGER,
     }]);
 
-    assert_eq!(world.view().gold(PlayerId::ONE), 170);
+    assert_eq!(world.view().resources(PlayerId::ONE).food, 170);
 }
 
 #[test]
@@ -243,8 +247,8 @@ fn a_building_trains_what_content_says_it_trains() {
         unit: UnitKind::VILLAGER,
     }]);
 
-    // By default a barracks refuses villagers and no gold is spent.
-    assert_eq!(world.view().gold(PlayerId::ONE), 200 - 50);
+    // By default a barracks refuses villagers and no food is spent.
+    assert_eq!(world.view().resources(PlayerId::ONE).food, 200 - 50);
 }
 
 // --- gathering ------------------------------------------------------------
@@ -320,7 +324,7 @@ fn gold_is_mined_at_the_rate_in_content() {
 #[test]
 fn a_recording_made_with_custom_content_verifies_against_that_content() {
     let mut content = Content::default();
-    content.unit_mut(UnitKind::VILLAGER).cost.gold = 30;
+    content.unit_mut(UnitKind::VILLAGER).cost.food = 30;
     let mut world = World::with_content(SEED, base_map(), content.clone());
     let mut replay = Replay::with_content(SEED, base_map(), content);
     let town_center = building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
@@ -631,4 +635,20 @@ fn the_default_soldier_looks_like_the_militia_in_the_world_and_on_its_button() {
     let soldier = Content::default().unit(UnitKind::SOLDIER).clone();
 
     assert_eq!((soldier.sprite, soldier.icon), (993, 8));
+}
+
+#[test]
+fn the_default_villager_costs_food_as_the_originals_does() {
+    // 50 food, as the original's .dat (unit 83) has it; the soldier keeps
+    // its 60 gold until Phase 2.
+    let content = Content::default();
+
+    assert_eq!(
+        content.unit(UnitKind::VILLAGER).cost,
+        sim::Resources {
+            food: 50,
+            ..sim::Resources::default()
+        }
+    );
+    assert_eq!(content.unit(UnitKind::SOLDIER).cost.gold, 60);
 }

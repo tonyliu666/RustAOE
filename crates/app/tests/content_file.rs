@@ -35,9 +35,12 @@ fn the_shipped_file_holds_the_default_content() {
 #[test]
 fn changing_a_number_in_the_file_changes_the_game() {
     let content =
-        parse_content(&default_with("cost: (gold: 50)", "cost: (gold: 30)")).expect("should parse");
+        parse_content(&default_with("cost: (food: 50)", "cost: (food: 30)")).expect("should parse");
     let map = MapSpec::new(16, 16)
-        .with_starting_gold(200)
+        .with_starting_resources(Resources {
+            food: 200,
+            ..Resources::default()
+        })
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
         .with_building(
             BuildingKind::TOWN_CENTER,
@@ -57,7 +60,7 @@ fn changing_a_number_in_the_file_changes_the_game() {
         unit: UnitKind::VILLAGER,
     }]);
 
-    assert_eq!(world.view().gold(PlayerId::ONE), 170);
+    assert_eq!(world.view().resources(PlayerId::ONE).food, 170);
 }
 
 #[test]
@@ -108,8 +111,8 @@ fn a_number_the_game_cannot_run_with_names_its_field() {
 #[test]
 fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n            cost: (gold: 50)",
-        "radius: (1, 0),\n            cost: (gold: 50)",
+        "radius: (1, 4),\n            cost: (food: 50)",
+        "radius: (1, 0),\n            cost: (food: 50)",
     ));
 
     assert_eq!(
@@ -124,8 +127,8 @@ fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
 #[test]
 fn a_fraction_too_large_for_fixed_point_is_an_error_rather_than_wrapping() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n            cost: (gold: 50)",
-        "radius: (100000, 1),\n            cost: (gold: 50)",
+        "radius: (1, 4),\n            cost: (food: 50)",
+        "radius: (100000, 1),\n            cost: (food: 50)",
     ));
 
     // Wrapped, this would come out negative and be reported as "must be
@@ -153,7 +156,7 @@ fn a_resource_left_out_of_a_cost_reads_as_zero() {
     assert_eq!(
         content.unit(UnitKind::VILLAGER).cost,
         Resources {
-            gold: 50,
+            food: 50,
             ..Resources::default()
         }
     );
@@ -161,7 +164,7 @@ fn a_resource_left_out_of_a_cost_reads_as_zero() {
 
 #[test]
 fn a_misspelled_resource_in_a_cost_is_an_error() {
-    let result = parse_content(&default_with("cost: (gold: 50)", "cost: (gld: 50)"));
+    let result = parse_content(&default_with("cost: (food: 50)", "cost: (fod: 50)"));
 
     assert!(
         matches!(result, Err(ContentFileError::Malformed(_))),

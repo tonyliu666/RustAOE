@@ -231,7 +231,14 @@ impl MapSpec {
         let villager = content
             .unit_named("villager")
             .ok_or_else(|| missing("villager"))?;
-        let mut map = MapSpec::new(SIZE, SIZE).with_starting_gold(200);
+        // The original's standard 200 food, so villagers can be trained
+        // before food can be gathered (plan Phase 2), and 200 gold for the
+        // barracks.
+        let mut map = MapSpec::new(SIZE, SIZE).with_starting_resources(Resources {
+            food: 200,
+            gold: 200,
+            ..Resources::default()
+        });
 
         for (player, base) in [
             (PlayerId::ONE, TilePos::new(16, 16)),

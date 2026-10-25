@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
 **Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
-**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done. Phase 1.6 steps 1 to 4 done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 step 5 next, and Phase 1.6 finishes before more interface work.
+**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done. Phase 1.6 steps 1 to 5 done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 step 6 (performance checkpoint) next, and Phase 1.6 finishes before more interface work.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
@@ -95,7 +95,7 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 
 - **Goal:** Food, wood, gold, and stone, each with its own gatherer and drop-off.
 - **Work:** Generalise the gather state machine over resource kind, and turn `Mine` into a generic resource site owned by Gaia. Food sources: forage bushes, hunt, fish, and farms placed by the map, since players cannot build until Phase 3. Drop-off buildings (mill, lumber camp, mining camp) are placed by the map for the same reason. Conservation becomes a per-resource property test.
-- **Every number matches the original,** not only costs: hit points, speeds, ranges, reload and train times, carry capacity and gather rates, and each unit's standing graphic (the villager is drawn in its attack pose until then). A villager costs 50 food, not gold; the soldier is the militia at 60 food and 20 gold. Values come from the Phase 1.6 converter. This is a recorded replay break: bump the replay format version.
+- **Every number matches the original,** not only costs: hit points, speeds, ranges, reload and train times, carry capacity and gather rates, and each unit's standing graphic (the villager is drawn in its attack pose until then). The villager already costs 50 food (moved forward at the user's request on 2026-10-25, with every player starting on the original's 200 food and keeping 200 gold, since food cannot be gathered until this phase); the soldier becomes the militia at 60 food and 20 gold. Values come from the Phase 1.6 converter. This is a recorded replay break: bump the replay format version.
 - **Gathering as the original plays it** (asked for by the user during pre-stage 2): a pickaxe cursor over a resource with villagers selected; a right-click on a drop-off building sends loaded villagers to deposit early and then back to work; the information panel shows a selected villager's load.
 - **Reference:** Gather loop in `reverse/aoc/aoc_decompiled.c`. Search for the resource strings in `reverse/aoc/strings.txt` first.
 - **Gate:** Conservation property test passes for all four resources. A villager never delivers a resource to a building that does not accept it.

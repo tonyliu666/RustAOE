@@ -8,3 +8,7 @@ reverse/*
 sample/*
 # The extracted game install (QUICKSTART step 2): game data, never committed.
 /aoe2-install/
+
+# Content converted by datconv from the user's own .dat: game data, not ours.
+/all.ron
+/original.ron

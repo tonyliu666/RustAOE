@@ -1,0 +1,16 @@
+[package]
+name = "datconv"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+# A development tool: reads the original's .dat from the user's own install
+# and writes the game's RON content format. The game never opens a .dat.
+
+[dependencies]
+assets = { path = "../assets" }
+
+[dev-dependencies]
+app = { path = "../app", default-features = false }
+sim = { path = "../sim" }

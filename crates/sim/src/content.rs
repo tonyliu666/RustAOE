@@ -317,8 +317,9 @@ impl Default for Content {
                     range: Fx::ZERO,
                     attack_cooldown: 0,
                     radius: Fx::from_frac(1, 4),
+                    // 50 food, as the original's .dat has it.
                     cost: Resources {
-                        gold: 50,
+                        food: 50,
                         ..Resources::default()
                     },
                     train_ticks: 100,

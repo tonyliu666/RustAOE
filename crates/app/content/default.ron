@@ -13,9 +13,10 @@
 // Distances are in tiles.
 //
 // Costs list only the resources they use: `(food: 50, gold: 20)`; a resource
-// left out costs nothing. Only gold can be gathered so far, so every cost is
-// in gold until Phase 2 of the exe-parity plan, which makes the villager cost
-// food as it does in the original.
+// left out costs nothing. The villager costs 50 food, as in the original;
+// food cannot be gathered until Phase 2 of the exe-parity plan, so each player
+// starts with 200 food (the original's standard start) and 200 gold. The
+// soldier costs gold until Phase 2 gives it the militia's 60 food and 20 gold.
 (
     units: [
         (
@@ -29,7 +30,7 @@
             range: (0, 1),
             attack_cooldown: 0,
             radius: (1, 4),
-            cost: (gold: 50),
+            cost: (food: 50),
             train_ticks: 100,       // 5 seconds
         ),
         (

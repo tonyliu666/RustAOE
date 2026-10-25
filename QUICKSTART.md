@@ -97,7 +97,7 @@ band of forest.
 | Right click ground | Move there |
 | Right click a gold mine | Send selected villagers to gather |
 | Right click an enemy | Attack it |
-| Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 gold; barracks: soldier, 60 gold) |
+| Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 food; barracks: soldier, 60 gold) |
 | `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
 | `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit |
@@ -151,7 +151,8 @@ handover: your view and your selected units are still there when you come back.
 
 **What you start with.** Each player has a town centre, a barracks (the
 smaller building to the town centre's right), three villagers standing below
-the town centre, a gold mine to the lower left, and 200 gold. There are **no
+the town centre, a gold mine to the lower left, 200 food, and 200 gold. There
+are **no
 soldiers on the map at the start**: you train them (step 3). Player 1 starts in
 the top-left of the map, player 2 in the bottom-right, with a band of forest
 between them. The top bar shows your resources; the line under it says whose
@@ -163,11 +164,11 @@ turn it is.
    their own, deposit it, and go again: one order, no micromanagement. The
    gold in the top bar goes up when a load is deposited, not while it is
    mined.
-2. **Grow.** Once you are above 50 gold, left click your town centre. The
-   command panel at the bottom left shows the villager's icon: click it (or
-   press `1`) a few times to queue villagers. Gold is charged when you queue,
-   not when the unit appears, so you cannot queue five units on one unit's
-   worth of gold.
+2. **Grow.** Left click your town centre. The command panel at the bottom
+   left shows the villager's icon: click it (or press `1`) to queue a
+   villager for 50 food, as in the original. Food is charged when you queue,
+   not when the unit appears. Food cannot be gathered yet (plan Phase 2), so
+   the 200 food you start with is four villagers.
 3. **Build an army.** Left click your barracks; its command panel shows the
    soldier's icon. Click it (or press `1`) to train a soldier for 60 gold.
    The information panel's progress bar fills over about 6 seconds, and then
@@ -198,6 +199,36 @@ Unit and building types and their numbers come from
 number or add a whole new unit type (with the sprite ID to draw it with), and
 run with `--content my.ron`. A broken file is an error message, never a
 crash.
+
+### The original's numbers: `datconv`
+
+`datconv` reads `data/empires2_x1_p1.dat` from your install and writes the
+same RON format, with the original's numbers. Run it from the repository
+root:
+
+```sh
+# The four types the game has (villager, soldier, town centre, barracks),
+# with the original's numbers, for the British.
+cargo run -p datconv -- --install aoe2-install --out original.ron
+
+# Every trainable unit and building of one civilisation: here 6, the Chinese.
+cargo run -p datconv -- --install aoe2-install --out all.ron --all --civ 6
+```
+
+`--civ` picks the civilisation: 0 Gaia, 1 British (the default), 2 French,
+3 Goths, 4 Germans, 5 Japanese, 6 Chinese, 7 Byzantine, 8 Persians,
+9 Saracens, 10 Turks, 11 Vikings, 12 Mongols, 13 Celts, 14 Spanish,
+15 Aztecs, 16 Mayan, 17 Huns, 18 Koreans. With `--all` every entry is named
+after the original's code and unit ID (`sprmn_74` is the militia), and the
+file is a reference to read rather than one to play: the game's map needs the
+four default names.
+
+The tool prints what it had to round, what it left out and why, and which
+graphics the original draws in several pieces. `original.ron` loads with
+`--content original.ron`, but expect a different game: the original's melee
+range is measured between unit edges and ours between centres, and its
+soldier costs food the game cannot gather yet. The game's own numbers stay in
+`default.ron` until plan Phase 2 adopts the converted ones.
 
 ## 7. Record and replay a game
 

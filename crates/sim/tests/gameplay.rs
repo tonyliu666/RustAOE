@@ -5,7 +5,7 @@
 
 use sim::{
     BuildingId, BuildingKind, Command, Content, EntityId, MapSpec, MineId, Outcome, PlayerId,
-    TilePos, UnitId, UnitKind, World,
+    Resources, TilePos, UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
 
@@ -14,7 +14,11 @@ const SEED: u64 = 0xA6E0;
 /// A 32x32 map with one town centre and one barracks for player one.
 fn base_map() -> MapSpec {
     MapSpec::new(32, 32)
-        .with_starting_gold(200)
+        .with_starting_resources(Resources {
+            food: 200,
+            gold: 200,
+            ..Resources::default()
+        })
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
         .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(12, 4))
         .with_building(
@@ -388,10 +392,10 @@ fn a_gather_order_against_a_depleted_seam_is_dropped() {
 // --- training -------------------------------------------------------------
 
 #[test]
-fn training_a_villager_spends_gold_and_produces_a_unit() {
+fn training_a_villager_spends_its_cost_and_produces_a_unit() {
     let mut world = world(base_map());
     let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
-    let before = world.view().gold(PlayerId::ONE);
+    let before = world.view().resources(PlayerId::ONE).food;
 
     world.step(&[Command::Train {
         player: PlayerId::ONE,
@@ -399,9 +403,9 @@ fn training_a_villager_spends_gold_and_produces_a_unit() {
         unit: UnitKind::VILLAGER,
     }]);
     assert_eq!(
-        world.view().gold(PlayerId::ONE),
-        before - Content::default().unit(UnitKind::VILLAGER).cost.gold,
-        "gold is charged when the unit is queued, not when it pops"
+        world.view().resources(PlayerId::ONE).food,
+        before - Content::default().unit(UnitKind::VILLAGER).cost.food,
+        "food is charged when the unit is queued, not when it pops"
     );
 
     run(
@@ -414,7 +418,11 @@ fn training_a_villager_spends_gold_and_produces_a_unit() {
 
 #[test]
 fn training_is_refused_when_the_player_cannot_afford_it() {
-    let mut world = world(base_map().with_starting_gold(10));
+    let mut world = world(base_map().with_starting_resources(Resources {
+        food: 10,
+        gold: 10,
+        ..Resources::default()
+    }));
     let town_center = first_building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
 
     world.step(&[Command::Train {

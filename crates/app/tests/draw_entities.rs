@@ -621,7 +621,10 @@ fn the_top_bar_shows_each_resource_in_its_own_slot() {
 #[test]
 fn the_top_bar_shows_the_resources_of_whoever_holds_the_keyboard() {
     let map = MapSpec::new(16, 16)
-        .with_starting_gold(200)
+        .with_starting_resources(Resources {
+            food: 200,
+            ..Resources::default()
+        })
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
         .with_building(
             BuildingKind::TOWN_CENTER,
@@ -634,25 +637,25 @@ fn the_top_bar_shows_the_resources_of_whoever_holds_the_keyboard() {
         .buildings()
         .find(|(_, b)| b.owner == PlayerId::ONE)
         .expect("a town centre");
-    // Player one spends 50 on a villager; player two keeps 200.
+    // Player one spends 50 food on a villager; player two keeps 200.
     world.step(&[Command::Train {
         player: PlayerId::ONE,
         building: town_centre,
         unit: UnitKind::VILLAGER,
     }]);
     let layout = app::Layout::new(camera().viewport);
-    let gold = layout.resource_at(sim::Resource::Gold);
+    let food = layout.resource_at(sim::Resource::Food);
     let mut renderer = RecordingRenderer::new();
 
     draw(&mut renderer, &world, &hud(&[], None));
-    let ones = text_at(&renderer, gold);
+    let ones = text_at(&renderer, food);
     renderer.clear();
     let twos_turn = Hud {
         active_player: PlayerId::TWO,
         ..hud(&[], None)
     };
     draw(&mut renderer, &world, &twos_turn);
-    let twos = text_at(&renderer, gold);
+    let twos = text_at(&renderer, food);
 
     assert_eq!(ones.as_deref(), Some("150"));
     assert_eq!(twos.as_deref(), Some("200"));
