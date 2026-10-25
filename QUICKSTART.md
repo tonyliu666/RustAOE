@@ -91,7 +91,8 @@ band of forest.
 | `F10` | Lock the mouse inside the window (and free it again) |
 | Mouse wheel | Zoom out / in |
 | Left click a unit | Select it |
-| Left drag | Box-select your units |
+| Left click a building | Select it: yours or the enemy's, to look at. A white outline shows which |
+| Left drag | Box-select your units (a box never selects buildings) |
 | Left click empty ground | Clear the selection |
 | Right click ground | Move there |
 | Right click a gold mine | Send selected villagers to gather |

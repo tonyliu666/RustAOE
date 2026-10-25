@@ -21,6 +21,7 @@ fn hud<'a>(selection: &'a [UnitId], drag_box: Option<(Vec2, Vec2)>) -> Hud<'a> {
     Hud {
         active_player: PlayerId::ONE,
         selection,
+        building: None,
         drag_box,
         replaying: false,
     }
@@ -292,4 +293,71 @@ fn the_overlay_lists_each_training_key_with_the_type_it_trains() {
             && line.contains("3 archer")),
         "overlay was {overlay:?}"
     );
+}
+
+// --- a selected building -------------------------------------------------------
+
+/// Where the town centre's sprite was drawn: (top-left, size).
+fn town_centre_drawn(renderer: &RecordingRenderer, sprites: &Sprites) -> (Vec2, Vec2) {
+    let texture = sprites
+        .building(BuildingKind::TOWN_CENTER, PlayerId::ONE)
+        .texture;
+    renderer
+        .sprites()
+        .find(|(t, _, _)| *t == texture)
+        .map(|(_, pos, size)| (pos, size))
+        .expect("the town centre is drawn")
+}
+
+#[test]
+fn a_selected_building_gets_an_outline_around_its_sprite() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+    let (town_centre, _) = world.view().buildings().next().expect("a building");
+    let hud = Hud {
+        building: Some(town_centre),
+        ..hud(&[], None)
+    };
+
+    let sprites = draw(&mut renderer, &world, &hud);
+
+    let (pos, size) = town_centre_drawn(&renderer, &sprites);
+    let ends: Vec<Vec2> = renderer
+        .calls()
+        .iter()
+        .filter_map(|call| match call {
+            DrawCall::Line { a, .. } => Some(*a),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ends,
+        [
+            pos,
+            Vec2::new(pos.x + size.x, pos.y),
+            pos + size,
+            Vec2::new(pos.x, pos.y + size.y),
+        ]
+    );
+}
+
+#[test]
+fn a_buildings_click_target_is_where_its_sprite_is_drawn() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+    let (_, building) = world.view().buildings().next().expect("a building");
+
+    let sprites = draw(&mut renderer, &world, &hud(&[], None));
+
+    let (pos, size) = town_centre_drawn(&renderer, &sprites);
+    let body = sprites
+        .bodies(world.view().content())
+        .building(BuildingKind::TOWN_CENTER)
+        .expect("a body for each building type");
+    let half = building.size as f32 / 2.0;
+    let centre = Vec2::new(
+        building.origin.x as f32 + half,
+        building.origin.y as f32 + half,
+    );
+    assert_eq!((centre + body.offset, body.size), (pos, size));
 }

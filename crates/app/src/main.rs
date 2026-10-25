@@ -154,7 +154,7 @@ mod game {
         }
 
         // Clicks select what is drawn: the sprites' bodies, not just feet.
-        session.set_bodies(sprites.bodies());
+        session.set_bodies(sprites.bodies(&content));
 
         // The mouse starts free to leave the window; F10 holds it inside, as
         // AoE2's "lock mouse to window" does. See `Session::mouse_locked`.
@@ -209,6 +209,7 @@ mod game {
             let hud = Hud {
                 active_player: session.active_player(),
                 selection: session.selection(),
+                building: session.selected_building(),
                 drag_box: session.drag_box(cursor),
                 replaying: playback.is_some(),
             };

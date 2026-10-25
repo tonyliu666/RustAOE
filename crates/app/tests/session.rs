@@ -798,3 +798,175 @@ fn a_drag_started_on_the_interface_selects_nothing() {
 
     assert_eq!(session.selection(), selected);
 }
+
+// --- selecting buildings -------------------------------------------------------
+
+/// The building of `kind` that `owner` has on the test map.
+fn building_of(world: &World, owner: PlayerId, kind: BuildingKind) -> sim::BuildingId {
+    world
+        .view()
+        .buildings()
+        .find(|(_, b)| b.owner == owner && b.kind == kind)
+        .map(|(id, _)| id)
+        .expect("the building is on the map")
+}
+
+/// Player one's barracks covers tiles (0, 12) to (2, 14); this is its middle.
+const BARRACKS_MIDDLE: Vec2 = Vec2::new(1.5, 13.5);
+
+#[test]
+fn clicking_your_building_selects_it_and_drops_the_selected_units() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    assert!(!session.selection().is_empty());
+
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(session.selected_building(), Some(barracks));
+    assert_eq!(session.selection(), []);
+}
+
+#[test]
+fn clicking_empty_ground_drops_the_selected_building() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(8.5, 6.5)),
+    );
+
+    assert_eq!(session.selected_building(), None);
+}
+
+#[test]
+fn clicking_a_unit_drops_the_selected_building() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(5.5, 5.5)),
+    );
+
+    assert_eq!(session.selected_building(), None);
+    assert_eq!(session.selection().len(), 1);
+}
+
+#[test]
+fn a_unit_standing_in_front_of_a_building_is_picked_before_it() {
+    let world = World::new(
+        3,
+        map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(1, 13)),
+    );
+    let mut session = session();
+
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    assert_eq!(session.selected_building(), None);
+    assert_eq!(session.selection().len(), 1);
+}
+
+#[test]
+fn clicking_a_buildings_roof_above_its_footprint_selects_it() {
+    // The barracks drawn 1.5 tiles taller than its footprint: its body runs
+    // from y 10.5 down to the footprint's bottom edge at 15.
+    let world = world();
+    let mut session = session();
+    let barracks_body = app::Body {
+        offset: Vec2::new(-1.5, -3.0),
+        size: Vec2::new(3.0, 4.5),
+    };
+    session.set_bodies(app::Bodies {
+        buildings: vec![barracks_body, barracks_body],
+        ..app::Bodies::default()
+    });
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(1.5, 11.0)),
+    );
+
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(session.selected_building(), Some(barracks));
+}
+
+#[test]
+fn an_enemy_building_can_be_selected_to_look_at() {
+    let world = world();
+    let mut session = session();
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(14.0, 2.0)),
+    );
+
+    let theirs = building_of(&world, PlayerId::TWO, BuildingKind::TOWN_CENTER);
+    assert_eq!(session.selected_building(), Some(theirs));
+}
+
+#[test]
+fn a_drag_box_drops_the_selected_building() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    select_all(&mut session, &world);
+
+    assert_eq!(session.selected_building(), None);
+    assert!(!session.selection().is_empty());
+}
+
+#[test]
+fn a_destroyed_building_falls_out_of_the_selection() {
+    // Player two's soldiers knock down player one's barracks.
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(0, 0))
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(0, 12))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(12, 0),
+        )
+        .with_unit(UnitKind::SOLDIER, PlayerId::TWO, TilePos::new(3, 13));
+    let mut content = sim::Content::default();
+    content.building_mut(BuildingKind::BARRACKS).max_hp = 1;
+    let mut world = World::with_content(3, map, content);
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(session.selected_building(), Some(barracks));
+
+    let (soldier, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::TWO)
+        .expect("the soldier");
+    world.step(&[Command::Attack {
+        player: PlayerId::TWO,
+        units: [soldier].into_iter().collect(),
+        target: EntityId::Building(barracks),
+    }]);
+    for _ in 0..200 {
+        world.step(&[]);
+    }
+    assert!(
+        world.view().building(barracks).is_none(),
+        "the barracks stands"
+    );
+    session.update(&InputState::default(), 0.0, world.view());
+
+    assert_eq!(session.selected_building(), None);
+}

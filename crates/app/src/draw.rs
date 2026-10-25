@@ -7,10 +7,11 @@
 //! filled rectangles are health bars, and the only lines are the selection
 //! outline and the drag box, as in the original.
 
+use crate::pick::footprint_centre;
 use crate::pick::to_screen_space;
-use crate::sprites::{Sprite, Sprites, UNIT_PIXELS_PER_TILE};
+use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
 use render::{Camera, Color, Renderer, Vec2};
-use sim::{FxVec2, Outcome, PlayerId, Resource, Resources, TilePos, UnitId, WorldView};
+use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, Resources, TilePos, UnitId, WorldView};
 use std::collections::{HashMap, HashSet};
 
 /// The outline around a selected unit and the drag rectangle.
@@ -35,6 +36,8 @@ const HEALTH_BAR_HEIGHT: f32 = 0.12;
 pub struct Hud<'a> {
     pub active_player: PlayerId,
     pub selection: &'a [UnitId],
+    /// The building this player has selected, if any: then no units are.
+    pub building: Option<BuildingId>,
     /// Corners of the selection rectangle being dragged, in world units.
     pub drag_box: Option<(Vec2, Vec2)>,
     /// Whether the simulation is being driven by a recording rather than input.
@@ -59,7 +62,7 @@ pub fn draw_world<R: Renderer>(
     renderer.begin_frame(camera);
     draw_terrain(renderer, camera, view, sprites);
     draw_mines(renderer, view, sprites);
-    draw_buildings(renderer, view, sprites);
+    draw_buildings(renderer, view, hud, sprites);
     draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
     draw_interface(renderer, camera, sprites);
@@ -214,15 +217,23 @@ fn draw_mines<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Spri
     }
 }
 
-fn draw_buildings<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
-    for (_, building) in view.buildings() {
+fn draw_buildings<R: Renderer>(
+    renderer: &mut R,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    for (id, building) in view.buildings() {
         let size = building.size as f32;
         let origin = Vec2::new(building.origin.x as f32, building.origin.y as f32);
         // Scaled to the footprint's width, with the sprite's ground point on
         // the footprint's centre, so that it covers the tiles it blocks.
         let sprite = sprites.building(building.kind, building.owner);
-        let centre = origin + Vec2::new(size, size) * 0.5;
-        stand(renderer, sprite, centre, size / sprite.width);
+        let scale = building_scale(sprite, building.size);
+        let (top_left, drawn) = stand(renderer, sprite, footprint_centre(building), scale);
+        if hud.building == Some(id) {
+            outline(renderer, top_left, top_left + drawn);
+        }
         health_bar(
             renderer,
             origin,

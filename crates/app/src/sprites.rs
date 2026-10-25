@@ -79,18 +79,26 @@ impl Sprites {
         &self.buildings[kind.index()][slot(owner)]
     }
 
-    /// Each unit kind's drawn body, for picking: the same placement as
-    /// drawing, so a click lands on what the player sees.
-    pub fn bodies(&self) -> Bodies {
-        let body = |sprite: &Sprite| {
-            let scale = 1.0 / UNIT_PIXELS_PER_TILE;
-            Body {
-                offset: Vec2::new(-sprite.hotspot.x, -sprite.hotspot.y) * scale,
-                size: Vec2::new(sprite.width, sprite.height) * scale,
-            }
+    /// Each unit and building kind's drawn body, for picking: the same
+    /// placement as drawing, so a click lands on what the player sees.
+    /// Buildings are drawn scaled to their footprint, which `content` gives.
+    pub fn bodies(&self, content: &Content) -> Bodies {
+        let body = |sprite: &Sprite, scale: f32| Body {
+            offset: Vec2::new(-sprite.hotspot.x, -sprite.hotspot.y) * scale,
+            size: Vec2::new(sprite.width, sprite.height) * scale,
         };
         Bodies {
-            units: self.units.iter().map(|set| body(&set[1])).collect(),
+            units: self
+                .units
+                .iter()
+                .map(|set| body(&set[1], 1.0 / UNIT_PIXELS_PER_TILE))
+                .collect(),
+            buildings: self
+                .buildings
+                .iter()
+                .zip(&content.buildings)
+                .map(|(set, stats)| body(&set[1], building_scale(&set[1], stats.size)))
+                .collect(),
             ..Bodies::default()
         }
     }
@@ -101,6 +109,12 @@ impl Sprites {
         let hash = (x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663);
         self.grass[hash as usize % self.grass.len()]
     }
+}
+
+/// Tiles per sprite pixel for a building: its sprite is drawn as wide as its
+/// footprint.
+pub(crate) fn building_scale(sprite: &Sprite, size: i32) -> f32 {
+    size as f32 / sprite.width
 }
 
 fn slot(player: PlayerId) -> usize {

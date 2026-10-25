@@ -1,7 +1,7 @@
 # Pre-stage 2: selecting buildings and the command panel
 
 **Date:** 2026-10-25
-**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 and 2 done)
+**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 to 3 done)
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.6 step 3b
 **Pulls forward:** part of plan Phase 8 (user interface)
 
@@ -130,4 +130,17 @@ treats the open middle (between the top bar and the bottom row) as the view:
 zooming out stops when the map fills it, scrolling stops when its edge meets
 the map's, and `look_at` centres it, not the window, on the point. Beyond the
 map shows only under the interface. Sideways nothing changes. Breaking each
+rule on purpose fails a test.
+
+## Step 3 result (2026-10-25)
+
+`PlayerUi::building` holds the selected building; while it is set no units
+are selected, and the other way round. A left click picks a unit first (your
+own only), then a building (anyone's, to look at), else clears both; a box
+selects units only and clears the building; a destroyed building falls out.
+Buildings are picked on their footprint or their drawn body
+(`Bodies::buildings`, from the footprint's centre, built by
+`Sprites::bodies(content)` with the same scale as drawing), the front-most
+winning where bodies overlap; right-click targeting uses the same test. The
+selected building gets the white outline around its sprite. Breaking each
 rule on purpose fails a test.

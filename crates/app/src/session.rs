@@ -10,7 +10,7 @@ use crate::pick;
 use crate::ui::Layout;
 use crate::CameraController;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
-use sim::{Command, EntityId, PlayerId, UnitId, UnitKind, WorldView};
+use sim::{BuildingId, Command, EntityId, PlayerId, UnitId, UnitKind, WorldView};
 use smallvec::SmallVec;
 
 /// One side's view of the game.
@@ -19,6 +19,10 @@ pub struct PlayerUi {
     pub camera: CameraController,
     /// Units this player has selected, always alive and always theirs.
     pub selection: Vec<UnitId>,
+    /// The building this player has selected, theirs or another player's,
+    /// always standing. While one is selected no units are, and the other
+    /// way round.
+    pub building: Option<BuildingId>,
     /// Where the current left-drag started, in world units.
     pub drag_from: Option<Vec2>,
 }
@@ -28,6 +32,7 @@ impl PlayerUi {
         PlayerUi {
             camera,
             selection: Vec::new(),
+            building: None,
             drag_from: None,
         }
     }
@@ -116,6 +121,10 @@ impl Session {
         &self.active().selection
     }
 
+    pub fn selected_building(&self) -> Option<BuildingId> {
+        self.active().building
+    }
+
     /// The rectangle being dragged right now, as opposite world-space corners.
     pub fn drag_box(&self, cursor_world: Vec2) -> Option<(Vec2, Vec2)> {
         self.active().drag_from.map(|from| (from, cursor_world))
@@ -192,16 +201,18 @@ impl Session {
         commands
     }
 
-    /// Drops selected units that have died or changed hands since last frame.
+    /// Drops selected units that have died or changed hands since last frame,
+    /// and a selected building that has been destroyed.
     ///
     /// Without this, orders would be issued against stale identifiers every
     /// frame. The simulation would drop them, but the player would be clicking
     /// into a void with no feedback.
     fn prune_selection(&mut self, view: WorldView<'_>) {
         let owner = self.active;
-        self.active_mut()
-            .selection
+        let ui = self.active_mut();
+        ui.selection
             .retain(|id| view.unit(*id).is_some_and(|u| u.owner == owner));
+        ui.building = ui.building.filter(|id| view.building(*id).is_some());
     }
 
     fn update_selection(
@@ -230,17 +241,25 @@ impl Session {
         let slop = Session::CLICK_SLOP_PIXELS / zoom;
         let dragged = travel.x.abs() > slop || travel.y.abs() > slop;
         let min = self.min_pick();
-        let selection = if dragged {
-            pick::units_in_box(view, owner, from, cursor, &self.bodies.at_least(min))
+        let (selection, building) = if dragged {
+            // A box selects units only, as in the original.
+            let units = pick::units_in_box(view, owner, from, cursor, &self.bodies.at_least(min));
+            (units, None)
+        } else if let Some(unit) = pick::unit_at(view, cursor, &self.bodies, min) {
+            // A unit in front of a building is what the player sees, so it
+            // is picked first. Only your own units can be selected.
+            let yours = view.unit(unit).is_some_and(|u| u.owner == owner);
+            (yours.then_some(unit).into_iter().collect(), None)
         } else {
-            // A click on empty ground clears the selection, which is how every
-            // RTS behaves and what makes a misclick recoverable.
-            pick::unit_at(view, cursor, &self.bodies, min)
-                .filter(|id| view.unit(*id).is_some_and(|u| u.owner == owner))
-                .into_iter()
-                .collect()
+            // Any building can be selected, to look at; only your own will
+            // offer its commands. A click on empty ground clears the
+            // selection, which is how every RTS behaves and what makes a
+            // misclick recoverable.
+            (Vec::new(), pick::building_at(view, cursor, &self.bodies))
         };
-        self.active_mut().selection = selection;
+        let ui = self.active_mut();
+        ui.selection = selection;
+        ui.building = building;
     }
 
     /// The command a right-click means, given what is under the cursor.

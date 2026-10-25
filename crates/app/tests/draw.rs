@@ -39,6 +39,7 @@ fn plain_hud() -> Hud<'static> {
     Hud {
         active_player: PlayerId::ONE,
         selection: &[],
+        building: None,
         drag_box: None,
         replaying: false,
     }

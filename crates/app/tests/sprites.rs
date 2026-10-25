@@ -21,6 +21,7 @@ fn hud() -> Hud<'static> {
     Hud {
         active_player: PlayerId::ONE,
         selection: &[],
+        building: None,
         drag_box: None,
         replaying: false,
     }
@@ -351,6 +352,7 @@ fn the_only_filled_rectangles_are_health_bars() {
     let previous: HashMap<UnitId, FxVec2> = HashMap::new();
     let hud = Hud {
         selection: std::slice::from_ref(&villager),
+        building: None,
         ..hud()
     };
     draw_world(

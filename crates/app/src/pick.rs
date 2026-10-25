@@ -4,7 +4,10 @@
 //! camera is, which `sim` has no business knowing.
 
 use render::Vec2;
-use sim::{BuildingId, EntityId, FxVec2, MineId, PlayerId, TilePos, UnitId, UnitKind, WorldView};
+use sim::{
+    Building, BuildingId, BuildingKind, EntityId, FxVec2, MineId, PlayerId, TilePos, UnitId,
+    UnitKind, WorldView,
+};
 
 /// Converts a fixed-point world position into the renderer's floats.
 ///
@@ -56,10 +59,15 @@ impl Body {
 /// Each unit type's body, indexed by its ID. The application builds these
 /// from the sprites, so that picking matches drawing; a type with no entry
 /// uses the fallback, by default a square around the feet.
+///
+/// Buildings too, but measured from the centre of the footprint, where the
+/// sprite's ground point is drawn. A building type with no body is picked by
+/// its footprint alone.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Bodies {
     pub units: Vec<Body>,
     pub fallback: Body,
+    pub buildings: Vec<Body>,
 }
 
 impl Default for Bodies {
@@ -74,6 +82,7 @@ impl Bodies {
         Bodies {
             units: Vec::new(),
             fallback: body,
+            buildings: Vec::new(),
         }
     }
 
@@ -82,7 +91,12 @@ impl Bodies {
         Bodies {
             units: self.units.iter().map(|b| b.at_least(min)).collect(),
             fallback: self.fallback.at_least(min),
+            buildings: self.buildings.clone(),
         }
+    }
+
+    pub fn building(&self, kind: BuildingKind) -> Option<Body> {
+        self.buildings.get(kind.index()).copied()
     }
 
     pub fn of(&self, kind: UnitKind) -> Body {
@@ -136,12 +150,31 @@ pub fn unit_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies, min: f32) -> O
     })
 }
 
-/// The building covering `world`, if any.
-pub fn building_at(view: WorldView<'_>, world: Vec2) -> Option<BuildingId> {
+/// The building under `world`: on its footprint or on its drawn body.
+///
+/// A tall building's roof is drawn over the tiles behind it, so where bodies
+/// overlap, the one drawn in front (its footprint lower on screen) wins.
+pub fn building_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies) -> Option<BuildingId> {
     let tile = tile_at(world);
     view.buildings()
-        .find(|(_, b)| b.footprint().any(|t| t == tile))
+        .filter(|(_, b)| {
+            b.footprint().any(|t| t == tile)
+                || bodies.building(b.kind).is_some_and(|body| {
+                    let (lo, hi) = body.at(footprint_centre(b));
+                    (lo.x..=hi.x).contains(&world.x) && (lo.y..=hi.y).contains(&world.y)
+                })
+        })
+        .max_by(|(_, a), (_, b)| footprint_centre(a).y.total_cmp(&footprint_centre(b).y))
         .map(|(id, _)| id)
+}
+
+/// The centre of a building's footprint, where its sprite stands.
+pub fn footprint_centre(building: &Building) -> Vec2 {
+    let half = building.size as f32 / 2.0;
+    Vec2::new(
+        building.origin.x as f32 + half,
+        building.origin.y as f32 + half,
+    )
 }
 
 /// The mine covering `world`, if any.
@@ -159,7 +192,7 @@ pub fn mine_at(view: WorldView<'_>, world: Vec2) -> Option<MineId> {
 pub fn entity_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies, min: f32) -> Option<EntityId> {
     unit_at(view, world, bodies, min)
         .map(EntityId::Unit)
-        .or_else(|| building_at(view, world).map(EntityId::Building))
+        .or_else(|| building_at(view, world, bodies).map(EntityId::Building))
         .or_else(|| mine_at(view, world).map(EntityId::Mine))
 }
 
