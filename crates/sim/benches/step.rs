@@ -133,5 +133,30 @@ fn bench_flow_field(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_step, bench_flow_field);
+/// Looking up a type's numbers in a table as large as the full converted
+/// British one (201 unit and 116 building types): a direct index, whatever
+/// the table's size.
+fn bench_content_lookup(c: &mut Criterion) {
+    let mut content = sim::Content::default();
+    let soldier = content.unit(UnitKind::SOLDIER).clone();
+    for n in content.units.len()..201 {
+        content.units.push(sim::UnitStats {
+            name: format!("unit_{n}"),
+            ..soldier.clone()
+        });
+    }
+    let kinds: Vec<UnitKind> = content.unit_kinds().collect();
+    c.bench_function("content lookup, 201 unit types (1000 lookups)", |b| {
+        b.iter(|| {
+            let mut total = 0;
+            for i in 0..1000 {
+                let kind = kinds[(i * 37) % kinds.len()];
+                total += black_box(&content).unit(kind).max_hp;
+            }
+            black_box(total)
+        })
+    });
+}
+
+criterion_group!(benches, bench_step, bench_flow_field, bench_content_lookup);
 criterion_main!(benches);

@@ -5,10 +5,11 @@
 //
 // Unit and building types are lists: adding a type is adding an entry. Each
 // has a unique `name`, which other entries use to refer to it (`trains`), and
-// a `sprite`: the SLP ID to draw it with, in the original game's
-// `data/graphics.drs`. `parts`, when not empty, lists the SLPs drawn instead,
-// in order and each placed by its own hotspot, as the original draws a
-// graphic's pieces and a building's annexes.
+// a `sprite`: the SLP ID to draw it with, found in the original game's
+// archives in the original's search order. `parts`, when not
+// empty, lists the SLPs drawn instead, in order, as `(slp, x, y)`: each at the
+// ground point moved x pixels right and y down, placed by its own hotspot, as
+// the original draws a graphic's pieces and a building's annexes.
 //
 // Times are in ticks; the simulation runs at 20 ticks per second.
 // Fractions are written `(numerator, denominator)`: `(1, 8)` is one eighth.
@@ -58,7 +59,10 @@
             // The Dark Age British town centre (unit 109): its graphic's
             // pieces and its three annexes', each placed by its own hotspot.
             sprite: 3596,
-            parts: [889, 3596, 4612, 891, 3595, 4611, 3594, 4610],
+            parts: [
+                (889, 0, 0), (3596, 0, 0), (4612, 0, 0), (891, 0, 0),
+                (3595, 0, 0), (4611, 0, 0), (3594, 0, 0), (4610, 0, 0),
+            ],
             icon: 28,               // a frame in interfac.drs 50705
             size: 4,                // footprint, in tiles a side
             max_hp: 1000,

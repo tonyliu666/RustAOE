@@ -321,6 +321,12 @@ impl Dat {
         let units_present = unit_tasks.iter().flatten().count();
         let civs_at = r.at;
         let civ_count = r.count()?;
+        // Each civilisation holds a slot per unit ID, most of them empty and
+        // four bytes of file each, so the count is held to what any version
+        // of the game has.
+        if civ_count > MAX_CIVS {
+            return Err(DatError::Corrupt("more civilisations than any version has"));
+        }
         let civs = (0..civ_count)
             .map(|_| read_civ(&mut r))
             .collect::<Result<Vec<_>, _>>()?;
@@ -351,6 +357,12 @@ impl Dat {
         (slp >= 0).then_some(slp)
     }
 }
+
+/// Unit IDs are `i16`: no file has more unit headers than this.
+const MAX_UNIT_IDS: usize = 1 << 15;
+/// More civilisations than any version of the game has (The Conquerors has
+/// 19, Gaia included).
+const MAX_CIVS: usize = 64;
 
 /// The Conquerors' terrain block, which holds no counts: its size is fixed.
 /// A frame of map fields (two pointers and four sizes, 24 bytes), 19 tile
@@ -411,7 +423,8 @@ fn skip_random_maps(r: &mut Reader<'_>) -> Result<usize, DatError> {
     let maps = r.count32()?;
     r.skip(4)?; // pointer
                 // Grown as headers are read rather than sized from the count, so a
-                // damaged count runs out of file instead of memory.
+                // damaged count runs out of file instead of memory: each entry is
+                // smaller than the 72 bytes of file it is read from.
     let mut lists = Vec::new();
     for _ in 0..maps {
         r.skip(4 + 9 * 4)?; // ID and nine map fields
@@ -451,7 +464,12 @@ fn skip_effects(r: &mut Reader<'_>) -> Result<usize, DatError> {
 /// list, 59 bytes a task.
 fn read_unit_headers(r: &mut Reader<'_>) -> Result<Vec<Option<Vec<Task>>>, DatError> {
     let units = r.count32()?;
-    // Grown as headers are read, so a damaged count runs out of file.
+    // An empty header is one byte of file but a whole entry in the list, so
+    // running out of file is not enough of a limit: the count must also fit
+    // the unit IDs, which are `i16`.
+    if units > MAX_UNIT_IDS {
+        return Err(DatError::Corrupt("more unit headers than unit IDs"));
+    }
     let mut headers = Vec::new();
     for _ in 0..units {
         if r.u8()? == 0 {
@@ -549,10 +567,11 @@ fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
     // Resource decay, blast defence, combat level, interaction, minimap
     // mode, interface kind, attribute mode, minimap colour.
     r.skip(4 + 1 + 1 + 1 + 1 + 1 + 4 + 1)?;
-    r.skip(4 * 3)?; // help and hotkey strings, hotkey
-                    // Recyclable, auto gather, doppelganger, gather group, occlusion,
-                    // obstruction type and class, trait, civilisation, an i16, selection
-                    // effect and colour, outline size.
+    // Help and hotkey strings, hotkey.
+    r.skip(4 * 3)?;
+    // Recyclable, auto gather, doppelganger, gather group, occlusion,
+    // obstruction type and class, trait, civilisation, an i16, selection
+    // effect and colour, outline size.
     r.skip(4 + 1 + 2 + 2 + 2 + 2 + 3 * 4)?;
     r.skip(3 * (2 + 4 + 1))?; // resource storages
     let damage_graphics = usize::from(r.u8()?);

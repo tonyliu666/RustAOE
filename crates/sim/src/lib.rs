@@ -17,7 +17,7 @@ mod spatial;
 mod vec2;
 mod world;
 
-pub use content::{BuildingStats, Content, ContentError, GatherStats, UnitStats};
+pub use content::{BuildingStats, Content, ContentError, GatherStats, Part, UnitStats};
 pub use entity::{
     Building, BuildingId, BuildingKind, EntityId, GatherPhase, Mine, MineId, Order, Player,
     PlayerId, Route, Unit, UnitId, UnitKind,

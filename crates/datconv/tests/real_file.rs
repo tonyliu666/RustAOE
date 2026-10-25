@@ -37,10 +37,12 @@ fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers()
     assert!(content.buildings[0].drop_off, "the town centre takes gold");
     // Drawn as the original draws them: the town centre from its pieces and
     // annexes, the barracks and the units from their own sprites.
-    assert_eq!(
-        content.buildings[0].parts,
-        [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]
-    );
+    let slps: Vec<u32> = content.buildings[0].parts.iter().map(|p| p.slp).collect();
+    assert_eq!(slps, [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]);
+    assert!(content.buildings[0]
+        .parts
+        .iter()
+        .all(|p| p.offset == [0, 0]));
     assert_eq!(
         (
             content.buildings[1].sprite,

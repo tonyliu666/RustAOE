@@ -249,11 +249,18 @@ fn a_type_without_an_icon_is_an_error() {
 fn a_types_parts_are_read_from_the_file() {
     let content = parse_content(&default_with(
         "sprite: 1473,\n            parts: [],",
-        "sprite: 1473,\n            parts: [7, 1473, 8],",
+        "sprite: 1473,\n            parts: [(7, 0, 0), (1473, 0, 0), (8, 3, -2)],",
     ))
     .expect("parses");
 
-    assert_eq!(content.unit(UnitKind::VILLAGER).parts, [7, 1473, 8]);
+    assert_eq!(
+        content.unit(UnitKind::VILLAGER).parts,
+        [
+            sim::Part::new(7, 0, 0),
+            sim::Part::new(1473, 0, 0),
+            sim::Part::new(8, 3, -2),
+        ]
+    );
 }
 
 #[test]

@@ -33,8 +33,9 @@ impl Replay {
     /// was written in two layouts while Phase 1.5 changed the content's shape.
     /// Version 3 was the first with unit and building types as data;
     /// version 4 adds each type's interface `icon`; version 5 each type's
-    /// `parts`; version 6 measures attack range between edges.
-    pub const FORMAT_VERSION: u32 = 6;
+    /// `parts`; version 6 measures attack range between edges; version 7
+    /// gives each part a pixel offset.
+    pub const FORMAT_VERSION: u32 = 7;
 
     /// How often the checksum is sampled during recording.
     ///

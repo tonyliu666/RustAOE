@@ -370,6 +370,14 @@ fn an_icon_frame_with_no_pixels_is_an_error_naming_the_entry() {
 // --- buildings drawn in parts -----------------------------------------------------
 
 fn town_centre_in_parts(parts: Vec<u32>) -> Content {
+    let at_one_point = parts
+        .into_iter()
+        .map(|slp| sim::Part::new(slp, 0, 0))
+        .collect();
+    town_centre_in_placed_parts(at_one_point)
+}
+
+fn town_centre_in_placed_parts(parts: Vec<sim::Part>) -> Content {
     let mut content = Content::default();
     content.building_mut(BuildingKind::TOWN_CENTER).parts = parts;
     content
@@ -479,5 +487,95 @@ fn a_later_parts_transparent_pixels_leave_the_earlier_part_showing() {
     let pixels = renderer.texture_pixels(texture).expect("uploaded");
     assert_eq!(&pixels[0..4], colour(9), "through the gap");
     assert_eq!(&pixels[4..8], colour(7));
+    remove(&dir);
+}
+
+#[test]
+fn a_later_parts_shadow_darkens_the_earlier_part_rather_than_replacing_it() {
+    // A shadow is black at half opacity: over an opaque pixel it darkens it,
+    // and the pixel stays opaque.
+    let dir = install(
+        "parts-shadow",
+        graphics(&[
+            (7001, common::piece(2, (0, 0), 9)),
+            (7002, common::shadow_piece(2, (0, 0))),
+        ]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let content = town_centre_in_parts(vec![7001, 7002]);
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &content)
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let texture = sprites
+        .building(BuildingKind::TOWN_CENTER, PlayerId::ONE)
+        .texture;
+    let pixels = renderer.texture_pixels(texture).expect("uploaded");
+    let (under, shaded) = (colour(9), &pixels[0..4]);
+    assert_eq!(shaded[3], 255, "still opaque");
+    for channel in 0..3 {
+        assert!(
+            shaded[channel] < under[channel].max(1) || under[channel] == 0,
+            "channel {channel}: {shaded:?} over {under:?}"
+        );
+        assert!(
+            shaded[channel] >= under[channel] / 3,
+            "not blacked out: {shaded:?}"
+        );
+    }
+}
+
+#[test]
+fn parts_placed_absurdly_far_apart_are_an_error_rather_than_a_huge_image() {
+    // A damaged hotspot puts one part 30,000 pixels from the other.
+    let dir = install(
+        "parts-far",
+        graphics(&[
+            (7001, common::piece(2, (0, 0), 9)),
+            (7002, common::piece(2, (-30_000, 0), 7)),
+        ]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let content = town_centre_in_parts(vec![7001, 7002]);
+
+    let result = load_images(&dir, &content);
+
+    assert!(
+        matches!(&result, Err(AssetError::PartsTooFarApart { entry }) if entry == "town_center"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn a_parts_offset_moves_it_that_many_pixels_from_the_shared_point() {
+    // As a graphic's piece in the original: drawn 3 pixels right of where its
+    // hotspot alone would put it.
+    let dir = install(
+        "parts-offset",
+        graphics(&[
+            (7001, common::piece(2, (0, 0), 9)),
+            (7002, common::piece(1, (0, 0), 7)),
+        ]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let content =
+        town_centre_in_placed_parts(vec![sim::Part::new(7001, 0, 0), sim::Part::new(7002, 3, 0)]);
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &content)
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let town_centre = sprites.building(BuildingKind::TOWN_CENTER, PlayerId::ONE);
+    assert_eq!(renderer.texture_size(town_centre.texture), Some((4, 1)));
+    let pixels = renderer
+        .texture_pixels(town_centre.texture)
+        .expect("uploaded");
+    assert_eq!(pixels[2 * 4 + 3], 0, "between the parts");
+    assert_eq!(&pixels[12..16], colour(7), "the moved part");
     remove(&dir);
 }

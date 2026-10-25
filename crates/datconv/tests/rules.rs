@@ -18,8 +18,22 @@ fn a_time_between_ticks_rounds_to_the_nearest_and_says_so() {
     let converted = ticks(1.52, false);
     assert_eq!(converted.value, 30);
     assert!(converted.was_rounded());
-    // Halves round away from zero: 0.025 s is half a tick.
-    assert_eq!(ticks(0.025, false).value, 1);
+    // Halves round away from zero: 0.125 s is exactly 2.5 ticks (0.125 is
+    // exact in f32, unlike 0.025).
+    let half = ticks(0.125, false);
+    assert_eq!(half.value, 3);
+    assert!(half.was_rounded());
+}
+
+#[test]
+fn a_value_within_a_ten_thousandth_of_whole_counts_as_whole() {
+    // The original's f32 fields cannot hold most decimals exactly: 0.8
+    // tiles a second is 0.800000011920929, and 21.0 seconds times 20 is
+    // exactly 420. A value that close to a whole number in our units is
+    // taken as whole and not reported; anything further is.
+    assert!(!ticks(21.0, false).was_rounded());
+    assert!(!ticks(0.05, false).was_rounded(), "0.05 s is one tick");
+    assert!(ticks(0.051, false).was_rounded());
 }
 
 #[test]

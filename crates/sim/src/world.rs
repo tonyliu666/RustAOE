@@ -770,10 +770,9 @@ impl World {
                 let b = self.buildings.get(id)?;
                 Some(footprint(b.origin, b.size))
             }
-            EntityId::Mine(id) => {
-                let m = self.mines.get(id)?;
-                Some(footprint(m.origin, Mine::SIZE))
-            }
+            // Never a target: a mine belongs to no one, so an attack order on
+            // one is refused (`order_attack`).
+            EntityId::Mine(_) => None,
         }
     }
 

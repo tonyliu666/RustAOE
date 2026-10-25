@@ -984,3 +984,34 @@ fn a_graphic_that_names_no_sprite_resolves_to_none() {
 
     assert_eq!(dat.slp_of(2), None);
 }
+
+// --- counts too large to be real -------------------------------------------------
+
+#[test]
+fn more_unit_headers_than_unit_ids_can_name_is_an_error_rather_than_a_huge_allocation() {
+    // Unit IDs are i16, so there are at most 32,768 unit headers. A count
+    // beyond that, followed by enough zero flags, would otherwise grow a
+    // list of empty headers far larger than the file.
+    let mut data = small_dat(&after());
+    let at = Dat::parse(&data)
+        .expect("a well-formed file")
+        .unit_headers_at;
+    data[at..at + 4].copy_from_slice(&40_000i32.to_le_bytes());
+
+    assert_eq!(
+        Dat::parse(&data).err(),
+        Some(DatError::Corrupt("more unit headers than unit IDs"))
+    );
+}
+
+#[test]
+fn more_civilisations_than_any_game_has_is_an_error() {
+    let mut data = small_dat(&after());
+    let at = Dat::parse(&data).expect("a well-formed file").civs_at;
+    data[at..at + 2].copy_from_slice(&1000i16.to_le_bytes());
+
+    assert_eq!(
+        Dat::parse(&data).err(),
+        Some(DatError::Corrupt("more civilisations than any version has"))
+    );
+}

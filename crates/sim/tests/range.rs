@@ -228,3 +228,75 @@ fn melee_units_crowding_a_building_all_reach_it() {
     let after = world.view().building(barracks).map_or(0, |b| b.hp);
     assert_eq!(before - after, 5 * damage, "not every soldier reached it");
 }
+
+/// A soldier that barely moves (one 16.16 unit a tick), radius 7/16 and
+/// range 0, next to a villager of radius `victim_radius`.
+///
+/// Centres are one tile apart and the soldier steps one unit closer before
+/// it swings, so its reach (both radii and the tolerance) meets the
+/// villager exactly when the villager's radius is 7/16 less one unit.
+fn soldier_beside_villager(victim_radius: Fx) -> (World, UnitId, UnitId) {
+    let mut content = content(Fx::ZERO);
+    let soldier = content.unit_mut(UnitKind::SOLDIER);
+    soldier.radius = Fx::from_frac(7, 16);
+    soldier.speed = Fx::from_bits(1);
+    content.unit_mut(UnitKind::VILLAGER).radius = victim_radius;
+    let map = map()
+        .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(10, 10))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(11, 10));
+    let world = World::with_content(1, map, content);
+    let (attacker, victim) = (
+        unit_of(&world, PlayerId::ONE),
+        unit_of(&world, PlayerId::TWO),
+    );
+    (world, attacker, victim)
+}
+
+#[test]
+fn edges_exactly_the_contact_tolerance_apart_touch() {
+    let (mut world, attacker, victim) =
+        soldier_beside_villager(Fx::from_frac(7, 16) - Fx::from_bits(1));
+    let full = hp(&world, victim);
+
+    attack(&mut world, attacker, EntityId::Unit(victim));
+
+    assert!(hp(&world, victim) < full, "not touching at the tolerance");
+}
+
+#[test]
+fn edges_just_past_the_contact_tolerance_do_not_touch() {
+    // One more unit apart than the tolerance.
+    let (mut world, attacker, victim) =
+        soldier_beside_villager(Fx::from_frac(7, 16) - Fx::from_bits(2));
+    let full = hp(&world, victim);
+
+    attack(&mut world, attacker, EntityId::Unit(victim));
+
+    assert_eq!(hp(&world, victim), full, "touching past the tolerance");
+}
+
+#[test]
+fn a_mine_cannot_be_attacked() {
+    // A mine belongs to no one, so an attack order on one is refused and the
+    // soldier stands where it is.
+    let map = map().with_mine(TilePos::new(12, 10), 500).with_unit(
+        UnitKind::SOLDIER,
+        PlayerId::ONE,
+        TilePos::new(10, 10),
+    );
+    let mut world = World::with_content(1, map, Content::default());
+    let soldier = unit_of(&world, PlayerId::ONE);
+    let start = world.view().unit(soldier).expect("soldier").pos;
+    let (mine, _) = world.view().mines().next().expect("the mine");
+
+    attack(&mut world, soldier, EntityId::Mine(mine));
+    for _ in 0..20 {
+        world.step(&[]);
+    }
+
+    assert_eq!(world.view().unit(soldier).expect("soldier").pos, start);
+    assert_eq!(
+        world.view().mines().next().map(|(_, m)| m.remaining),
+        Some(500)
+    );
+}

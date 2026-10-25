@@ -7,9 +7,11 @@
 //! for how the sprite IDs below were chosen.
 
 use crate::pick::{Bodies, Body};
-use assets::{Drs, DrsError, Image, Palette, PaletteError, Slp, SlpError};
+use assets::{
+    Drs, DrsError, Image, Palette, PaletteError, Slp, SlpError, ARCHIVE_ORDER, MAX_FRAME_SIDE,
+};
 use render::{Renderer, TextureId, Vec2};
-use sim::{BuildingKind, Content, PlayerId, UnitKind};
+use sim::{BuildingKind, Content, Part, PlayerId, UnitKind};
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
@@ -253,6 +255,11 @@ pub enum AssetError {
         entry: String,
         frame: u32,
     },
+    /// A content entry's parts are placed so far apart that together they
+    /// would make a sprite larger than any may be: a damaged hotspot.
+    PartsTooFarApart {
+        entry: String,
+    },
     /// A content entry names a sprite the install does not have.
     MissingGraphic {
         entry: String,
@@ -285,6 +292,10 @@ impl fmt::Display for AssetError {
                 f,
                 "content entry `{entry}` names icon {frame}, which has no pixels to draw"
             ),
+            AssetError::PartsTooFarApart { entry } => write!(
+                f,
+                "content entry `{entry}`: its parts lie too far apart to draw together"
+            ),
             AssetError::MissingGraphic { entry, id } => write!(
                 f,
                 "content entry `{entry}` names sprite {id}, which data/graphics.drs does not have"
@@ -294,21 +305,6 @@ impl fmt::Display for AssetError {
 }
 
 impl std::error::Error for AssetError {}
-
-/// The original's archives, in the order it opens them (`FUN_0043ae90`):
-/// the expansion's first, then the base game's. A file is looked up by type
-/// and ID in the first archive that has it (`FUN_00543630`), so the
-/// expansion's copies override the base game's.
-const ARCHIVE_ORDER: [&str; 8] = [
-    "sounds_x1.drs",
-    "gamedata_x1.drs",
-    "gamedata_x1_p1.drs",
-    "sounds.drs",
-    "graphics.drs",
-    "terrain.drs",
-    "interfac.drs",
-    "gamedata.drs",
-];
 
 /// The archives the game cannot draw without, read first so that a missing
 /// install is reported by the first one a player would miss.
@@ -415,27 +411,32 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
     };
     // One frame per player colour, for the type called `entry`: its
     // `sprite`, or its `parts` composed into one when it has any.
-    let per_player = |entry: &str, sprite: u32, parts: &[u32]| -> Result<Vec<Frame>, AssetError> {
-        let ids = if parts.is_empty() {
-            std::slice::from_ref(&sprite)
-        } else {
-            parts
-        };
+    let per_player = |entry: &str, sprite: u32, parts: &[Part]| -> Result<Vec<Frame>, AssetError> {
+        let alone = [Part::new(sprite, 0, 0)];
+        let ids = if parts.is_empty() { &alone[..] } else { parts };
         (0..PLAYER_SLOTS as u8)
             .map(|player| {
                 let frames = ids
                     .iter()
-                    .map(|&id| {
-                        decode(id, player).map_err(|error| match error {
+                    .map(|part| {
+                        let id = part.slp;
+                        let mut frame = decode(id, player).map_err(|error| match error {
                             AssetError::Missing { .. } => AssetError::MissingGraphic {
                                 entry: entry.to_string(),
                                 id,
                             },
                             other => other,
-                        })
+                        })?;
+                        // Drawn `offset` pixels from the ground point: as if
+                        // its hotspot were that much the other way.
+                        let [x, y] = part.offset;
+                        frame.hotspot = frame.hotspot - Vec2::new(x as f32, y as f32);
+                        Ok(frame)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(compose(&frames))
+                compose(&frames).ok_or_else(|| AssetError::PartsTooFarApart {
+                    entry: entry.to_string(),
+                })
             })
             .collect()
     };
@@ -529,13 +530,17 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
 }
 
 /// Draws `frames` over one another, in order, each with its hotspot on one
-/// shared point, into one frame just large enough to hold them all.
+/// shared point, into one frame just large enough to hold them all. `None`
+/// when that frame would be larger than any sprite may be, as only damaged
+/// hotspots make it.
 ///
 /// This is how the original draws a graphic's pieces and a building's
 /// annexes: every piece at the unit's position, placed by its own hotspot.
-fn compose(frames: &[Frame]) -> Frame {
+/// A later piece is drawn over the earlier ones, so a half-transparent
+/// shadow darkens what it falls on.
+fn compose(frames: &[Frame]) -> Option<Frame> {
     if let [only] = frames {
-        return only.clone();
+        return Some(only.clone());
     }
     // Each frame's corners relative to the shared point, in whole pixels.
     let corners = |f: &Frame| {
@@ -556,6 +561,10 @@ fn compose(frames: &[Frame]) -> Frame {
             (left, top, right, bottom) = (left.min(l), top.min(t), right.max(r), bottom.max(b));
         }
     }
+    let side = i64::from(MAX_FRAME_SIDE);
+    if right - left > side || bottom - top > side {
+        return None;
+    }
     let (width, height) = ((right - left) as u32, (bottom - top) as u32);
     let mut rgba = vec![0u8; (width * height * 4) as usize];
     for f in frames {
@@ -569,18 +578,34 @@ fn compose(frames: &[Frame]) -> Frame {
                 let tx = (l - left) as u32 + x;
                 let ty = (t - top) as u32 + y;
                 let at = ((ty * width + tx) * 4) as usize;
-                rgba[at..at + 4].copy_from_slice(&pixel);
+                let under = [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]];
+                rgba[at..at + 4].copy_from_slice(&over(pixel, under));
             }
         }
     }
-    Frame {
+    Some(Frame {
         image: Image {
             width,
             height,
             rgba,
         },
         hotspot: Vec2::new(-left as f32, -top as f32),
+    })
+}
+
+/// `top` drawn over `under`, both straight (not premultiplied) RGBA.
+fn over(top: [u8; 4], under: [u8; 4]) -> [u8; 4] {
+    let (ta, ua) = (u32::from(top[3]), u32::from(under[3]));
+    // Alphas out of 255; the result's alpha, out of 255 * 255.
+    let out = ta * 255 + ua * (255 - ta);
+    if out == 0 {
+        return [0; 4];
     }
+    let channel = |i: usize| {
+        let mixed = u32::from(top[i]) * ta * 255 + u32::from(under[i]) * ua * (255 - ta);
+        (mixed / out) as u8
+    };
+    [channel(0), channel(1), channel(2), (out / 255) as u8]
 }
 
 /// Turns one of the original's diamond terrain tiles into a `size` x `size`

@@ -72,3 +72,7 @@ were parsed once. The full table is well under the 2-second limit the Phase
 1.6 spec set for decoding lazily, so every type is still decoded at startup,
 nine times (one per player colour). Lookups stay a direct index:
 `Content::unit` and `Sprites::unit` index a `Vec` by type ID.
+
+**Per-lookup cost** (`content lookup` in `crates/sim/benches/step.rs`): 1000
+lookups of a unit type's numbers in a 201-type table take 1.17 µs (1.16–1.17),
+about 1.2 ns each: a direct index, whatever the table's size.

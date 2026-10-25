@@ -23,6 +23,21 @@ const RECORD: usize = 12;
 const VERSION: &[u8; 4] = b"1.00";
 
 /// A parsed DRS archive borrowing its bytes.
+/// The original's archives, in the order it opens them (`FUN_0043ae90`):
+/// the expansion's first, then the base game's. A file is looked up by type
+/// and ID in the first archive that has it (`FUN_00543630`), so the
+/// expansion's copies override the base game's.
+pub const ARCHIVE_ORDER: [&str; 8] = [
+    "sounds_x1.drs",
+    "gamedata_x1.drs",
+    "gamedata_x1_p1.drs",
+    "sounds.drs",
+    "graphics.drs",
+    "terrain.drs",
+    "interfac.drs",
+    "gamedata.drs",
+];
+
 #[derive(Clone, Debug)]
 pub struct Drs<'a> {
     bytes: &'a [u8],

@@ -11,6 +11,6 @@ mod drs;
 mod palette;
 mod slp;
 
-pub use drs::{Drs, DrsError, DrsTable};
+pub use drs::{Drs, DrsError, DrsTable, ARCHIVE_ORDER};
 pub use palette::{Palette, PaletteError};
 pub use slp::{Image, Slp, SlpError, SlpFrame, MAX_FRAME_SIDE, SHADOW};

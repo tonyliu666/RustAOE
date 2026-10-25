@@ -301,3 +301,75 @@ fn there_cannot_be_more_building_types_than_an_id_can_name() {
         ("buildings", "must have at most 65536 entries")
     );
 }
+
+#[test]
+fn a_range_longer_than_any_map_is_rejected() {
+    // Reach is compared squared in 64 bits; an unbounded range would
+    // overflow it, and a debug and a release build would disagree.
+    assert_rejects(
+        |c| c.unit_mut(UnitKind::SOLDIER).range = Fx::from_int(65),
+        "soldier.range",
+        "must be at most 64 tiles",
+    );
+}
+
+#[test]
+fn a_radius_wider_than_the_largest_building_is_rejected() {
+    assert_rejects(
+        |c| c.unit_mut(UnitKind::SOLDIER).radius = Fx::from_int(9),
+        "soldier.radius",
+        "must be at most 8 tiles",
+    );
+}
+
+#[test]
+fn the_longest_range_and_widest_radius_allowed_still_measure_reach_safely() {
+    // At both limits, two such units fight without overflow.
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::from_int(64);
+    content.unit_mut(UnitKind::SOLDIER).radius = Fx::from_int(8);
+    assert_eq!(content.validate(), Ok(()));
+    let map = sim::MapSpec::new(32, 32)
+        .with_building(
+            sim::BuildingKind::TOWN_CENTER,
+            sim::PlayerId::ONE,
+            sim::TilePos::new(0, 0),
+        )
+        .with_building(
+            sim::BuildingKind::TOWN_CENTER,
+            sim::PlayerId::TWO,
+            sim::TilePos::new(28, 28),
+        )
+        .with_unit(
+            UnitKind::SOLDIER,
+            sim::PlayerId::ONE,
+            sim::TilePos::new(10, 10),
+        )
+        .with_unit(
+            UnitKind::SOLDIER,
+            sim::PlayerId::TWO,
+            sim::TilePos::new(20, 20),
+        );
+    let mut world = sim::World::with_content(1, map, content);
+    let (attacker, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == sim::PlayerId::ONE)
+        .expect("attacker");
+    let (victim, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == sim::PlayerId::TWO)
+        .expect("victim");
+
+    world.step(&[sim::Command::Attack {
+        player: sim::PlayerId::ONE,
+        units: [attacker].into_iter().collect(),
+        target: sim::EntityId::Unit(victim),
+    }]);
+
+    assert!(
+        world.view().unit(victim).is_some_and(|u| u.hp < 60),
+        "in reach at once"
+    );
+}

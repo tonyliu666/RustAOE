@@ -11,7 +11,7 @@
 //! in the report, so nothing is rounded silently.
 
 use assets::dat::{Cost, Dat, Unit};
-use assets::Drs;
+use assets::{Drs, ARCHIVE_ORDER};
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -22,6 +22,9 @@ const TICKS_PER_SECOND: f64 = 20.0;
 const FX_ONE: f64 = 65536.0;
 /// The fastest unit the game accepts, in tiles per tick.
 const MAX_SPEED: f64 = 0.5;
+/// The longest range and widest radius the game accepts, in tiles.
+const MAX_RANGE: f32 = 64.0;
+const MAX_RADIUS: f32 = 8.0;
 /// The largest building the game accepts, in tiles a side.
 const MAX_BUILDING_SIZE: i64 = 16;
 /// The task action that gathers a resource.
@@ -215,7 +218,7 @@ struct UnitEntry {
     name: String,
     unit: Unit,
     sprite: i32,
-    parts: Vec<u32>,
+    parts: Vec<Piece>,
     gathers: bool,
     speed: (i32, i32),
     damage: i32,
@@ -231,7 +234,7 @@ struct BuildingEntry {
     name: String,
     unit: Unit,
     sprite: i32,
-    parts: Vec<u32>,
+    parts: Vec<Piece>,
     size: i32,
     drop_off: bool,
 }
@@ -300,7 +303,7 @@ fn sprite_of(
     unit: &Unit,
     name: &str,
     report: &mut Vec<String>,
-) -> Result<(i32, Vec<u32>), String> {
+) -> Result<(i32, Vec<Piece>), String> {
     let sprite = facts
         .dat
         .slp_of(unit.standing_graphic)
@@ -324,50 +327,97 @@ fn sprite_of(
             None => report.push(format!("{name}: annex unit {} does not exist", annex.unit)),
         }
     }
+    // The same SLP at the same place twice in a row draws nothing new.
     parts.dedup();
-    if parts == [sprite as u32] {
+    if parts
+        == [Piece {
+            slp: sprite as u32,
+            x: 0,
+            y: 0,
+        }]
+    {
         parts.clear();
     }
     Ok((sprite, parts))
 }
 
-/// The SLPs a graphic draws, in order, that the install holds.
-fn pieces(facts: &Facts<'_>, graphic: i16, name: &str, report: &mut Vec<String>) -> Vec<u32> {
+/// One SLP of a type drawn in parts, `x` pixels right and `y` down from
+/// the unit's ground point.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+struct Piece {
+    slp: u32,
+    x: i32,
+    y: i32,
+}
+
+/// How deep pieces naming pieces are followed: far deeper than the
+/// original's files go, and a stop for pieces that name each other.
+const MAX_NESTING: usize = 8;
+
+/// The SLPs a graphic draws, in order, that the install holds: its own when
+/// it has no pieces, else each piece, a piece of -1 naming the graphic's own
+/// SLP and any other being followed into, its offset added to the ones it
+/// sits inside.
+fn pieces(facts: &Facts<'_>, graphic: i16, name: &str, report: &mut Vec<String>) -> Vec<Piece> {
+    let mut out = Vec::new();
+    collect_pieces(facts, graphic, (0, 0), 0, name, report, &mut out);
+    out
+}
+
+fn collect_pieces(
+    facts: &Facts<'_>,
+    graphic: i16,
+    (x, y): (i32, i32),
+    depth: usize,
+    name: &str,
+    report: &mut Vec<String>,
+    out: &mut Vec<Piece>,
+) {
     let Some(g) = usize::try_from(graphic)
         .ok()
         .and_then(|index| facts.dat.graphics.get(index))
         .and_then(|g| g.as_ref())
     else {
-        return Vec::new();
+        return;
     };
-    let named: Vec<Option<i32>> = if g.deltas.is_empty() {
-        vec![facts.dat.slp_of(graphic)]
-    } else {
-        g.deltas
-            .iter()
-            .map(|d| {
-                facts.dat.slp_of(if d.graphic_id < 0 {
-                    graphic
-                } else {
-                    d.graphic_id
-                })
-            })
-            .collect()
+    let own = |x: i32, y: i32, report: &mut Vec<String>, out: &mut Vec<Piece>| {
+        let Some(slp) = facts.dat.slp_of(graphic) else {
+            return;
+        };
+        let slp = slp as u32;
+        if facts.install.has(slp) {
+            out.push(Piece { slp, x, y });
+        } else {
+            report.push(format!(
+                "{name}: piece SLP {slp} is in no archive, left out as the original does"
+            ));
+        }
     };
-    named
-        .into_iter()
-        .flatten()
-        .map(|slp| slp as u32)
-        .filter(|&slp| {
-            let here = facts.install.has(slp);
-            if !here {
-                report.push(format!(
-                    "{name}: piece SLP {slp} is in no archive, left out as the original does"
-                ));
-            }
-            here
-        })
-        .collect()
+    if g.deltas.is_empty() {
+        own(x, y, report, out);
+        return;
+    }
+    for delta in &g.deltas {
+        let (dx, dy) = (x + i32::from(delta.offset_x), y + i32::from(delta.offset_y));
+        if delta.graphic_id < 0 {
+            own(dx, dy, report, out);
+        } else if depth >= MAX_NESTING {
+            report.push(format!(
+                "{name}: nested pieces go deeper than {MAX_NESTING}; stopped at graphic {}",
+                delta.graphic_id
+            ));
+        } else {
+            collect_pieces(
+                facts,
+                delta.graphic_id,
+                (dx, dy),
+                depth + 1,
+                name,
+                report,
+                out,
+            );
+        }
+    }
 }
 
 fn convert_unit(
@@ -383,13 +433,26 @@ fn convert_unit(
     }
     let creatable = unit.creatable.as_ref().ok_or("it is not trained")?;
     let speed_per_second = unit.speed.unwrap_or(0.0);
-    if speed_per_second <= 0.0 || f64::from(speed_per_second) / TICKS_PER_SECOND > MAX_SPEED {
+    // Written so that a speed that is not a number fails too.
+    let moves =
+        speed_per_second > 0.0 && f64::from(speed_per_second) / TICKS_PER_SECOND <= MAX_SPEED;
+    if !moves {
         return Err(format!(
             "its speed {speed_per_second} is not one the game can move"
         ));
     }
     if unit.hit_points <= 0 {
         return Err("it has no hit points".to_string());
+    }
+    let max_range = unit.combat.as_ref().map_or(0.0, |c| c.max_range);
+    if !(0.0..=MAX_RANGE).contains(&max_range) {
+        return Err(format!("its range {max_range} is not one the game allows"));
+    }
+    if !(unit.collision[0] > 0.0 && unit.collision[0] <= MAX_RADIUS) {
+        return Err(format!(
+            "its radius {} is not one the game allows",
+            unit.collision[0]
+        ));
     }
     let field = |f: &str| format!("{name}.{f}");
     let speed = note(
@@ -586,12 +649,12 @@ fn write_ron(
         };
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: {:?},\n            icon: {},\n            gathers: {},\n            max_hp: {},\n            speed: {:?},\n            damage: {},\n            range: {:?},\n            attack_cooldown: {},\n            radius: {:?},\n            cost: ({cost}),\n            train_ticks: {},\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            gathers: {},\n            max_hp: {},\n            speed: {:?},\n            damage: {},\n            range: {:?},\n            attack_cooldown: {},\n            radius: {:?},\n            cost: ({cost}),\n            train_ticks: {},\n        ),\n",
             u.name,
             u.unit.id,
             u.unit.name,
             u.sprite,
-            u.parts,
+            ron_parts(&u.parts),
             u.unit.icon,
             u.gathers,
             u.unit.hit_points,
@@ -618,12 +681,12 @@ fn write_ron(
         let trains: Vec<String> = trained.iter().map(|u| format!("\"{}\"", u.name)).collect();
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: {:?},\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: {},\n            trains: [{}],\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: {},\n            trains: [{}],\n        ),\n",
             b.name,
             b.unit.id,
             b.unit.name,
             b.sprite,
-            b.parts,
+            ron_parts(&b.parts),
             b.unit.icon,
             b.size,
             b.unit.hit_points,
@@ -637,18 +700,6 @@ fn write_ron(
     );
     out
 }
-
-/// The original's archives, any of which may hold a sprite.
-const ARCHIVES: [&str; 8] = [
-    "sounds_x1.drs",
-    "gamedata_x1.drs",
-    "gamedata_x1_p1.drs",
-    "sounds.drs",
-    "graphics.drs",
-    "terrain.drs",
-    "interfac.drs",
-    "gamedata.drs",
-];
 
 /// What the user's install holds, as far as converting needs to know: every
 /// SLP in its archives, and how many frames the unit and building icon
@@ -677,7 +728,7 @@ impl Install {
     pub fn read(dir: &Path) -> Result<Install, String> {
         let mut sprites = BTreeSet::new();
         let (mut unit_icons, mut building_icons) = (None, None);
-        for name in ARCHIVES {
+        for name in ARCHIVE_ORDER {
             let path = dir.join("data").join(name);
             let bytes = match std::fs::read(&path) {
                 Ok(bytes) => bytes,
@@ -687,7 +738,9 @@ impl Install {
             let drs =
                 Drs::parse(&bytes).map_err(|error| format!("{}: {error:?}", path.display()))?;
             let frames = |id: u32| {
-                drs.get(id)
+                (drs.kind_of(id) == Some("slp"))
+                    .then(|| drs.get(id))
+                    .flatten()
                     .and_then(|b| assets::Slp::parse(b).ok())
                     .map(|slp| slp.frames().count())
             };
@@ -706,4 +759,13 @@ impl Install {
                 .ok_or("the install has no building icons (interfac.drs 50705)")?,
         })
     }
+}
+
+/// Parts as RON: `(slp, x, y), ...`.
+fn ron_parts(parts: &[Piece]) -> String {
+    parts
+        .iter()
+        .map(|p| format!("({}, {}, {})", p.slp, p.x, p.y))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

@@ -298,3 +298,24 @@ pub fn piece_with_gap(width: usize, gap: u16, hotspot: (i32, i32), colour: u8) -
     out.push(0x0F);
     out
 }
+
+/// A one-row sprite of `width` shadow pixels, with its hotspot at `hotspot`.
+pub fn shadow_piece(width: usize, hotspot: (i32, i32)) -> Vec<u8> {
+    let mut out = b"2.0N".to_vec();
+    out.extend(1i32.to_le_bytes());
+    out.extend([0u8; 24]);
+    let at = 32 + 32;
+    out.extend(((at + 4) as u32).to_le_bytes()); // command table
+    out.extend((at as u32).to_le_bytes()); // outline table
+    out.extend(0u32.to_le_bytes());
+    out.extend(0u32.to_le_bytes());
+    out.extend((width as i32).to_le_bytes());
+    out.extend(1i32.to_le_bytes());
+    out.extend(hotspot.0.to_le_bytes());
+    out.extend(hotspot.1.to_le_bytes());
+    out.extend([0, 0, 0, 0]); // no padding
+    out.extend(((at + 8) as u32).to_le_bytes());
+    out.push(((width as u8) << 4) | 0x0B); // shadow
+    out.push(0x0F);
+    out
+}

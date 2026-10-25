@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
 **Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
-**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 steps 1 to 6 done (with 5b, drawing in parts, and 5c, range between edges); its end-of-phase review next. Phase 1.6 finishes before more interface work.
+**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 done (steps 1 to 6, with 5b, drawing in parts, and 5c, range between edges, and its end-of-phase review fixes). Next: split presentation-only fields out of replayed content, then Phase 2. Phase 1.6 finishes before more interface work.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
@@ -87,7 +87,7 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 - **Fields added by pre-stage 2:** each unit's icon (`IconID`; the step 4b probe found it 47 bytes after the unit ID), its button position on the command panel (the original places each trainable unit at a fixed button, not in list order as the panel does today), and the train queue's limit (today 5; the original's is to be read, not assumed). The probe's offsets are a check for the reader, not a replacement for walking every section.
 - **Fractional values:** the original stores resources, gather rates, speeds, and reload times as `float`. The spec for this phase must fix how each converts: amounts to `i32`, rates to ticks per unit, speeds and ranges to `Fx`, times to ticks, with the rounding rule for each.
 - **Work:** A dev-only Rust tool, a workspace member so its tests run under `cargo test --workspace`, reads `data/empires2_x1_p1.dat` from a user-supplied install and writes the fields our schema has into RON. Resources map by name, not position (the original orders them food, wood, stone, gold), and float amounts round to integers; see the Phase 1.5 spec. The game itself reads only our RON; it never opens a `.dat`. Track `reverse/README.md` and `reverse/tools/` in git; keep decompiled output and extracted data ignored.
-- **Reference:** `FUN_00586b20` names the `.dat` path. The file is zlib-compressed and community-documented.
+- **Reference:** `FUN_00586b20` names the `.dat` path. The file is raw deflate data (zlib's format without its header) and community-documented.
 - **Gate:** The tool reproduces known values (villager 25 HP and 50 food in the original). A test compares the tool's output for a few units against values recorded in the phase spec.
 - **Performance checkpoint:** load the full converted table (every unit type the `.dat` holds) and record load time and per-lookup cost in `docs/benchmarks.md`. Lookups must stay a direct index, not a search.
 
@@ -243,6 +243,12 @@ From the Phase 1 review, accepted as minor and not yet fixed:
 - Content is not in the checksum. Phase 13 handshake.
 
 ## Open questions
+
+- ~~Split presentation-only fields out of replayed content?~~ Yes, decided by the user on 2026-10-25: `sprite`, `parts`, and `icon` live in the `Content` every replay embeds, so each new one is a replay break, and Phase 2 and Phase 8 will add more. Split them out as a step of its own before Phase 2.
+- **The train queue's limit:** today 5. It is not in the `.dat` and was not found among the strings; find it in the decompile.
+- **Fixed button positions:** the `.dat` gives each trainable unit a button (the militia 1, the spearman 2 in the barracks); `datconv` reads it to order `trains`, but content has no button field and the panel fills buttons in list order. With Phase 8, or with the presentation-field split.
+- **Annex offsets:** a building's annex sprites are drawn at the building's point without the annexes' tile offsets, judged by eye (Phase 1.6 step 5b). Confirm from the decompile.
+- **The converted villager attacks** (damage 3 from the `.dat`); today's villager has 0 and cannot be ordered to attack. Decide in the Phase 2 spec.
 
 - ~~Is the Phase 12 asset read in scope for this repository?~~ Yes: decided by the pre-stage. The game reads the original's sprites from the user's own install at runtime and requires one; nothing from the game is committed.
 - Is the scenario editor in scope at all?

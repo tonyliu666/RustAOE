@@ -278,11 +278,21 @@ fn a_replay_from_before_edge_to_edge_range_is_refused_by_version() {
     let error = load_text("version-five", "(version: 5, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 5, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_placed_parts_is_refused_by_version() {
+    let error = load_text("version-six", "(version: 6, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 5,
-                expected: 6
+                found: 6,
+                expected: 7
             })
         ),
         "{error:?}"

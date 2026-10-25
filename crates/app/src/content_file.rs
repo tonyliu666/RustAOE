@@ -6,7 +6,9 @@
 //! startup; the simulation only ever sees a checked `Content`.
 
 use serde::Deserialize;
-use sim::{BuildingStats, Content, ContentError, Fx, GatherStats, Resources, UnitKind, UnitStats};
+use sim::{
+    BuildingStats, Content, ContentError, Fx, GatherStats, Part, Resources, UnitKind, UnitStats,
+};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -84,6 +86,15 @@ pub fn new_game_content(
 /// `(numerator, denominator)`.
 type Fraction = (i32, i32);
 
+/// `(slp, x, y)`: a part's SLP and its offset in pixels.
+type PartFile = (u32, i32, i32);
+
+fn parts(file: Vec<PartFile>) -> Vec<Part> {
+    file.into_iter()
+        .map(|(slp, x, y)| Part::new(slp, x, y))
+        .collect()
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ContentFile {
@@ -97,7 +108,7 @@ struct ContentFile {
 struct UnitFile {
     name: String,
     sprite: u32,
-    parts: Vec<u32>,
+    parts: Vec<PartFile>,
     icon: u32,
     gathers: bool,
     max_hp: i32,
@@ -125,7 +136,7 @@ struct ResourcesFile {
 struct BuildingFile {
     name: String,
     sprite: u32,
-    parts: Vec<u32>,
+    parts: Vec<PartFile>,
     icon: u32,
     size: i32,
     max_hp: i32,
@@ -192,7 +203,7 @@ impl UnitFile {
             train_ticks: self.train_ticks,
             gathers: self.gathers,
             sprite: self.sprite,
-            parts: self.parts,
+            parts: parts(self.parts),
             icon: self.icon,
             name: self.name,
         })
@@ -217,7 +228,7 @@ impl BuildingFile {
         Ok(BuildingStats {
             name: self.name,
             sprite: self.sprite,
-            parts: self.parts,
+            parts: parts(self.parts),
             icon: self.icon,
             size: self.size,
             max_hp: self.max_hp,

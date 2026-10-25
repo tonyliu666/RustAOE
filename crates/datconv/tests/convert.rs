@@ -6,6 +6,12 @@ use datconv::{convert, ConvertError, Install, Selection};
 /// A graphic drawing `slp`, with pieces naming other graphics (-1 for this
 /// graphic's own SLP).
 fn graphic(id: i16, slp: i32, pieces: &[i16]) -> Option<Graphic> {
+    let placed: Vec<(i16, i16, i16)> = pieces.iter().map(|&g| (g, 0, 0)).collect();
+    placed_graphic(id, slp, &placed)
+}
+
+/// [`graphic`] with each piece's pixel offset: (graphic, x, y).
+fn placed_graphic(id: i16, slp: i32, pieces: &[(i16, i16, i16)]) -> Option<Graphic> {
     Some(Graphic {
         id,
         name: format!("G{id}"),
@@ -14,13 +20,18 @@ fn graphic(id: i16, slp: i32, pieces: &[i16]) -> Option<Graphic> {
         angle_count: 1,
         deltas: pieces
             .iter()
-            .map(|&graphic_id| GraphicDelta {
+            .map(|&(graphic_id, offset_x, offset_y)| GraphicDelta {
                 graphic_id,
-                offset_x: 0,
-                offset_y: 0,
+                offset_x,
+                offset_y,
             })
             .collect(),
     })
+}
+
+/// The SLPs of a type's parts, all at one point, as `Part`s.
+fn at_one_point(slps: &[u32]) -> Vec<sim::Part> {
+    slps.iter().map(|&slp| sim::Part::new(slp, 0, 0)).collect()
 }
 
 /// SLPs the fake install lacks, as the real one lacks the villager's idle
@@ -361,7 +372,10 @@ fn a_type_drawn_in_pieces_gets_its_pieces_and_annexes_as_parts() {
     )
     .expect("loads");
 
-    assert_eq!(content.buildings[0].parts, [889, 3596, 4612, 891]);
+    assert_eq!(
+        content.buildings[0].parts,
+        at_one_point(&[889, 3596, 4612, 891])
+    );
 }
 
 #[test]
@@ -488,4 +502,88 @@ fn a_type_whose_icon_the_install_lacks_is_left_out_and_reported() {
         "{:#?}",
         converted.report
     );
+}
+
+#[test]
+fn a_pieces_pixel_offset_is_kept_and_a_nested_piece_followed() {
+    // The barracks drawn as itself, then a piece 2 pixels left and 5 down
+    // which itself has a piece 1 further right: the offsets add up.
+    let mut dat = dat();
+    dat.graphics[4] = placed_graphic(4, 2683, &[(-1, 0, 0), (16, -2, 5)]);
+    dat.graphics
+        .push(placed_graphic(16, 889, &[(-1, 0, 0), (17, 1, 0)]));
+    dat.graphics.push(placed_graphic(17, 4612, &[]));
+
+    let content = app::parse_content(
+        &convert_with(&dat, Selection::Default)
+            .expect("converts")
+            .ron,
+    )
+    .expect("loads");
+
+    assert_eq!(
+        content.buildings[1].parts,
+        [
+            sim::Part::new(2683, 0, 0),
+            sim::Part::new(889, -2, 5),
+            sim::Part::new(4612, -1, 5),
+        ]
+    );
+}
+
+#[test]
+fn pieces_that_name_each_other_in_a_loop_stop_rather_than_running_forever() {
+    let mut dat = dat();
+    dat.graphics[4] = placed_graphic(4, 2683, &[(-1, 0, 0), (16, 0, 0)]);
+    dat.graphics
+        .push(placed_graphic(16, 889, &[(-1, 0, 0), (4, 0, 0)]));
+
+    let converted = convert_with(&dat, Selection::Default).expect("converts");
+
+    assert!(
+        converted
+            .report
+            .iter()
+            .any(|l| l.contains("barracks") && l.contains("nested")),
+        "{:#?}",
+        converted.report
+    );
+}
+
+/// Converts [`dat`] with the spearman changed by `change`, and says whether
+/// it was left out and named in the report.
+fn spearman_left_out(change: impl FnOnce(&mut Unit)) -> bool {
+    let mut dat = dat();
+    change(dat.civs[1].units[93].as_mut().expect("the spearman"));
+    let converted = convert_with(&dat, Selection::All).expect("converts");
+    app::parse_content(&converted.ron).expect("the rest still loads");
+    !converted.ron.contains("pkemn_93")
+        && converted
+            .report
+            .iter()
+            .any(|l| l.contains("pkemn_93") && l.contains("left out"))
+}
+
+#[test]
+fn a_speed_that_is_not_a_number_is_left_out_rather_than_written_as_zero() {
+    assert!(spearman_left_out(|u| u.speed = Some(f32::NAN)));
+}
+
+#[test]
+fn a_negative_range_is_left_out_rather_than_failing_the_whole_file() {
+    assert!(spearman_left_out(|u| {
+        u.combat.as_mut().expect("fights").max_range = -1.0;
+    }));
+}
+
+#[test]
+fn a_range_longer_than_the_game_allows_is_left_out_rather_than_clamped() {
+    assert!(spearman_left_out(|u| {
+        u.combat.as_mut().expect("fights").max_range = 1.0e6;
+    }));
+}
+
+#[test]
+fn a_radius_wider_than_the_game_allows_is_left_out() {
+    assert!(spearman_left_out(|u| u.collision[0] = 20.0));
 }

@@ -31,10 +31,11 @@ pub struct UnitStats {
     /// graphics table, which names an SLP plus extra pieces; the Phase 1.6
     /// converter resolves those to SLP IDs.
     pub sprite: u32,
-    /// When not empty, the SLPs drawn instead of `sprite` alone, in order and
-    /// each at the same ground point, as the original draws a graphic's
-    /// pieces and a building's annexes: each SLP's own hotspot places it.
-    pub parts: Vec<u32>,
+    /// When not empty, the SLPs drawn instead of `sprite` alone, in order,
+    /// as the original draws a graphic's pieces and a building's annexes:
+    /// each at the unit's ground point plus its offset, placed by its own
+    /// hotspot.
+    pub parts: Vec<Part>,
     /// Its button in the interface: a frame in the original's unit icons,
     /// `interfac.drs` 50730.
     pub icon: u32,
@@ -58,6 +59,23 @@ pub struct UnitStats {
     pub train_ticks: u32,
 }
 
+/// One sprite of a type drawn in parts: an SLP, and how far from the unit's
+/// ground point it is drawn, in sprite pixels, right and down.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Part {
+    pub slp: u32,
+    pub offset: [i32; 2],
+}
+
+impl Part {
+    pub const fn new(slp: u32, x: i32, y: i32) -> Part {
+        Part {
+            slp,
+            offset: [x, y],
+        }
+    }
+}
+
 /// Numbers for a building type.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct BuildingStats {
@@ -66,7 +84,7 @@ pub struct BuildingStats {
     /// SLP ID in the original's `data/graphics.drs`, as for units.
     pub sprite: u32,
     /// The SLPs drawn instead of `sprite` alone, as for units.
-    pub parts: Vec<u32>,
+    pub parts: Vec<Part>,
     /// A frame in the original's building icons, `interfac.drs` 50705.
     pub icon: u32,
     /// Footprint side in tiles; the footprint is square.
@@ -112,6 +130,12 @@ const POSITIVE: &str = "must be positive";
 const NOT_NEGATIVE: &str = "must not be negative";
 /// The largest building footprint, in tiles a side.
 pub const MAX_BUILDING_SIZE: i32 = 16;
+/// The longest attack range, in tiles: more than any of the original's
+/// units has, and short enough that reach, compared squared in 64 bits, can
+/// never overflow.
+pub const MAX_RANGE: i32 = 64;
+/// The widest unit radius, in tiles: half the largest building.
+pub const MAX_RADIUS: i32 = MAX_BUILDING_SIZE / 2;
 /// The most entries a type list may have: as many as a `u16` ID can name.
 const MAX_TYPES: usize = u16::MAX as usize + 1;
 
@@ -143,6 +167,12 @@ impl UnitStats {
         )?;
         check(self.damage >= 0, owner, "damage", NOT_NEGATIVE)?;
         check(self.range >= Fx::ZERO, owner, "range", NOT_NEGATIVE)?;
+        check(
+            self.range <= Fx::from_int(MAX_RANGE),
+            owner,
+            "range",
+            "must be at most 64 tiles",
+        )?;
         // A zero cooldown on an armed unit is a hit every tick: no rate limit.
         check(
             self.damage == 0 || self.attack_cooldown > 0,
@@ -151,6 +181,12 @@ impl UnitStats {
             "must be positive when damage is positive",
         )?;
         check(self.radius > Fx::ZERO, owner, "radius", POSITIVE)?;
+        check(
+            self.radius <= Fx::from_int(MAX_RADIUS),
+            owner,
+            "radius",
+            "must be at most 8 tiles",
+        )?;
         // A negative cost would pay the player for queueing a unit.
         for resource in Resource::ALL {
             let name = format!("cost.{}", resource.name());
@@ -361,7 +397,10 @@ impl Default for Content {
                     // graphic's pieces (890 is in no archive) and its three
                     // annexes', drawn at one point.
                     sprite: 3596,
-                    parts: vec![889, 3596, 4612, 891, 3595, 4611, 3594, 4610],
+                    parts: [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]
+                        .into_iter()
+                        .map(|slp| Part::new(slp, 0, 0))
+                        .collect(),
                     icon: 28,
                     size: 4,
                     max_hp: 1000,

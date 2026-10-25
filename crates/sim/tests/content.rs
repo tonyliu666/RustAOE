@@ -672,9 +672,12 @@ fn the_default_buildings_are_drawn_as_the_originals_dark_age_british_ones() {
         (2683, &[][..])
     );
     assert_eq!(town_centre.sprite, 3596);
+    let at_one_point = |slps: &[u32]| -> Vec<sim::Part> {
+        slps.iter().map(|&slp| sim::Part::new(slp, 0, 0)).collect()
+    };
     assert_eq!(
         town_centre.parts,
-        [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]
+        at_one_point(&[889, 3596, 4612, 891, 3595, 4611, 3594, 4610])
     );
     assert!(content.unit(UnitKind::VILLAGER).parts.is_empty());
 }
