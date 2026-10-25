@@ -360,69 +360,6 @@ fn right_clicking_with_nothing_selected_orders_nothing() {
 
 // --- training -------------------------------------------------------------
 
-#[test]
-fn the_first_hotkey_trains_a_villager_at_the_town_centre() {
-    let world = world();
-    let mut session = session();
-    let mut input = InputState::default();
-    input.press_key(Key::Digit1);
-
-    let commands = session.update(&input, 0.0, world.view());
-
-    match commands.as_slice() {
-        [Command::Train {
-            player,
-            unit,
-            building,
-        }] => {
-            assert_eq!(*player, PlayerId::ONE);
-            assert_eq!(*unit, UnitKind::VILLAGER);
-            assert_eq!(
-                world.view().building(*building).map(|b| b.kind),
-                Some(BuildingKind::TOWN_CENTER)
-            );
-        }
-        other => panic!("expected one train order, got {other:?}"),
-    }
-}
-
-#[test]
-fn the_second_hotkey_trains_a_soldier_at_the_barracks() {
-    let world = world();
-    let mut session = session();
-    let mut input = InputState::default();
-    input.press_key(Key::Digit2);
-
-    let commands = session.update(&input, 0.0, world.view());
-
-    match commands.as_slice() {
-        [Command::Train { unit, building, .. }] => {
-            assert_eq!(*unit, UnitKind::SOLDIER);
-            assert_eq!(
-                world.view().building(*building).map(|b| b.kind),
-                Some(BuildingKind::BARRACKS)
-            );
-        }
-        other => panic!("expected one train order, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_hotkey_with_no_building_that_can_train_it_does_nothing() {
-    // Player two has a town centre but no barracks.
-    let world = world();
-    let mut session = session();
-    let mut tab = InputState::default();
-    tab.press_key(Key::Tab);
-    session.update(&tab, 0.0, world.view());
-
-    let mut input = InputState::default();
-    input.press_key(Key::Digit2);
-    let commands = session.update(&input, 0.0, world.view());
-
-    assert!(commands.is_empty(), "got {commands:?}");
-}
-
 // --- hotseat --------------------------------------------------------------
 
 #[test]
@@ -534,7 +471,7 @@ fn orders_are_stamped_with_whoever_holds_the_keyboard() {
         &mut session,
         &world,
         MouseButton::Right,
-        at(Vec2::new(11.5, 11.5)),
+        at(Vec2::new(10.5, 8.5)),
     );
 
     match commands.as_slice() {
@@ -702,32 +639,395 @@ fn a_click_on_a_units_drawn_body_selects_it() {
     assert_eq!(session.selection().len(), 1);
 }
 
+// --- the interface ----------------------------------------------------------
+
+/// A point on the command panel, for this camera's window.
+fn on_command_panel() -> Vec2 {
+    let panel = app::Layout::new(camera().viewport).command_panel;
+    panel.min + panel.size * 0.5
+}
+
 #[test]
-fn the_training_keys_follow_the_contents_order_of_trainable_types() {
-    // Content listing the soldier first: key 1 now trains a soldier at the
-    // barracks, with no code naming either type.
-    let mut content = sim::Content::default();
-    content.units.swap(0, 1);
-    let (villager, soldier) = (UnitKind::SOLDIER, UnitKind::VILLAGER);
-    content.building_mut(BuildingKind::TOWN_CENTER).trains = vec![villager];
-    content.building_mut(BuildingKind::BARRACKS).trains = vec![soldier];
-    let map = map().with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(1, 8));
-    let world = World::with_content(3, map, content);
+fn a_left_click_on_the_command_panel_keeps_the_selection() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    let selected = session.selection().to_vec();
+    assert!(!selected.is_empty());
+
+    click(&mut session, &world, MouseButton::Left, on_command_panel());
+
+    assert_eq!(session.selection(), selected);
+}
+
+#[test]
+fn a_right_click_on_the_command_panel_orders_nothing() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = click(&mut session, &world, MouseButton::Right, on_command_panel());
+
+    assert_eq!(commands, []);
+}
+
+#[test]
+fn a_drag_started_on_the_interface_selects_nothing() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    let selected = session.selection().to_vec();
+
+    let mut press = at_cursor(on_command_panel());
+    press.press(MouseButton::Left);
+    session.update(&press, 0.0, world.view());
+    assert_eq!(session.drag_box(Vec2::ZERO), None);
+    let mut release = at_cursor(at(Vec2::new(5.0, 5.0)));
+    release.hold(MouseButton::Left);
+    release.release(MouseButton::Left);
+    session.update(&release, 0.0, world.view());
+
+    assert_eq!(session.selection(), selected);
+}
+
+// --- selecting buildings -------------------------------------------------------
+
+/// The building of `kind` that `owner` has on the test map.
+fn building_of(world: &World, owner: PlayerId, kind: BuildingKind) -> sim::BuildingId {
+    world
+        .view()
+        .buildings()
+        .find(|(_, b)| b.owner == owner && b.kind == kind)
+        .map(|(id, _)| id)
+        .expect("the building is on the map")
+}
+
+/// Player one's barracks covers tiles (0, 12) to (2, 14); this is its middle.
+const BARRACKS_MIDDLE: Vec2 = Vec2::new(1.5, 13.5);
+
+#[test]
+fn clicking_your_building_selects_it_and_drops_the_selected_units() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    assert!(!session.selection().is_empty());
+
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(session.selected_building(), Some(barracks));
+    assert_eq!(session.selection(), []);
+}
+
+#[test]
+fn clicking_empty_ground_drops_the_selected_building() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(8.5, 6.5)),
+    );
+
+    assert_eq!(session.selected_building(), None);
+}
+
+#[test]
+fn clicking_a_unit_drops_the_selected_building() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(5.5, 5.5)),
+    );
+
+    assert_eq!(session.selected_building(), None);
+    assert_eq!(session.selection().len(), 1);
+}
+
+#[test]
+fn a_unit_standing_in_front_of_a_building_is_picked_before_it() {
+    let world = World::new(
+        3,
+        map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(1, 13)),
+    );
     let mut session = session();
 
-    let commands = session.update(&press(Key::Digit1), 0.0, world.view());
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
 
+    assert_eq!(session.selected_building(), None);
+    assert_eq!(session.selection().len(), 1);
+}
+
+#[test]
+fn clicking_a_buildings_roof_above_its_footprint_selects_it() {
+    // The barracks drawn 1.5 tiles taller than its footprint: its body runs
+    // from y 10.5 down to the footprint's bottom edge at 15.
+    let world = world();
+    let mut session = session();
+    let barracks_body = app::Body {
+        offset: Vec2::new(-1.5, -3.0),
+        size: Vec2::new(3.0, 4.5),
+    };
+    session.set_bodies(app::Bodies {
+        buildings: vec![barracks_body, barracks_body],
+        ..app::Bodies::default()
+    });
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(1.5, 11.0)),
+    );
+
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(session.selected_building(), Some(barracks));
+}
+
+#[test]
+fn an_enemy_building_can_be_selected_to_look_at() {
+    let world = world();
+    let mut session = session();
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(14.0, 2.0)),
+    );
+
+    let theirs = building_of(&world, PlayerId::TWO, BuildingKind::TOWN_CENTER);
+    assert_eq!(session.selected_building(), Some(theirs));
+}
+
+#[test]
+fn a_drag_box_drops_the_selected_building() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    select_all(&mut session, &world);
+
+    assert_eq!(session.selected_building(), None);
+    assert!(!session.selection().is_empty());
+}
+
+#[test]
+fn a_destroyed_building_falls_out_of_the_selection() {
+    // Player two's soldiers knock down player one's barracks.
+    let map = MapSpec::new(16, 16)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(0, 0))
+        .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(0, 12))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(12, 0),
+        )
+        .with_unit(UnitKind::SOLDIER, PlayerId::TWO, TilePos::new(3, 13));
+    let mut content = sim::Content::default();
+    content.building_mut(BuildingKind::BARRACKS).max_hp = 1;
+    let mut world = World::with_content(3, map, content);
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(session.selected_building(), Some(barracks));
+
+    let (soldier, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::TWO)
+        .expect("the soldier");
+    world.step(&[Command::Attack {
+        player: PlayerId::TWO,
+        units: [soldier].into_iter().collect(),
+        target: EntityId::Building(barracks),
+    }]);
+    for _ in 0..200 {
+        world.step(&[]);
+    }
     assert!(
-        matches!(commands.as_slice(), [Command::Train { unit, .. }] if *unit == soldier),
-        "{commands:?}"
+        world.view().building(barracks).is_none(),
+        "the barracks stands"
+    );
+    session.update(&InputState::default(), 0.0, world.view());
+
+    assert_eq!(session.selected_building(), None);
+}
+
+// --- the command panel ------------------------------------------------------------
+
+/// The middle of command button `index`, for this camera's window.
+fn button(index: usize) -> Vec2 {
+    let rect = app::Layout::new(camera().viewport).buttons[index];
+    rect.min + rect.size * 0.5
+}
+
+/// The one train order in `commands`, as (player, building, unit).
+fn train_order(commands: &[Command]) -> (PlayerId, sim::BuildingId, UnitKind) {
+    match commands {
+        [Command::Train {
+            player,
+            building,
+            unit,
+        }] => (*player, *building, *unit),
+        other => panic!("expected one train order, got {other:?}"),
+    }
+}
+
+/// Player one's town centre covers tiles (0, 0) to (3, 3).
+const TOWN_CENTRE_MIDDLE: Vec2 = Vec2::new(2.0, 2.0);
+
+#[test]
+fn the_first_button_of_your_barracks_trains_a_soldier_there() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    let commands = click(&mut session, &world, MouseButton::Left, button(0));
+
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(
+        train_order(&commands),
+        (PlayerId::ONE, barracks, UnitKind::SOLDIER)
     );
 }
 
 #[test]
-fn a_third_trainable_unit_type_is_trained_with_key_three() {
+fn the_first_button_of_your_town_centre_trains_a_villager_there() {
+    let world = world();
+    let mut session = session();
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(TOWN_CENTRE_MIDDLE),
+    );
+
+    let commands = click(&mut session, &world, MouseButton::Left, button(0));
+
+    let town_centre = building_of(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
+    assert_eq!(
+        train_order(&commands),
+        (PlayerId::ONE, town_centre, UnitKind::VILLAGER)
+    );
+}
+
+#[test]
+fn pressing_a_button_keeps_the_building_selected() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    click(&mut session, &world, MouseButton::Left, button(0));
+
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(session.selected_building(), Some(barracks));
+}
+
+#[test]
+fn a_button_with_nothing_on_it_does_nothing() {
+    // The barracks trains one type, so only the first button has a unit.
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    let commands = click(&mut session, &world, MouseButton::Left, button(1));
+
+    assert_eq!(commands, []);
+}
+
+#[test]
+fn another_players_building_has_no_buttons_to_press() {
+    let world = world();
+    let mut session = session();
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(14.0, 2.0)),
+    );
+
+    let mut commands = click(&mut session, &world, MouseButton::Left, button(0));
+    commands.extend(session.update(&press(Key::Digit1), 0.0, world.view()));
+
+    assert_eq!(commands, []);
+}
+
+#[test]
+fn key_one_presses_the_first_button_of_the_selected_building() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
+
+    let commands = session.update(&press(Key::Digit1), 0.0, world.view());
+
+    let barracks = building_of(&world, PlayerId::ONE, BuildingKind::BARRACKS);
+    assert_eq!(
+        train_order(&commands),
+        (PlayerId::ONE, barracks, UnitKind::SOLDIER)
+    );
+}
+
+#[test]
+fn with_nothing_selected_the_number_keys_do_nothing() {
+    let world = world();
+    let mut session = session();
+
+    let mut commands = Vec::new();
+    for key in [Key::Digit1, Key::Digit2, Key::Digit3] {
+        commands.extend(session.update(&press(key), 0.0, world.view()));
+    }
+
+    assert_eq!(commands, []);
+}
+
+#[test]
+fn with_units_selected_the_number_keys_do_nothing() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = session.update(&press(Key::Digit1), 0.0, world.view());
+
+    assert_eq!(commands, []);
+}
+
+#[test]
+fn a_second_barracks_trains_when_it_is_the_one_selected() {
+    let map = map().with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(10, 12));
+    let world = World::new(3, map);
+    let mut session = session();
+    let second = world
+        .view()
+        .buildings()
+        .find(|(_, b)| b.kind == BuildingKind::BARRACKS && b.origin == TilePos::new(10, 12))
+        .map(|(id, _)| id)
+        .expect("the second barracks");
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(11.5, 13.5)),
+    );
+
+    let commands = session.update(&press(Key::Digit1), 0.0, world.view());
+
+    assert_eq!(train_order(&commands).1, second);
+}
+
+#[test]
+fn a_type_added_in_content_gets_the_next_button_and_key() {
     // The Phase 1.5 gate scenario: an archer added only in content, trained
-    // at the barracks after the soldier. Keys 1 to 9 cover the trainable
-    // types in content order, so the archer is key 3.
+    // at the barracks after the soldier, so it is the second button and key
+    // 2, with no code naming it.
     let mut content = sim::Content::default();
     let mut archer = content.unit(UnitKind::SOLDIER).clone();
     archer.name = "archer".to_string();
@@ -739,11 +1039,41 @@ fn a_third_trainable_unit_type_is_trained_with_key_three() {
         .push(archer);
     let world = World::with_content(3, map(), content);
     let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(BARRACKS_MIDDLE));
 
-    let commands = session.update(&press(Key::Digit3), 0.0, world.view());
+    let by_click = click(&mut session, &world, MouseButton::Left, button(1));
+    let by_key = session.update(&press(Key::Digit2), 0.0, world.view());
 
-    assert!(
-        matches!(commands.as_slice(), [Command::Train { unit, .. }] if *unit == archer),
-        "{commands:?}"
+    assert_eq!(train_order(&by_click).2, archer);
+    assert_eq!(train_order(&by_key).2, archer);
+}
+
+#[test]
+fn a_drag_into_the_panels_selects_only_what_shows_above_them() {
+    // A villager at (6.5, 11.5) stands under the bottom panels in this
+    // window; the two units at y 5.5 are in the open middle.
+    let world = World::new(
+        3,
+        map().with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 11)),
     );
+    let mut session = session();
+    let hidden = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::ONE && u.pos.y.to_bits() > 11 << 16)
+        .map(|(id, _)| id)
+        .expect("the hidden villager");
+    let end = at(Vec2::new(7.5, 11.5));
+    assert!(app::Layout::new(camera().viewport).bottom.contains(end));
+
+    let mut press = at_cursor(at(Vec2::new(4.0, 4.6)));
+    press.press(MouseButton::Left);
+    session.update(&press, 0.0, world.view());
+    let mut release = at_cursor(end);
+    release.hold(MouseButton::Left);
+    release.release(MouseButton::Left);
+    session.update(&release, 0.0, world.view());
+
+    assert_eq!(session.selection().len(), 2, "{:?}", session.selection());
+    assert!(!session.selection().contains(&hidden));
 }

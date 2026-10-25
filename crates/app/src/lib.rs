@@ -13,6 +13,7 @@ mod pick;
 mod replay_file;
 mod session;
 mod sprites;
+mod ui;
 
 pub use camera_controller::CameraController;
 pub use content_file::{
@@ -28,3 +29,4 @@ pub use sprites::{
     assets_dir, load_images, unskew_tile, AssetError, GameImages, Sprite, Sprites,
     UNIT_PIXELS_PER_TILE,
 };
+pub use ui::{Layout, Rect};

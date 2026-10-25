@@ -197,3 +197,172 @@ fn a_sound_with_a_sprites_id_does_not_hide_the_sprite() {
     assert_eq!(renderer.texture_size(villager.texture), Some((2, 1)));
     remove(&dir);
 }
+
+#[test]
+fn the_interface_image_is_loaded() {
+    // The real one is in interfac.drs; this fake install keeps it in
+    // graphics.drs, and the search finds it in whichever archive holds it.
+    let dir = install(
+        "interface",
+        graphics(&[(51101, three_pixels())]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    assert_eq!(
+        renderer.texture_size(sprites.interface.texture),
+        Some((3, 1))
+    );
+    remove(&dir);
+}
+
+#[test]
+fn an_install_without_the_interface_image_is_an_error() {
+    let files = graphics(&[])
+        .into_iter()
+        .filter(|(_, id, _)| *id != 51101)
+        .collect();
+    let dir = install("no-interface", files, slp(1, 2, &TWO_PIXELS));
+
+    let result = load_images(&dir, &Content::default());
+
+    assert!(
+        matches!(result, Err(AssetError::Missing { id: 51101, .. })),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn each_unit_types_icon_is_its_frame_of_the_unit_icons() {
+    // Frame n of the fake icon sprite is n + 1 pixels wide, so the size
+    // tells which frame was taken: the villager's is 15, the soldier's 8.
+    let dir = install(
+        "icons",
+        graphics(&[(50730, common::icons(16))]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let width = |kind| {
+        renderer
+            .texture_size(sprites.unit_icon(kind).texture)
+            .map(|(w, _)| w)
+    };
+    assert_eq!(width(UnitKind::VILLAGER), Some(16));
+    assert_eq!(width(UnitKind::SOLDIER), Some(9));
+    // Taken from the unit icons, not the building icons (colour 7).
+    let pixels = renderer
+        .texture_pixels(sprites.unit_icon(UnitKind::VILLAGER).texture)
+        .expect("uploaded");
+    assert_eq!(&pixels[0..4], colour(9));
+    remove(&dir);
+}
+
+#[test]
+fn an_icon_frame_the_install_does_not_have_is_an_error_naming_the_entry() {
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::SOLDIER).icon = 99;
+    let dir = install("icon-missing", graphics(&[]), slp(1, 2, &TWO_PIXELS));
+
+    let result = load_images(&dir, &content);
+
+    assert!(
+        matches!(&result, Err(AssetError::MissingIcon { entry, frame: 99 }) if entry == "soldier"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn each_building_types_icon_is_its_frame_of_the_building_icons() {
+    // The town centre's is frame 28, the barracks' frame 2.
+    let dir = install(
+        "building-icons",
+        graphics(&[(50705, common::icons_in(30, 7))]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let width = |kind| {
+        renderer
+            .texture_size(sprites.building_icon(kind).texture)
+            .map(|(w, _)| w)
+    };
+    assert_eq!(width(BuildingKind::TOWN_CENTER), Some(29));
+    assert_eq!(width(BuildingKind::BARRACKS), Some(3));
+    remove(&dir);
+}
+
+#[test]
+fn a_building_icon_the_install_does_not_have_is_an_error_naming_the_entry() {
+    let mut content = Content::default();
+    content.building_mut(BuildingKind::BARRACKS).icon = 99;
+    let dir = install(
+        "building-icon-missing",
+        graphics(&[]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+
+    let result = load_images(&dir, &content);
+
+    assert!(
+        matches!(&result, Err(AssetError::MissingIcon { entry, frame: 99 }) if entry == "barracks"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn every_frame_of_the_progress_bar_is_loaded_in_order() {
+    let dir = install("progress", graphics(&[]), slp(1, 2, &TWO_PIXELS));
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    assert_eq!(sprites.progress.len(), 100);
+    // Frame n of the fake bar is n + 1 pixels wide.
+    for (n, frame) in sprites.progress.iter().enumerate() {
+        assert_eq!(
+            renderer.texture_size(frame.texture),
+            Some((n as u32 + 1, 1))
+        );
+    }
+    remove(&dir);
+}
+
+#[test]
+fn an_icon_frame_with_no_pixels_is_an_error_naming_the_entry() {
+    // Every frame of this unit icon sprite is zero pixels wide.
+    let dir = install(
+        "icon-empty",
+        graphics(&[(50730, slp(16, 0, &[0x0F]))]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+
+    let result = load_images(&dir, &Content::default());
+
+    assert!(
+        matches!(&result, Err(AssetError::EmptyIcon { entry, frame: 15 }) if entry == "villager"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}

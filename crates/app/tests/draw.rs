@@ -39,6 +39,7 @@ fn plain_hud() -> Hud<'static> {
     Hud {
         active_player: PlayerId::ONE,
         selection: &[],
+        building: None,
         drag_box: None,
         replaying: false,
     }
@@ -164,8 +165,11 @@ fn the_frame_carries_a_debug_overlay_naming_the_tick() {
 
     draw(&mut renderer, &wide_camera(), &world);
 
-    let (text, _) = renderer.texts().next().expect("an overlay should be drawn");
-    assert!(text.contains("tick 3"), "overlay was {text:?}");
+    let texts: Vec<&str> = renderer.texts().map(|(text, _)| text).collect();
+    assert!(
+        texts.iter().any(|text| text.contains("tick 3")),
+        "overlay was {texts:?}"
+    );
 }
 
 #[test]
@@ -195,15 +199,92 @@ fn the_overlay_sits_at_a_fixed_corner_of_the_screen_whatever_the_camera_shows() 
     let near = Camera::new(Vec2::new(10.0, 10.0), 40.0, Vec2::new(400.0, 400.0));
     let far = Camera::new(Vec2::new(50.0, 30.0), 8.0, Vec2::new(400.0, 400.0));
 
+    let debug_line = |renderer: &RecordingRenderer| {
+        renderer
+            .texts()
+            .find(|(text, _)| text.contains("tick"))
+            .expect("overlay")
+            .1
+    };
     draw(&mut renderer, &near, &world);
-    let near_pos = renderer.texts().next().expect("overlay").1;
+    let near_pos = debug_line(&renderer);
     renderer.clear();
     draw(&mut renderer, &far, &world);
-    let far_pos = renderer.texts().next().expect("overlay").1;
+    let far_pos = debug_line(&renderer);
 
     let to_screen = |cam: &Camera, pos: Vec2| cam.world_to_screen(pos);
     let near_screen = to_screen(&near, near_pos);
     let far_screen = to_screen(&far, far_pos);
     assert!((near_screen.x - far_screen.x).abs() < 1e-3);
     assert!((near_screen.y - far_screen.y).abs() < 1e-3);
+}
+
+#[test]
+fn the_interface_is_drawn_last_over_the_whole_window() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(8, 8).with_unit(
+        sim::UnitKind::VILLAGER,
+        PlayerId::ONE,
+        sim::TilePos::new(3, 3),
+    ));
+    let camera = wide_camera();
+    let previous: HashMap<UnitId, FxVec2> = HashMap::new();
+    let sprites = common::sprites(&mut renderer);
+    draw_world(
+        &mut renderer,
+        &camera,
+        world.view(),
+        &previous,
+        0.0,
+        &plain_hud(),
+        &sprites,
+    );
+
+    let interface: Vec<(Vec2, Vec2)> = renderer
+        .sprites()
+        .filter(|(texture, _, _)| *texture == sprites.interface.texture)
+        .map(|(_, pos, size)| (pos, size))
+        .collect();
+    assert_eq!(
+        interface,
+        [(
+            camera.screen_to_world(Vec2::ZERO),
+            camera.viewport * (1.0 / camera.zoom)
+        )]
+    );
+    let (last, _, _) = renderer.sprites().last().expect("sprites drawn");
+    assert_eq!(last, sprites.interface.texture);
+}
+
+#[test]
+fn the_drag_box_goes_under_the_interface_as_in_the_original() {
+    let mut renderer = RecordingRenderer::new();
+    let world = world(MapSpec::new(8, 8));
+    let camera = wide_camera();
+    let previous: HashMap<UnitId, FxVec2> = HashMap::new();
+    let sprites = common::sprites(&mut renderer);
+    let hud = Hud {
+        drag_box: Some((Vec2::new(1.0, 1.0), Vec2::new(7.0, 7.0))),
+        ..plain_hud()
+    };
+    draw_world(
+        &mut renderer,
+        &camera,
+        world.view(),
+        &previous,
+        0.0,
+        &hud,
+        &sprites,
+    );
+
+    let calls = renderer.calls();
+    let last_line = calls
+        .iter()
+        .rposition(|c| matches!(c, DrawCall::Line { .. }))
+        .expect("the drag box is drawn");
+    let interface = calls
+        .iter()
+        .position(|c| matches!(c, DrawCall::Sprite { texture, .. } if *texture == sprites.interface.texture))
+        .expect("the interface is drawn");
+    assert!(last_line < interface);
 }

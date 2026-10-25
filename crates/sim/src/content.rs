@@ -31,6 +31,9 @@ pub struct UnitStats {
     /// graphics table, which names an SLP plus extra pieces; the Phase 1.6
     /// converter resolves those to SLP IDs.
     pub sprite: u32,
+    /// Its button in the interface: a frame in the original's unit icons,
+    /// `interfac.drs` 50730.
+    pub icon: u32,
     /// May take a gather order and carry a load.
     pub gathers: bool,
     pub max_hp: i32,
@@ -57,6 +60,8 @@ pub struct BuildingStats {
     pub name: String,
     /// SLP ID in the original's `data/graphics.drs`, as for units.
     pub sprite: u32,
+    /// A frame in the original's building icons, `interfac.drs` 50705.
+    pub icon: u32,
     /// Footprint side in tiles; the footprint is square.
     pub size: i32,
     pub max_hp: i32,
@@ -304,6 +309,7 @@ impl Default for Content {
                 UnitStats {
                     name: "villager".to_string(),
                     sprite: 1473,
+                    icon: 15,
                     gathers: true,
                     max_hp: 40,
                     speed: Fx::from_frac(1, 8),
@@ -317,10 +323,12 @@ impl Default for Content {
                     },
                     train_ticks: 100,
                 },
-                // The militia's sprite.
+                // The militia (unit 74 in the .dat): graphic SPRMN_FN standing,
+                // and its icon.
                 UnitStats {
                     name: "soldier".to_string(),
-                    sprite: 1181,
+                    sprite: 993,
+                    icon: 8,
                     gathers: false,
                     max_hp: 60,
                     speed: Fx::from_frac(1, 8),
@@ -339,6 +347,7 @@ impl Default for Content {
                 BuildingStats {
                     name: "town_center".to_string(),
                     sprite: 901,
+                    icon: 28,
                     size: 4,
                     max_hp: 1000,
                     drop_off: true,
@@ -347,6 +356,7 @@ impl Default for Content {
                 BuildingStats {
                     name: "barracks".to_string(),
                     sprite: 131,
+                    icon: 2,
                     size: 3,
                     max_hp: 600,
                     drop_off: false,

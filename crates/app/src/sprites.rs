@@ -36,6 +36,19 @@ const GOLD_MINE: u32 = 4479;
 /// Gaia plus eight players: one decoded copy of each sprite per player
 /// colour.
 const PLAYER_SLOTS: usize = 9;
+/// The in-game interface for an 800x600 window, in `interfac.drs`: the top
+/// bar and the bottom row of panels, with the middle left transparent for
+/// the map. One image per civilisation; this is the first, used for every
+/// player until civilisations exist.
+const INTERFACE: u32 = 51101;
+/// The unit icons, in `interfac.drs`: 36x36 frames, one per unit type; each
+/// type's content entry names its frame.
+const UNIT_ICONS: u32 = 50730;
+/// The building icons for the first architecture, in `interfac.drs`, used
+/// for every civilisation until civilisations exist.
+const BUILDING_ICONS: u32 = 50705;
+/// The progress bar, in `interfac.drs`: frame n is n percent full.
+const PROGRESS_BAR: u32 = 50764;
 
 /// An uploaded sprite and where its ground point is.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -55,6 +68,14 @@ pub struct Sprites {
     pub grass: Vec<TextureId>,
     pub tree: Sprite,
     pub gold_mine: Sprite,
+    /// The interface image, drawn stretched over the whole window.
+    pub interface: Sprite,
+    /// Each unit type's icon, indexed by type ID.
+    pub unit_icons: Vec<Sprite>,
+    /// Each building type's icon, indexed by type ID.
+    pub building_icons: Vec<Sprite>,
+    /// The progress bar, one sprite per frame: frame n is n percent full.
+    pub progress: Vec<Sprite>,
     /// Indexed by unit type ID, then player slot.
     pub units: Vec<[Sprite; PLAYER_SLOTS]>,
     /// Indexed by building type ID, then player slot.
@@ -68,22 +89,39 @@ impl Sprites {
         &self.units[kind.index()][slot(owner)]
     }
 
+    /// The icon for a unit type, as on the command panel's buttons.
+    pub fn unit_icon(&self, kind: UnitKind) -> &Sprite {
+        &self.unit_icons[kind.index()]
+    }
+
+    pub fn building_icon(&self, kind: BuildingKind) -> &Sprite {
+        &self.building_icons[kind.index()]
+    }
+
     pub fn building(&self, kind: BuildingKind, owner: PlayerId) -> &Sprite {
         &self.buildings[kind.index()][slot(owner)]
     }
 
-    /// Each unit kind's drawn body, for picking: the same placement as
-    /// drawing, so a click lands on what the player sees.
-    pub fn bodies(&self) -> Bodies {
-        let body = |sprite: &Sprite| {
-            let scale = 1.0 / UNIT_PIXELS_PER_TILE;
-            Body {
-                offset: Vec2::new(-sprite.hotspot.x, -sprite.hotspot.y) * scale,
-                size: Vec2::new(sprite.width, sprite.height) * scale,
-            }
+    /// Each unit and building kind's drawn body, for picking: the same
+    /// placement as drawing, so a click lands on what the player sees.
+    /// Buildings are drawn scaled to their footprint, which `content` gives.
+    pub fn bodies(&self, content: &Content) -> Bodies {
+        let body = |sprite: &Sprite, scale: f32| Body {
+            offset: Vec2::new(-sprite.hotspot.x, -sprite.hotspot.y) * scale,
+            size: Vec2::new(sprite.width, sprite.height) * scale,
         };
         Bodies {
-            units: self.units.iter().map(|set| body(&set[1])).collect(),
+            units: self
+                .units
+                .iter()
+                .map(|set| body(&set[1], 1.0 / UNIT_PIXELS_PER_TILE))
+                .collect(),
+            buildings: self
+                .buildings
+                .iter()
+                .zip(&content.buildings)
+                .map(|(set, stats)| body(&set[1], building_scale(&set[1], stats.size)))
+                .collect(),
             ..Bodies::default()
         }
     }
@@ -94,6 +132,12 @@ impl Sprites {
         let hash = (x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663);
         self.grass[hash as usize % self.grass.len()]
     }
+}
+
+/// Tiles per sprite pixel for a building: its sprite is drawn as wide as its
+/// footprint.
+pub(crate) fn building_scale(sprite: &Sprite, size: i32) -> f32 {
+    size as f32 / sprite.width
 }
 
 fn slot(player: PlayerId) -> usize {
@@ -114,6 +158,10 @@ pub struct GameImages {
     grass: Vec<Image>,
     tree: Frame,
     gold_mine: Frame,
+    interface: Frame,
+    unit_icons: Vec<Frame>,
+    building_icons: Vec<Frame>,
+    progress: Vec<Frame>,
     /// Per unit type ID, one frame per player slot.
     units: Vec<Vec<Frame>>,
     buildings: Vec<Vec<Frame>>,
@@ -133,6 +181,13 @@ impl GameImages {
         }
         let tree = upload_one(renderer, &self.tree);
         let gold_mine = upload_one(renderer, &self.gold_mine);
+        let interface = upload_one(renderer, &self.interface);
+        let mut upload_all = |frames: &[Frame]| -> Vec<Sprite> {
+            frames.iter().map(|f| upload_one(renderer, f)).collect()
+        };
+        let unit_icons = upload_all(&self.unit_icons);
+        let building_icons = upload_all(&self.building_icons);
+        let progress = upload_all(&self.progress);
         let mut upload_set = |frames: &[Frame]| -> [Sprite; PLAYER_SLOTS] {
             std::array::from_fn(|i| upload_one(renderer, &frames[i]))
         };
@@ -151,6 +206,10 @@ impl GameImages {
             grass,
             tree,
             gold_mine,
+            interface,
+            unit_icons,
+            building_icons,
+            progress,
             units,
             buildings,
         }
@@ -183,6 +242,17 @@ pub enum AssetError {
         id: u32,
         error: SlpError,
     },
+    /// A content entry names an icon frame the install's icon sprite does not
+    /// have.
+    MissingIcon {
+        entry: String,
+        frame: u32,
+    },
+    /// A content entry's icon frame has no pixels to draw.
+    EmptyIcon {
+        entry: String,
+        frame: u32,
+    },
     /// A content entry names a sprite the install does not have.
     MissingGraphic {
         entry: String,
@@ -207,6 +277,14 @@ impl fmt::Display for AssetError {
                 )
             }
             AssetError::Slp { id, error } => write!(f, "sprite {id}: {error}"),
+            AssetError::MissingIcon { entry, frame } => write!(
+                f,
+                "content entry `{entry}` names icon {frame}, which the icon sprite does not have"
+            ),
+            AssetError::EmptyIcon { entry, frame } => write!(
+                f,
+                "content entry `{entry}` names icon {frame}, which has no pixels to draw"
+            ),
             AssetError::MissingGraphic { entry, id } => write!(
                 f,
                 "content entry `{entry}` names sprite {id}, which data/graphics.drs does not have"
@@ -349,6 +427,49 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
             })
             .collect()
     };
+    // Frame `index` of an interface sprite, drawn in player one's colours
+    // until each player's panel shows their own. `None` when the sprite has
+    // no such frame.
+    let interface_frame =
+        |slp: &Slp<'_>, id: u32, index: usize| -> Result<Option<Frame>, AssetError> {
+            let Some(header) = slp.frames().nth(index) else {
+                return Ok(None);
+            };
+            if header.width == 0 || header.height == 0 {
+                return Err(AssetError::EmptySprite { id });
+            }
+            let image = slp
+                .decode(index, &palette, 1)
+                .map_err(|error| AssetError::Slp { id, error })?;
+            Ok(Some(Frame {
+                image,
+                hotspot: Vec2::ZERO,
+            }))
+        };
+    // A content entry's icon: its frame of the icon sprite `id`.
+    let icon = |slp: &Slp<'_>, id: u32, entry: &str, frame: u32| -> Result<Frame, AssetError> {
+        let missing = || AssetError::MissingIcon {
+            entry: entry.to_string(),
+            frame,
+        };
+        let index = usize::try_from(frame).map_err(|_| missing())?;
+        match interface_frame(slp, id, index) {
+            Err(AssetError::EmptySprite { .. }) => Err(AssetError::EmptyIcon {
+                entry: entry.to_string(),
+                frame,
+            }),
+            other => other?.ok_or_else(missing),
+        }
+    };
+    let unit_icons = archives.sprite(UNIT_ICONS)?;
+    let building_icons = archives.sprite(BUILDING_ICONS)?;
+    let progress_bar = archives.sprite(PROGRESS_BAR)?;
+    let progress = (0..progress_bar.frames().count())
+        .filter_map(|i| interface_frame(&progress_bar, PROGRESS_BAR, i).transpose())
+        .collect::<Result<Vec<_>, _>>()?;
+    if progress.is_empty() {
+        return Err(AssetError::EmptySprite { id: PROGRESS_BAR });
+    }
     // Neutral objects belong to Gaia: player slot 0's colours.
     let neutral = |id: u32| decode(id, 0);
 
@@ -370,6 +491,18 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
         grass,
         tree: neutral(TREE)?,
         gold_mine: neutral(GOLD_MINE)?,
+        interface: neutral(INTERFACE)?,
+        unit_icons: content
+            .units
+            .iter()
+            .map(|u| icon(&unit_icons, UNIT_ICONS, &u.name, u.icon))
+            .collect::<Result<_, _>>()?,
+        building_icons: content
+            .buildings
+            .iter()
+            .map(|b| icon(&building_icons, BUILDING_ICONS, &b.name, b.icon))
+            .collect::<Result<_, _>>()?,
+        progress,
         units: content
             .units
             .iter()

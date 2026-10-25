@@ -91,12 +91,14 @@ band of forest.
 | `F10` | Lock the mouse inside the window (and free it again) |
 | Mouse wheel | Zoom out / in |
 | Left click a unit | Select it |
-| Left drag | Box-select your units |
+| Left click a building | Select it: yours or the enemy's, to look at. A white outline shows which |
+| Left drag | Box-select your units (a box never selects buildings) |
 | Left click empty ground | Clear the selection |
 | Right click ground | Move there |
 | Right click a gold mine | Send selected villagers to gather |
 | Right click an enemy | Attack it |
-| `1` to `9` | Train a unit type at one of your buildings: the overlay lists which key trains which (by default `1` villager, 50 gold; `2` soldier, 60 gold) |
+| Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 gold; barracks: soldier, 60 gold) |
+| `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
 | `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit |
 
@@ -113,13 +115,34 @@ leaves it, so if you leave slowly through an edge the map keeps scrolling
 until the mouse comes back. Lock the mouse with `F10` to avoid it.
 
 The view always stays on the map: zooming out stops once the map fills the
-window, and scrolling stops at the map's edge.
+open middle of the screen (between the top bar and the bottom panels), and
+scrolling stops where the map's edge meets the interface. Scroll all the way
+down and the map's last row sits just above the bottom panels, so every tile
+can be seen and clicked.
+
+The screen is framed by the original's interface: a top bar with the
+resource slots, and along the bottom the command panel (left), the
+information panel (middle, parchment), and the minimap frame (right). Clicks
+on the interface never reach the map: a left click there keeps your
+selection, a right click there orders nothing, and a box cannot be started
+there. The map shows through the open middle; the game opens with your base
+in the middle of it.
+
+Select a building and the information panel shows its icon, name, and hit
+points. For one of your own, the command panel shows a button for each unit
+it trains, and while it trains, the information panel shows the unit in
+training with a progress bar filling up, and small icons of the units queued
+behind it (up to five in all). An enemy building shows its name and hit points
+only. The minimap is still empty.
 
 Units are easy to click at any zoom: zoomed out, a click within a few pixels
 of a unit selects it, and a small wobble of the hand still counts as a click.
 
-The overlay in the top-left always tells you whose turn it is, their food,
-wood, gold, and stone, and how many units they have selected.
+The top bar shows the wood, food, gold, and stone of whoever holds the
+keyboard, each in its slot beside the original's icon (the population slot
+stays empty for now). Just below it, one small debug line says whose turn it
+is, the tick, the zoom, and whether you are playing live or watching a
+replay.
 
 Each player has their own camera and their own selection, so `Tab` really is a
 handover: your view and your selected units are still there when you come back.
@@ -131,20 +154,27 @@ smaller building to the town centre's right), three villagers standing below
 the town centre, a gold mine to the lower left, and 200 gold. There are **no
 soldiers on the map at the start**: you train them (step 3). Player 1 starts in
 the top-left of the map, player 2 in the bottom-right, with a band of forest
-between them. The overlay at the top shows whose turn it is, their resources,
-and which number key trains which unit.
+between them. The top bar shows your resources; the line under it says whose
+turn it is.
 
 1. **Gather.** Box-select your three villagers. Right click the gold mine near
-   your base. They walk over, mine a load of ten gold, carry it back to the
-   town centre, deposit it, and go again: one order, no micromanagement.
-2. **Grow.** Once you are above 50 gold, press `1` a few times to queue
-   villagers. Gold is charged when you queue, not when the unit appears, so you
-   cannot queue five units on one unit's worth of gold.
-3. **Build an army.** Press `2` to train a soldier at your barracks for 60
-   gold. About 6 seconds later it appears next to the barracks. Press `2`
-   again to queue more, up to five, while you can pay. (The soldier is drawn
-   with the original's two-handed swordsman for now; Phase 1.6 switches it to
-   the militia's own sprite.) Villagers take 5 seconds with `1`.
+   your base. They walk over, mine a load of ten gold (one gold every 2
+   seconds, so about 20 seconds a load), carry it back to the town centre on
+   their own, deposit it, and go again: one order, no micromanagement. The
+   gold in the top bar goes up when a load is deposited, not while it is
+   mined.
+2. **Grow.** Once you are above 50 gold, left click your town centre. The
+   command panel at the bottom left shows the villager's icon: click it (or
+   press `1`) a few times to queue villagers. Gold is charged when you queue,
+   not when the unit appears, so you cannot queue five units on one unit's
+   worth of gold.
+3. **Build an army.** Left click your barracks; its command panel shows the
+   soldier's icon. Click it (or press `1`) to train a soldier for 60 gold.
+   The information panel's progress bar fills over about 6 seconds, and then
+   the soldier appears next to the barracks. Click again to queue more, up to
+   five, while you can pay; the queued ones wait as small icons under the bar.
+   The soldier is the original's militia, and its button shows the militia's
+   icon. Villagers take 5 seconds.
 4. **Switch sides.** Press `Tab` and do the same for the other player. Each
    player keeps their own view, so `Tab` jumps to the other base; `Tab` again
    brings yours back as you left it.
@@ -154,8 +184,8 @@ and which number key trains which unit.
    above anything that has taken damage. A town centre takes a while: 1000 hit
    points at 8 damage a second per soldier.
 6. **Win.** A player is out when all of their buildings are destroyed; the last
-   player left wins. The overlay announces the winner, and the simulation keeps
-   running afterwards.
+   player left wins. A line under the debug line announces the winner, and the
+   simulation keeps running afterwards.
 
 The forest across the middle of the map has two gaps in it. Ordering a group of
 units to the far side is the fastest way to see the pathfinding work: one order
@@ -245,7 +275,9 @@ These are planned, each in its own phase of the plan; they are not bugs:
 
 no AI opponent, no fog of war, no building construction in game, no networking,
 no sound, two unit types by default (more can be added in content), only gold
-can be gathered, no tech tree, no
-save/load, no map editor. Units show one still frame facing south, the town
+can be gathered, no tech tree, no save/load, no map editor, no minimap, no
+population count. Gathering has no pickaxe cursor yet, a villager cannot be
+sent to deposit a part load by hand, and its load is not shown; these come
+next. Units show one still frame facing south, the town
 centre is only its upper section, and the view is top-down rather than the
 original's isometric one.

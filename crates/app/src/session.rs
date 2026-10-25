@@ -7,9 +7,10 @@
 //! will let a networked client hold exactly one of these later.
 
 use crate::pick;
+use crate::ui::{self, Layout};
 use crate::CameraController;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
-use sim::{Command, EntityId, PlayerId, UnitId, UnitKind, WorldView};
+use sim::{BuildingId, Command, EntityId, PlayerId, UnitId, WorldView};
 use smallvec::SmallVec;
 
 /// One side's view of the game.
@@ -18,6 +19,10 @@ pub struct PlayerUi {
     pub camera: CameraController,
     /// Units this player has selected, always alive and always theirs.
     pub selection: Vec<UnitId>,
+    /// The building this player has selected, theirs or another player's,
+    /// always standing. While one is selected no units are, and the other
+    /// way round.
+    pub building: Option<BuildingId>,
     /// Where the current left-drag started, in world units.
     pub drag_from: Option<Vec2>,
 }
@@ -27,6 +32,7 @@ impl PlayerUi {
         PlayerUi {
             camera,
             selection: Vec::new(),
+            building: None,
             drag_from: None,
         }
     }
@@ -48,18 +54,8 @@ pub struct Session {
     bodies: pick::Bodies,
 }
 
-/// The unit types some building can train, in the content's order: what the
-/// training keys train, key 1 the first. The overlay lists the same.
-pub(crate) fn trainable(content: &sim::Content) -> Vec<UnitKind> {
-    content
-        .unit_kinds()
-        .filter(|kind| content.buildings.iter().any(|b| b.trains.contains(kind)))
-        .take(TRAINING_KEYS.len())
-        .collect()
-}
-
-/// The keys that train unit types, in order.
-const TRAINING_KEYS: [Key; 9] = [
+/// The keys that press the command panel's buttons, `1` the first.
+const BUTTON_KEYS: [Key; 9] = [
     Key::Digit1,
     Key::Digit2,
     Key::Digit3,
@@ -113,6 +109,10 @@ impl Session {
 
     pub fn selection(&self) -> &[UnitId] {
         &self.active().selection
+    }
+
+    pub fn selected_building(&self) -> Option<BuildingId> {
+        self.active().building
     }
 
     /// The rectangle being dragged right now, as opposite world-space corners.
@@ -178,31 +178,45 @@ impl Session {
         let camera = self.camera();
         let cursor = camera.screen_to_world(input.cursor);
 
-        self.update_selection(input, cursor, view);
+        // A press on the interface belongs to the interface: it neither
+        // starts a drag nor orders anything on the map underneath.
+        let layout = Layout::new(camera.viewport);
+        let on_interface = layout.blocks(input.cursor);
+        self.update_selection(input, cursor, on_interface, view);
 
         let mut commands = Vec::new();
-        if input.is_pressed(MouseButton::Right) {
+        if input.is_pressed(MouseButton::Right) && !on_interface {
             commands.extend(self.order(cursor, view));
         }
-        commands.extend(self.training(input, view));
+        commands.extend(self.command_panel(input, &layout, view));
         commands
     }
 
-    /// Drops selected units that have died or changed hands since last frame.
+    /// Drops selected units that have died or changed hands since last frame,
+    /// and a selected building that has been destroyed.
     ///
     /// Without this, orders would be issued against stale identifiers every
     /// frame. The simulation would drop them, but the player would be clicking
     /// into a void with no feedback.
     fn prune_selection(&mut self, view: WorldView<'_>) {
         let owner = self.active;
-        self.active_mut()
-            .selection
+        let ui = self.active_mut();
+        ui.selection
             .retain(|id| view.unit(*id).is_some_and(|u| u.owner == owner));
+        ui.building = ui.building.filter(|id| view.building(*id).is_some());
     }
 
-    fn update_selection(&mut self, input: &InputState, cursor: Vec2, view: WorldView<'_>) {
+    fn update_selection(
+        &mut self,
+        input: &InputState,
+        cursor: Vec2,
+        on_interface: bool,
+        view: WorldView<'_>,
+    ) {
         if input.is_pressed(MouseButton::Left) {
-            self.active_mut().drag_from = Some(cursor);
+            if !on_interface {
+                self.active_mut().drag_from = Some(cursor);
+            }
             return;
         }
         if !input.is_released(MouseButton::Left) {
@@ -218,17 +232,32 @@ impl Session {
         let slop = Session::CLICK_SLOP_PIXELS / zoom;
         let dragged = travel.x.abs() > slop || travel.y.abs() > slop;
         let min = self.min_pick();
-        let selection = if dragged {
-            pick::units_in_box(view, owner, from, cursor, &self.bodies.at_least(min))
+        let (selection, building) = if dragged {
+            // A box selects units only, as in the original, and only what
+            // shows: a box dragged onto the panels stops at their edge rather
+            // than reaching the units hidden under them.
+            let camera = self.camera();
+            let layout = Layout::new(camera.viewport);
+            let mut end = input.cursor;
+            end.y = end.y.clamp(layout.top_bar.max().y, layout.bottom.min.y);
+            let end = camera.screen_to_world(end);
+            let units = pick::units_in_box(view, owner, from, end, &self.bodies.at_least(min));
+            (units, None)
+        } else if let Some(unit) = pick::unit_at(view, cursor, &self.bodies, min) {
+            // A unit in front of a building is what the player sees, so it
+            // is picked first. Only your own units can be selected.
+            let yours = view.unit(unit).is_some_and(|u| u.owner == owner);
+            (yours.then_some(unit).into_iter().collect(), None)
         } else {
-            // A click on empty ground clears the selection, which is how every
-            // RTS behaves and what makes a misclick recoverable.
-            pick::unit_at(view, cursor, &self.bodies, min)
-                .filter(|id| view.unit(*id).is_some_and(|u| u.owner == owner))
-                .into_iter()
-                .collect()
+            // Any building can be selected, to look at; only your own will
+            // offer its commands. A click on empty ground clears the
+            // selection, which is how every RTS behaves and what makes a
+            // misclick recoverable.
+            (Vec::new(), pick::building_at(view, cursor, &self.bodies))
         };
-        self.active_mut().selection = selection;
+        let ui = self.active_mut();
+        ui.selection = selection;
+        ui.building = building;
     }
 
     /// The command a right-click means, given what is under the cursor.
@@ -286,32 +315,38 @@ impl Session {
         }
     }
 
-    /// Training hotkeys: one key per unit type, aimed at the first building
-    /// that can make it.
-    ///
-    /// Picking the building for the player rather than making them select it
-    /// keeps the slice to two keys. Choosing between several barracks is a
-    /// user interface problem, and this slice is not testing that.
-    fn training(&self, input: &InputState, view: WorldView<'_>) -> Vec<Command> {
+    /// The command panel: a click on one of its buttons, or the button's
+    /// number key, trains that button's unit type at the selected building.
+    /// With no building of yours selected there are no buttons, so the keys
+    /// do nothing.
+    fn command_panel(
+        &self,
+        input: &InputState,
+        layout: &Layout,
+        view: WorldView<'_>,
+    ) -> Vec<Command> {
         let player = self.active;
-        let content = view.content();
-        // The unit types some building can train, in the content's order:
-        // key 1 trains the first, key 2 the second, up to key 9. Nothing here
-        // names a type. Training from a selected building's own list is a
-        // user-interface job for plan Phase 8.
-        TRAINING_KEYS
+        let Some(building) = self.active().building else {
+            return Vec::new();
+        };
+        let trains = ui::trains_on_buttons(view, Some(building), player);
+        let clicked = input
+            .is_pressed(MouseButton::Left)
+            .then(|| layout.buttons.iter().position(|b| b.contains(input.cursor)))
+            .flatten();
+        let keyed = BUTTON_KEYS
+            .iter()
+            .enumerate()
+            .filter(|(_, key)| input.key_pressed(**key))
+            .map(|(index, _)| index);
+        clicked
             .into_iter()
-            .zip(trainable(content))
-            .filter(|(key, _)| input.key_pressed(*key))
-            .filter_map(|(_, unit)| {
-                let (building, _) = view.buildings().find(|(_, b)| {
-                    b.owner == player && content.building(b.kind).trains.contains(&unit)
-                })?;
-                Some(Command::Train {
-                    player,
-                    building,
-                    unit,
-                })
+            .chain(keyed)
+            .filter_map(|index| trains.get(index).copied())
+            .map(|unit| Command::Train {
+                player,
+                building,
+                unit,
             })
             .collect()
     }

@@ -3,7 +3,7 @@
 //! A unit is drawn as a sprite standing on its position, so most of what the
 //! player sees is above that point. Picking tests against the drawn body.
 
-use app::{entity_at, unit_at, units_in_box, Bodies, Body};
+use app::{building_at, entity_at, unit_at, units_in_box, Bodies, Body};
 use render::Vec2;
 use sim::{BuildingKind, EntityId, MapSpec, PlayerId, TilePos, UnitKind, World};
 
@@ -186,4 +186,32 @@ fn off_every_body_the_nearest_enlarged_target_wins() {
         unit_at(world.view(), Vec2::new(7.0, 6.2), &tall(), 4.0),
         Some(upper)
     );
+}
+
+#[test]
+fn where_two_buildings_drawn_bodies_overlap_the_one_in_front_is_picked() {
+    // Two town centres, one above the other: the lower one's roof is drawn
+    // over the upper one's footprint, as in the original's view.
+    let world = World::new(
+        1,
+        MapSpec::new(16, 16)
+            .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 2))
+            .with_building(BuildingKind::TOWN_CENTER, PlayerId::TWO, TilePos::new(4, 6)),
+    );
+    // A body 3 tiles taller than the 4-tile footprint, from its centre.
+    let roof = Body {
+        offset: Vec2::new(-2.0, -5.0),
+        size: Vec2::new(4.0, 7.0),
+    };
+    let bodies = Bodies {
+        buildings: vec![roof, roof],
+        ..Bodies::default()
+    };
+
+    // (6, 5.5) is on the upper one's footprint and the lower one's roof.
+    let picked = building_at(world.view(), Vec2::new(6.0, 5.5), &bodies)
+        .and_then(|id| world.view().building(id))
+        .map(|b| b.owner);
+
+    assert_eq!(picked, Some(PlayerId::TWO));
 }

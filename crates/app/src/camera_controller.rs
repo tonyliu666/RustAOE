@@ -4,6 +4,7 @@
 //! free to use floating point. In hotseat play each player has their own
 //! controller: where someone is looking is not part of the simulation.
 
+use crate::ui::Layout;
 use render::{Camera, InputState, MouseButton, Vec2};
 
 /// A camera plus the mouse bindings that move it. No key moves the view.
@@ -44,15 +45,33 @@ impl CameraController {
         self.camera
     }
 
-    /// Centres the view on a world position.
-    pub fn look_at(&mut self, center: Vec2) {
-        self.camera.center = center;
+    /// Centres the open middle of the window, between the top bar and the
+    /// bottom panels, on a world position.
+    pub fn look_at(&mut self, at: Vec2) {
+        // Clamp first: the zoom may have to change, and the open middle's
+        // offset from the window's centre is measured at the final zoom.
+        self.camera.center = at;
         self.clamp_to_map();
+        self.centre_open_middle_on(at);
     }
 
-    /// Matches the viewport to a resized window.
+    /// Matches the viewport to a resized window, keeping the same place in
+    /// the middle of the open area.
     pub fn resize(&mut self, viewport: Vec2) {
+        if viewport == self.camera.viewport {
+            return;
+        }
+        let focus = self.camera.center + Vec2::new(0.0, OpenMiddle::of(&self.camera).offset);
         self.camera.viewport = viewport;
+        self.clamp_to_map();
+        self.centre_open_middle_on(focus);
+    }
+
+    /// Puts `at` in the middle of the open area, at the current zoom, as far
+    /// as the map allows.
+    fn centre_open_middle_on(&mut self, at: Vec2) {
+        let open = OpenMiddle::of(&self.camera);
+        self.camera.center = at - Vec2::new(0.0, open.offset);
         self.clamp_to_map();
     }
 
@@ -110,20 +129,24 @@ impl CameraController {
         from_centre * (1.0 / length)
     }
 
-    /// Keeps the window full of map: nothing beyond the map's edge is ever
-    /// shown.
+    /// Keeps the open middle of the window full of map: nothing beyond the
+    /// map's edge is shown except under the interface.
     ///
-    /// The zoom stops where the map fills the window, and the view stops
-    /// where its edge meets the map's. A map smaller than the window even at
-    /// the closest zoom is centred instead.
+    /// The zoom stops where the map fills the open middle, and the view stops
+    /// where the open middle's edge meets the map's. The interface spans the
+    /// window's width, so sideways the open middle is the whole window.
     fn clamp_to_map(&mut self) {
         let (width, height) = (self.map_width as f32, self.map_height as f32);
         let viewport = self.camera.viewport;
-        let fill = (viewport.x / width).max(viewport.y / height);
+        let open_height = OpenMiddle::height_fraction() * viewport.y;
+        let fill = (viewport.x / width).max(open_height / height);
         let widest = Self::MIN_ZOOM.max(fill);
         self.camera.zoom = self.camera.zoom.clamp(widest, Self::MAX_ZOOM.max(widest));
 
-        let half = viewport * (0.5 / self.camera.zoom);
+        // In world units: half the open middle's size, and how far its centre
+        // sits from the window's.
+        let open = OpenMiddle::of(&self.camera);
+        let half = Vec2::new(viewport.x, open_height) * (0.5 / self.camera.zoom);
         let clamp_axis = |centre: f32, half: f32, size: f32| {
             if half * 2.0 >= size {
                 size / 2.0
@@ -132,6 +155,34 @@ impl CameraController {
             }
         };
         self.camera.center.x = clamp_axis(self.camera.center.x, half.x, width);
-        self.camera.center.y = clamp_axis(self.camera.center.y, half.y, height);
+        let open_centre = self.camera.center.y + open.offset;
+        self.camera.center.y = clamp_axis(open_centre, half.y, height) - open.offset;
+    }
+}
+
+/// The part of the window the interface leaves open, between the top bar and
+/// the bottom panels.
+struct OpenMiddle {
+    /// How far the open middle's centre sits below the window's, in world
+    /// units at the camera's zoom. Negative: the bottom panels are taller
+    /// than the top bar, so the open middle's centre is above the window's.
+    offset: f32,
+}
+
+impl OpenMiddle {
+    fn of(camera: &Camera) -> OpenMiddle {
+        let layout = Layout::new(camera.viewport);
+        let (top, bottom) = (layout.top_bar.max().y, layout.bottom.min.y);
+        let centre = (top + bottom) / 2.0;
+        OpenMiddle {
+            offset: (centre - camera.viewport.y / 2.0) / camera.zoom,
+        }
+    }
+
+    /// The open middle's height as a fraction of the window's. The layout
+    /// stretches with the window, so this is the same at every size.
+    fn height_fraction() -> f32 {
+        let layout = Layout::new(Vec2::new(1.0, 1.0));
+        layout.bottom.min.y - layout.top_bar.max().y
     }
 }
