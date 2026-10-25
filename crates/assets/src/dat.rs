@@ -129,9 +129,106 @@ pub struct Dat {
     pub unit_headers_at: usize,
     pub unit_headers: usize,
     pub units_present: usize,
-    /// Where the civilisations begin, at their count, and how many there are.
+    /// Each unit ID's tasks, shared by every civilisation; `None` where the
+    /// ID has no unit.
+    pub unit_tasks: Vec<Option<Vec<Task>>>,
+    /// Where the civilisations begin, at their count, and each of them.
     pub civs_at: usize,
-    pub civs: usize,
+    pub civs: Vec<Civ>,
+    /// Where the researches begin, at their count, and how many there are.
+    pub researches_at: usize,
+    pub researches: usize,
+}
+
+/// One task a unit can do: gather, build, attack, and so on.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Task {
+    /// What the task does; 5 is gathering.
+    pub action: i16,
+    /// The unit class and unit the task applies to, if limited to one.
+    pub class: i16,
+    pub unit: i16,
+    /// The resource taken and the one carried: a gatherer takes a site's
+    /// resource and carries its own kind.
+    pub resource_in: i16,
+    pub resource_out: i16,
+    /// The task's rate, such as resource gathered per second.
+    pub work_value: f32,
+    pub work_range: f32,
+}
+
+/// One civilisation and its copy of every unit.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Civ {
+    pub name: String,
+    /// Indexed by unit ID; `None` where the civilisation has no such unit.
+    pub units: Vec<Option<Unit>>,
+}
+
+/// A unit, as far as the reader keeps it. Which parts it has depends on its
+/// type: 10 and 15 are scenery, 20 and 25 flags, 30 dead units and fish, 40
+/// birds (the first that work), 50 fighters, 60 projectiles, 70 trainable
+/// units, 80 buildings, 90 trees.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Unit {
+    pub kind: u8,
+    pub id: i16,
+    pub name: String,
+    pub class: i16,
+    /// A graphic ID: see [`Dat::slp_of`].
+    pub standing_graphic: i16,
+    pub hit_points: i16,
+    /// Half-sizes in tiles, x, y, and height.
+    pub collision: [f32; 3],
+    /// Half-sizes in tiles of the space kept clear, x and y.
+    pub clearance: [f32; 2],
+    /// A frame of the unit or building icon sprite.
+    pub icon: i16,
+    /// How much of a resource it carries.
+    pub resource_capacity: i16,
+    /// Tiles per second; types 20 and up.
+    pub speed: Option<f32>,
+    /// Types 40 and up.
+    pub work_rate: Option<f32>,
+    /// The units it may drop resources at; types 40 and up.
+    pub drop_sites: Option<[i16; 2]>,
+    /// Types 50 and up.
+    pub combat: Option<Combat>,
+    /// Types 70 and 80.
+    pub creatable: Option<Creatable>,
+}
+
+/// How a unit fights.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Combat {
+    /// (armour class, amount) for each attack.
+    pub attacks: Vec<(i16, i16)>,
+    /// In tiles.
+    pub max_range: f32,
+    /// Seconds between attacks.
+    pub reload_time: f32,
+}
+
+/// How a unit is made.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Creatable {
+    pub costs: [Cost; 3],
+    /// Seconds.
+    pub train_time: i16,
+    /// The unit ID of the building that trains it.
+    pub train_location: i16,
+    /// Its button on that building's command panel.
+    pub button: u8,
+}
+
+/// One part of a cost.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Cost {
+    /// The resource: 0 food, 1 wood, 2 stone, 3 gold, 4 population.
+    pub resource: i16,
+    pub amount: i16,
+    /// Whether this part is charged at all.
+    pub used: bool,
 }
 
 /// Reads little-endian fields from inflated data, failing with `Truncated`
@@ -160,6 +257,11 @@ impl Reader<'_> {
     fn i16(&mut self) -> Result<i16, DatError> {
         let b = self.bytes(2)?;
         Ok(i16::from_le_bytes([b[0], b[1]]))
+    }
+
+    fn f32(&mut self) -> Result<f32, DatError> {
+        let b = self.bytes(4)?;
+        Ok(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     fn i32(&mut self) -> Result<i32, DatError> {
@@ -203,9 +305,16 @@ impl Dat {
         let effects_at = r.at;
         let effects = skip_effects(&mut r)?;
         let unit_headers_at = r.at;
-        let (unit_headers, units_present) = skip_unit_headers(&mut r)?;
+        let unit_tasks = read_unit_headers(&mut r)?;
+        let unit_headers = unit_tasks.len();
+        let units_present = unit_tasks.iter().flatten().count();
         let civs_at = r.at;
-        let civs = r.count()?;
+        let civ_count = r.count()?;
+        let civs = (0..civ_count)
+            .map(|_| read_civ(&mut r))
+            .collect::<Result<Vec<_>, _>>()?;
+        let researches_at = r.at;
+        let researches = r.count()?;
         Ok(Dat {
             graphics,
             after_graphics,
@@ -216,9 +325,19 @@ impl Dat {
             unit_headers_at,
             unit_headers,
             units_present,
+            unit_tasks,
             civs_at,
             civs,
+            researches_at,
+            researches,
         })
+    }
+
+    /// The SLP sprite a graphic draws, if the graphic exists and names one.
+    pub fn slp_of(&self, graphic: i16) -> Option<i32> {
+        let index = usize::try_from(graphic).ok()?;
+        let slp = self.graphics.get(index)?.as_ref()?.slp;
+        (slp >= 0).then_some(slp)
     }
 }
 
@@ -318,18 +437,217 @@ fn skip_effects(r: &mut Reader<'_>) -> Result<usize, DatError> {
 }
 
 /// Unit headers: per unit ID a flag and, when the unit exists, its task
-/// list, 59 bytes a task. Returns the count and how many exist.
-fn skip_unit_headers(r: &mut Reader<'_>) -> Result<(usize, usize), DatError> {
+/// list, 59 bytes a task.
+fn read_unit_headers(r: &mut Reader<'_>) -> Result<Vec<Option<Vec<Task>>>, DatError> {
     let units = r.count32()?;
-    let mut present = 0;
+    // Grown as headers are read, so a damaged count runs out of file.
+    let mut headers = Vec::new();
     for _ in 0..units {
-        if r.u8()? != 0 {
-            present += 1;
-            let tasks = r.count()?;
-            r.skip(tasks * 59)?;
+        if r.u8()? == 0 {
+            headers.push(None);
+            continue;
         }
+        let tasks = r.count()?;
+        let mut list = Vec::new();
+        for _ in 0..tasks {
+            list.push(read_task(r)?);
+        }
+        headers.push(Some(list));
     }
-    Ok((units, present))
+    Ok(headers)
+}
+
+fn read_task(r: &mut Reader<'_>) -> Result<Task, DatError> {
+    r.skip(2 + 2 + 1)?; // task type, ID, default flag
+    let action = r.i16()?;
+    let class = r.i16()?;
+    let unit = r.i16()?;
+    r.skip(2)?; // terrain
+    let resource_in = r.i16()?;
+    r.skip(2)?; // resource multiplier
+    let resource_out = r.i16()?;
+    r.skip(2)?; // unused resource
+    let work_value = r.f32()?;
+    r.skip(4)?; // second work value
+    let work_range = r.f32()?;
+    // Search, targeting, gather type, diplomacy, carry and construction
+    // flags, four graphics, and two sounds.
+    r.skip(1 + 4 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 4 * 2 + 2 * 2)?;
+    Ok(Task {
+        action,
+        class,
+        unit,
+        resource_in,
+        resource_out,
+        work_value,
+        work_range,
+    })
+}
+
+/// A civilisation: player type, 20-byte name, its starting resources, tech
+/// tree and team bonus, icon set, then a pointer per unit slot and each
+/// unit whose pointer is not zero.
+fn read_civ(r: &mut Reader<'_>) -> Result<Civ, DatError> {
+    r.skip(1)?; // player type
+    let name = r.text(20)?;
+    let resources = r.count()?;
+    r.skip(2 + 2)?; // tech tree, team bonus
+    r.skip(resources * 4)?;
+    r.skip(1)?; // icon set
+    let slots = r.count()?;
+    let mut present = Vec::new();
+    for _ in 0..slots {
+        present.push(r.i32()? != 0);
+    }
+    let units = present
+        .into_iter()
+        .map(|here| {
+            if here {
+                read_unit(r).map(Some)
+            } else {
+                Ok(None)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Civ { name, units })
+}
+
+/// One unit in The Conquerors' layout: the fields every unit has, then the
+/// parts its type adds, each type including the parts of the types below it.
+fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
+    let kind = r.u8()?;
+    if ![10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90].contains(&kind) {
+        return Err(DatError::Corrupt("unknown unit type"));
+    }
+    let name_len = r.count()?;
+    let id = r.i16()?;
+    r.skip(2 + 2)?; // language strings
+    let class = r.i16()?;
+    let standing_graphic = r.i16()?;
+    r.skip(2 + 2 + 2 + 1)?; // second standing graphic, dying, undead, undead mode
+    let hit_points = r.i16()?;
+    r.skip(4 + 1)?; // line of sight, garrison capacity
+    let collision = [r.f32()?, r.f32()?, r.f32()?];
+    r.skip(2 + 2 + 2 + 1 + 1)?; // train and damage sounds, dead unit, sort, built on
+    let icon = r.i16()?;
+    r.skip(1 + 2 + 1 + 1)?; // hidden, portrait, enabled, disabled
+    r.skip(4 * 2)?; // placement side and placement terrains
+    let clearance = [r.f32()?, r.f32()?];
+    r.skip(1 + 1 + 2 + 1)?; // hill mode, fog, terrain restriction, fly mode
+    let resource_capacity = r.i16()?;
+    // Resource decay, blast defence, combat level, interaction, minimap
+    // mode, interface kind, attribute mode, minimap colour.
+    r.skip(4 + 1 + 1 + 1 + 1 + 1 + 4 + 1)?;
+    r.skip(4 * 3)?; // help and hotkey strings, hotkey
+                    // Recyclable, auto gather, doppelganger, gather group, occlusion,
+                    // obstruction type and class, trait, civilisation, an i16, selection
+                    // effect and colour, outline size.
+    r.skip(4 + 1 + 2 + 2 + 2 + 2 + 3 * 4)?;
+    r.skip(3 * (2 + 4 + 1))?; // resource storages
+    let damage_graphics = usize::from(r.u8()?);
+    r.skip(damage_graphics * 5)?;
+    r.skip(2 + 2 + 1 + 1)?; // selection and dying sounds, attack reaction, convert terrain
+    let name = r.text(name_len)?;
+    r.skip(2 + 2)?; // copy and base IDs
+
+    let mut unit = Unit {
+        kind,
+        id,
+        name,
+        class,
+        standing_graphic,
+        hit_points,
+        collision,
+        clearance,
+        icon,
+        resource_capacity,
+        speed: None,
+        work_rate: None,
+        drop_sites: None,
+        combat: None,
+        creatable: None,
+    };
+    if kind < 20 || kind == 90 {
+        return Ok(unit);
+    }
+    unit.speed = Some(r.f32()?);
+    if kind < 30 {
+        return Ok(unit);
+    }
+    // Walking and running graphics, rotation, size class, tracking unit,
+    // mode, and density, move algorithm, then five turning fields.
+    r.skip(2 + 2 + 4 + 1 + 2 + 1 + 4 + 1 + 5 * 4)?;
+    if kind < 40 {
+        return Ok(unit);
+    }
+    r.skip(2 + 4)?; // default task, search radius
+    unit.work_rate = Some(r.f32()?);
+    unit.drop_sites = Some([r.i16()?, r.i16()?]);
+    r.skip(1 + 2 + 2 + 1)?; // task swap group, attack and move sounds, run pattern
+    if kind < 50 {
+        return Ok(unit);
+    }
+    r.skip(2)?; // base armour
+    let attack_count = r.count()?;
+    let mut attacks = Vec::new();
+    for _ in 0..attack_count {
+        attacks.push((r.i16()?, r.i16()?));
+    }
+    let armours = r.count()?;
+    r.skip(armours * 4)?;
+    r.skip(2)?; // terrain defence bonus
+    let max_range = r.f32()?;
+    r.skip(4)?; // blast width
+    let reload_time = r.f32()?;
+    // Projectile unit, accuracy, break-off, frame delay, graphic
+    // displacement, blast level, minimum range, dispersion, attack graphic,
+    // and the displayed armour, attack, range, and reload time.
+    r.skip(2 + 2 + 1 + 2 + 3 * 4 + 1 + 4 + 4 + 2 + 2 + 2 + 4 + 4)?;
+    unit.combat = Some(Combat {
+        attacks,
+        max_range,
+        reload_time,
+    });
+    if kind == 60 {
+        r.skip(5 + 4)?; // projectile type and modes, arc
+    }
+    if kind < 70 || kind == 90 {
+        return Ok(unit);
+    }
+    let mut costs = [Cost {
+        resource: -1,
+        amount: 0,
+        used: false,
+    }; 3];
+    for cost in &mut costs {
+        *cost = Cost {
+            resource: r.i16()?,
+            amount: r.i16()?,
+            used: r.i16()? != 0,
+        };
+    }
+    let train_time = r.i16()?;
+    let train_location = r.i16()?;
+    let button = r.u8()?;
+    // Rear and flank attack, creatable type, hero mode, garrison graphic,
+    // projectile count and limit, spawning area, secondary projectile,
+    // special graphic and ability, displayed pierce armour.
+    r.skip(4 + 4 + 1 + 1 + 4 + 4 + 1 + 3 * 4 + 4 + 4 + 1 + 2)?;
+    unit.creatable = Some(Creatable {
+        costs,
+        train_time,
+        train_location,
+        button,
+    });
+    if kind == 80 {
+        // Construction and snow graphics, adjacent mode, graphics angle,
+        // disappears, stack unit, foundation, overlay, tech, can burn, four
+        // annexes, head and transform units, transform and construction
+        // sounds, garrison type, heal and repair rates, pile unit, and the
+        // looting table.
+        r.skip(2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 4 * 10 + 2 + 2 + 2 + 2 + 1 + 4 + 4 + 2 + 6)?;
+    }
+    Ok(unit)
 }
 
 /// Terrain restrictions: two pointer tables, then per restriction a

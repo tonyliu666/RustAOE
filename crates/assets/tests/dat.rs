@@ -99,8 +99,78 @@ fn the_real_file_decompresses_and_is_the_conquerors_format() {
         ),
         (9, 514, 866, 842)
     );
-    assert_eq!((dat.civs, dat.civs_at), (19, 1_092_830));
+    assert_eq!((dat.civs.len(), dat.civs_at), (19, 1_092_830));
     assert_eq!(&data[dat.civs_at + 3..dat.civs_at + 7], b"Gaia");
+    let names: Vec<&str> = dat.civs.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "Gaia",
+            "British",
+            "French",
+            "Goths",
+            "Germans",
+            "Japanese",
+            "Chinese",
+            "Byzantine",
+            "Persians",
+            "Saracens",
+            "Turks",
+            "Vikings",
+            "Mongols",
+            "Celts",
+            "Spanish",
+            "Aztecs",
+            "Mayan",
+            "Huns",
+            "Koreans",
+        ]
+    );
+    // Every civilisation has a slot for every unit ID, and the walk through
+    // all of their units ends at the researches: 460 of them.
+    assert!(dat.civs.iter().all(|c| c.units.len() == 866));
+    assert_eq!((dat.researches_at, dat.researches), (5_587_765, 460));
+    let britons = &dat.civs[1];
+    let unit = |id: usize| britons.units[id].as_ref().expect("the unit exists");
+    let villager = unit(83);
+    assert_eq!(
+        (
+            villager.name.as_str(),
+            villager.kind,
+            villager.hit_points,
+            villager.icon
+        ),
+        ("VMBAS", 70, 25, 15)
+    );
+    assert_eq!(dat.slp_of(villager.standing_graphic), Some(1479));
+    assert_eq!(villager.resource_capacity, 10);
+    let trained = villager.creatable.as_ref().expect("trained");
+    assert_eq!(
+        (trained.costs[0].resource, trained.costs[0].amount),
+        (0, 50)
+    );
+    assert_eq!((trained.train_time, trained.train_location), (25, 109));
+    let militia = unit(74);
+    assert_eq!(
+        (militia.name.as_str(), militia.hit_points, militia.icon),
+        ("SPRMN", 40, 8)
+    );
+    assert_eq!(dat.slp_of(militia.standing_graphic), Some(993));
+    let trained = militia.creatable.as_ref().expect("trained");
+    let costs: Vec<(i16, i16)> = trained
+        .costs
+        .iter()
+        .filter(|c| c.used)
+        .map(|c| (c.resource, c.amount))
+        .collect();
+    assert_eq!(costs, [(0, 60), (3, 20)]);
+    assert_eq!(
+        (trained.train_time, trained.train_location, trained.button),
+        (21, 12, 1)
+    );
+    assert_eq!((unit(109).hit_points, unit(109).icon), (2400, 28));
+    assert_eq!((unit(12).hit_points, unit(12).icon), (1200, 2));
+    assert_eq!(unit(93).creatable.as_ref().map(|c| c.button), Some(2));
     // The limit leaves plenty of room for the real file.
     assert!(
         data.len() < assets::dat::MAX_DECOMPRESSED / 4,
@@ -339,8 +409,8 @@ fn unit_headers(b: &mut Bytes, tasks: &[Option<usize>]) {
 }
 
 /// The sections after the graphics table: a terrain block, two random maps,
-/// three effects, three unit headers, then a civilisation count of 2 and
-/// the start of the first civilisation.
+/// three effects, three unit headers, two civilisations without units, and
+/// a research count of 7.
 fn after() -> Vec<u8> {
     let mut b = Bytes::default();
     let mut block = TERRAIN_BLOCK_MARK.to_vec();
@@ -349,7 +419,10 @@ fn after() -> Vec<u8> {
     random_maps(&mut b, &[(1, 0, 2, 1), (0, 3, 0, 0)]);
     effects(&mut b, &[0, 3, 1]);
     unit_headers(&mut b, &[Some(2), None, Some(0)]);
-    b.i16(2).u8(1).text("Gaia", 20);
+    b.i16(2);
+    civ(&mut b, "Gaia", &[]);
+    civ(&mut b, "British", &[]);
+    b.i16(7);
     b.0
 }
 
@@ -369,7 +442,7 @@ fn the_sections_after_the_graphics_are_walked_to_the_civilisations() {
         ),
         (2, 3, 3, 2)
     );
-    assert_eq!(dat.civs, 2);
+    assert_eq!(dat.civs.len(), 2);
     // The first civilisation follows its count: player type, then name.
     assert_eq!(&data[dat.civs_at + 3..dat.civs_at + 7], b"Gaia");
 }
@@ -437,4 +510,439 @@ fn a_file_cut_off_inside_the_unit_headers_is_an_error() {
         Dat::parse(&data[..at + 10]).err(),
         Some(DatError::Truncated)
     );
+}
+
+// --- civilisations and their units -----------------------------------------------
+
+use assets::dat::{Cost, Unit};
+
+/// A unit to write: its type and the fields the reader keeps. Fields a type
+/// does not have are ignored when writing it.
+#[derive(Clone)]
+struct UnitSpec {
+    kind: u8,
+    id: i16,
+    name: &'static str,
+    hit_points: i16,
+    standing: i16,
+    icon: i16,
+    collision: f32,
+    capacity: i16,
+    speed: f32,
+    work_rate: f32,
+    drop_sites: [i16; 2],
+    attacks: Vec<(i16, i16)>,
+    max_range: f32,
+    reload: f32,
+    costs: [(i16, i16, i16); 3],
+    train_time: i16,
+    train_location: i16,
+    button: u8,
+    damage_graphics: usize,
+}
+
+fn villager_spec() -> UnitSpec {
+    UnitSpec {
+        kind: 70,
+        id: 83,
+        name: "VMDL",
+        hit_points: 25,
+        standing: 1284,
+        icon: 15,
+        collision: 0.2,
+        capacity: 10,
+        speed: 0.8,
+        work_rate: 1.0,
+        drop_sites: [109, -1],
+        attacks: vec![(4, 3)],
+        max_range: 0.0,
+        reload: 2.0,
+        costs: [(0, 50, 1), (-1, 0, 0), (-1, 0, 0)],
+        train_time: 25,
+        train_location: 109,
+        button: 1,
+        damage_graphics: 1,
+    }
+}
+
+/// One unit in The Conquerors' layout.
+fn unit(b: &mut Bytes, u: &UnitSpec) {
+    b.u8(u.kind).i16(u.name.len() as i16).i16(u.id);
+    b.i16(5000).i16(6000).i16(4); // language strings, class
+    b.i16(u.standing).i16(-1).i16(-1).i16(-1).u8(0); // standing pair, dying, undead, undead mode
+    b.i16(u.hit_points).f32(4.0).u8(0); // line of sight, garrison
+    b.f32(u.collision).f32(u.collision).f32(2.0);
+    b.i16(-1).i16(-1).i16(-1).u8(0).u8(0); // train and damage sounds, dead unit, sort, built on
+    b.i16(u.icon).u8(0).i16(-1).u8(1).u8(0); // icon, hidden, portrait, enabled, disabled
+    b.i16(-1).i16(-1).i16(-1).i16(-1); // placement terrains
+    b.f32(u.collision).f32(u.collision).u8(0).u8(0).i16(7).u8(0); // clearance, hill, fog, restriction, fly
+    b.i16(u.capacity)
+        .f32(0.0)
+        .u8(0)
+        .u8(0)
+        .u8(0)
+        .u8(0)
+        .u8(0)
+        .f32(0.0)
+        .u8(0);
+    b.i32(0).i32(0).i32(0); // help, hotkey text, hotkey
+    for _ in 0..4 + 5 {
+        b.u8(0); // recyclable .. civilisation
+    }
+    b.i16(0).u8(0).u8(0).f32(1.0).f32(1.0).f32(1.0); // nothing, selection, outline
+    for _ in 0..3 {
+        b.i16(-1).f32(0.0).u8(0); // resource storages
+    }
+    b.u8(u.damage_graphics as u8);
+    for _ in 0..u.damage_graphics {
+        b.i16(10).i16(50).u8(0);
+    }
+    b.i16(-1).i16(-1).u8(0).u8(0); // selection and dying sounds, attack reaction, convert
+    b.0.extend(u.name.as_bytes());
+    b.i16(u.id).i16(u.id); // copy, base
+    if u.kind == 90 || u.kind < 20 {
+        return;
+    }
+    b.f32(u.speed);
+    if u.kind < 30 {
+        return;
+    }
+    b.i16(-1)
+        .i16(-1)
+        .f32(1.0)
+        .u8(0)
+        .i16(-1)
+        .u8(0)
+        .f32(0.0)
+        .u8(0);
+    for _ in 0..5 {
+        b.f32(0.0);
+    }
+    if u.kind < 40 {
+        return;
+    }
+    b.i16(-1)
+        .f32(5.0)
+        .f32(u.work_rate)
+        .i16(u.drop_sites[0])
+        .i16(u.drop_sites[1]);
+    b.u8(0).i16(-1).i16(-1).u8(0);
+    if u.kind < 50 {
+        return;
+    }
+    b.i16(0).i16(u.attacks.len() as i16);
+    for (class, amount) in &u.attacks {
+        b.i16(*class).i16(*amount);
+    }
+    b.i16(1).i16(4).i16(0).i16(-1); // one armour, terrain bonus
+    b.f32(u.max_range)
+        .f32(0.0)
+        .f32(u.reload)
+        .i16(-1)
+        .i16(100)
+        .u8(0)
+        .i16(0);
+    b.f32(0.0).f32(0.0).f32(0.0).u8(0).f32(0.0).f32(0.0).i16(-1);
+    b.i16(0).i16(3).f32(u.max_range).f32(u.reload);
+    if u.kind == 60 {
+        b.u8(0).u8(0).u8(0).u8(0).u8(0).f32(0.0);
+    }
+    if u.kind < 70 {
+        return;
+    }
+    for (resource, amount, used) in u.costs {
+        b.i16(resource).i16(amount).i16(used);
+    }
+    b.i16(u.train_time).i16(u.train_location).u8(u.button);
+    b.f32(0.0).f32(0.0).u8(0).u8(0).i32(-1).f32(1.0).u8(1);
+    b.f32(0.0).f32(0.0).f32(0.0).i32(-1).i32(-1).u8(0).i16(0);
+    if u.kind == 80 {
+        b.i16(-1)
+            .i16(-1)
+            .u8(0)
+            .i16(0)
+            .u8(0)
+            .i16(-1)
+            .i16(-1)
+            .i16(-1)
+            .i16(-1)
+            .u8(0);
+        for _ in 0..4 {
+            b.i16(-1).f32(0.0).f32(0.0);
+        }
+        b.i16(-1)
+            .i16(-1)
+            .i16(-1)
+            .i16(-1)
+            .u8(0)
+            .f32(0.0)
+            .f32(0.0)
+            .i16(-1);
+        for _ in 0..6 {
+            b.u8(0);
+        }
+    }
+}
+
+/// One civilisation: player type, 20-byte name, resources, icon set, then a
+/// pointer per unit slot and each present unit.
+fn civ(b: &mut Bytes, name: &str, units: &[Option<UnitSpec>]) {
+    b.u8(1)
+        .text(name, 20)
+        .i16(2)
+        .i16(-1)
+        .i16(-1)
+        .f32(200.0)
+        .f32(100.0)
+        .u8(1);
+    b.i16(units.len() as i16);
+    for u in units {
+        b.i32(if u.is_some() { 1 } else { 0 });
+    }
+    for u in units.iter().flatten() {
+        unit(b, u);
+    }
+}
+
+/// [`after`] up to the civilisation count, with `civs` written in full, then
+/// a research count of 7.
+fn with_civs(civs: &[(&str, Vec<Option<UnitSpec>>)]) -> Vec<u8> {
+    let mut b = Bytes::default();
+    let mut block = TERRAIN_BLOCK_MARK.to_vec();
+    block.resize(TERRAIN_BLOCK_SIZE, 0);
+    b.0.extend(block);
+    random_maps(&mut b, &[(1, 0, 2, 1)]);
+    effects(&mut b, &[1]);
+    unit_headers(&mut b, &[Some(2), None]);
+    b.i16(civs.len() as i16);
+    for (name, units) in civs {
+        civ(&mut b, name, units);
+    }
+    b.i16(7);
+    small_dat(&b.0)
+}
+
+/// A unit of every type The Conquerors' file holds.
+fn one_of_each() -> Vec<Option<UnitSpec>> {
+    let v = villager_spec();
+    let of = |kind, id| {
+        Some(UnitSpec {
+            kind,
+            id,
+            name: "X",
+            ..v.clone()
+        })
+    };
+    vec![
+        of(10, 0),
+        None,
+        of(15, 2),
+        of(20, 3),
+        of(25, 4),
+        of(30, 5),
+        of(40, 6),
+        of(50, 7),
+        of(60, 8),
+        Some(v.clone()),
+        of(80, 10),
+        of(90, 11),
+    ]
+}
+
+fn read_civ_units(data: &[u8]) -> Vec<Vec<Option<Unit>>> {
+    Dat::parse(data)
+        .expect("a well-formed file")
+        .civs
+        .into_iter()
+        .map(|c| c.units)
+        .collect()
+}
+
+#[test]
+fn each_civilisation_is_read_with_its_name_and_unit_slots() {
+    let data = with_civs(&[("Gaia", one_of_each()), ("British", vec![None, None])]);
+
+    let dat = Dat::parse(&data).expect("a well-formed file");
+
+    let names: Vec<&str> = dat.civs.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["Gaia", "British"]);
+    assert_eq!(dat.civs[0].units.len(), 12);
+    assert!(dat.civs[0].units[1].is_none());
+    assert_eq!(dat.civs[1].units, [None, None]);
+}
+
+#[test]
+fn reading_ends_exactly_where_the_researches_begin() {
+    let data = with_civs(&[("Gaia", one_of_each()), ("British", vec![None])]);
+
+    let dat = Dat::parse(&data).expect("a well-formed file");
+
+    assert_eq!(&data[dat.researches_at..], &7i16.to_le_bytes());
+    assert_eq!(dat.researches, 7);
+}
+
+#[test]
+fn a_trainable_units_fields_are_read() {
+    let data = with_civs(&[("Gaia", one_of_each())]);
+    let units = read_civ_units(&data);
+
+    let villager = units[0][9].as_ref().expect("slot 9 holds the villager");
+
+    assert_eq!(
+        (
+            villager.kind,
+            villager.id,
+            villager.name.as_str(),
+            villager.class
+        ),
+        (70, 83, "VMDL", 4)
+    );
+    assert_eq!(
+        (
+            villager.hit_points,
+            villager.standing_graphic,
+            villager.icon
+        ),
+        (25, 1284, 15)
+    );
+    assert_eq!(
+        (villager.collision, villager.clearance),
+        ([0.2, 0.2, 2.0], [0.2, 0.2])
+    );
+    assert_eq!(villager.resource_capacity, 10);
+    assert_eq!(villager.speed, Some(0.8));
+    assert_eq!(villager.work_rate, Some(1.0));
+    assert_eq!(villager.drop_sites, Some([109, -1]));
+    let combat = villager.combat.as_ref().expect("type 70 fights");
+    assert_eq!(combat.attacks, [(4, 3)]);
+    assert_eq!((combat.max_range, combat.reload_time), (0.0, 2.0));
+    let creatable = villager.creatable.as_ref().expect("type 70 is trained");
+    assert_eq!(
+        creatable.costs,
+        [
+            Cost {
+                resource: 0,
+                amount: 50,
+                used: true
+            },
+            Cost {
+                resource: -1,
+                amount: 0,
+                used: false
+            },
+            Cost {
+                resource: -1,
+                amount: 0,
+                used: false
+            },
+        ]
+    );
+    assert_eq!(
+        (
+            creatable.train_time,
+            creatable.train_location,
+            creatable.button
+        ),
+        (25, 109, 1)
+    );
+}
+
+#[test]
+fn each_unit_type_has_the_parts_its_type_has() {
+    let data = with_civs(&[("Gaia", one_of_each())]);
+    let units = read_civ_units(&data);
+
+    let parts = |slot: usize| {
+        let u = units[0][slot].as_ref().expect("present");
+        (
+            u.kind,
+            u.speed.is_some(),
+            u.work_rate.is_some(),
+            u.combat.is_some(),
+            u.creatable.is_some(),
+        )
+    };
+    assert_eq!(parts(0), (10, false, false, false, false));
+    assert_eq!(parts(2), (15, false, false, false, false));
+    assert_eq!(parts(3), (20, true, false, false, false));
+    assert_eq!(parts(4), (25, true, false, false, false));
+    assert_eq!(parts(5), (30, true, false, false, false));
+    assert_eq!(parts(6), (40, true, true, false, false));
+    assert_eq!(parts(7), (50, true, true, true, false));
+    assert_eq!(parts(8), (60, true, true, true, false));
+    assert_eq!(parts(10), (80, true, true, true, true));
+    assert_eq!(parts(11), (90, false, false, false, false));
+}
+
+#[test]
+fn a_unit_of_a_type_the_reader_does_not_know_is_an_error() {
+    let strange = UnitSpec {
+        kind: 45,
+        ..villager_spec()
+    };
+    let data = with_civs(&[("Gaia", vec![Some(strange)])]);
+
+    assert_eq!(
+        Dat::parse(&data).err(),
+        Some(DatError::Corrupt("unknown unit type"))
+    );
+}
+
+#[test]
+fn a_file_cut_off_inside_a_unit_is_an_error() {
+    let data = with_civs(&[("Gaia", one_of_each())]);
+    let researches_at = Dat::parse(&data).expect("well-formed").researches_at;
+
+    assert_eq!(
+        Dat::parse(&data[..researches_at - 30]).err(),
+        Some(DatError::Truncated)
+    );
+}
+
+#[test]
+fn unit_headers_keep_each_tasks_action() {
+    let data = with_civs(&[("Gaia", vec![])]);
+
+    let dat = Dat::parse(&data).expect("a well-formed file");
+
+    // The fake headers: unit 0 has two tasks, unit 1 does not exist. Each
+    // fake task's bytes are all 3, so its action type reads 0x0303.
+    let actions: Vec<Option<Vec<i16>>> = dat
+        .unit_tasks
+        .iter()
+        .map(|tasks| tasks.as_ref().map(|t| t.iter().map(|t| t.action).collect()))
+        .collect();
+    assert_eq!(actions, [Some(vec![0x0303, 0x0303]), None]);
+    let rate = dat.unit_tasks[0].as_ref().expect("unit 0")[0].work_value;
+    assert_eq!(rate, f32::from_le_bytes([3; 4]));
+}
+
+#[test]
+fn a_graphic_resolves_to_the_sprite_it_names() {
+    let data = with_civs(&[("Gaia", vec![])]);
+
+    let dat = Dat::parse(&data).expect("a well-formed file");
+
+    assert_eq!(dat.slp_of(0), Some(1388));
+    assert_eq!(dat.slp_of(1), None, "an empty slot");
+    assert_eq!(dat.slp_of(-1), None, "no graphic");
+    assert_eq!(dat.slp_of(99), None, "past the table");
+}
+
+#[test]
+fn a_graphic_that_names_no_sprite_resolves_to_none() {
+    let mut data = with_civs(&[("Gaia", vec![])]);
+    // The barracks graphic's SLP field follows its 21-byte name and 13-byte
+    // file name; -1 means the graphic has no sprite of its own.
+    let at = data
+        .windows(8)
+        .position(|w| w == b"BARRACKS")
+        .expect("the barracks graphic")
+        + 21
+        + 13;
+    data[at..at + 4].copy_from_slice(&(-1i32).to_le_bytes());
+
+    let dat = Dat::parse(&data).expect("a well-formed file");
+
+    assert_eq!(dat.slp_of(2), None);
 }
