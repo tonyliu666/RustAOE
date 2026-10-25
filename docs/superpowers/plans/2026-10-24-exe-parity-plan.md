@@ -159,6 +159,20 @@ Each phase has a goal, a deliverable, a verification gate, and the reference to 
 - **Reference:** "Starting Turn#%d", "Too many commands in one comm turn", "IsPlayerOutOfSync".
 - **Gate:** Two processes stay in sync for a 10-minute recorded match.
 
+## Controls
+
+Decided by the user on 2026-10-25, following the original:
+
+- **The mouse alone moves units and the view.** The screen edge scrolls, the
+  wheel zooms, left click selects, right click orders. No key pans, zooms,
+  or moves a unit (`camera_controller.rs::no_key_moves_or_zooms_the_camera`
+  holds this for every key).
+- **The keyboard is for game shortcuts.** Today: `1` to `9` train, `Tab` hands
+  over in hotseat, `F10` locks the mouse, `Esc` quits. Later phases add the
+  original's shortcuts as their features arrive: the villager's build menu
+  (houses, castle, and so on) in Phase 3, stances and formations in Phase 6,
+  and the full hotkey scheme with the user interface in Phase 8.
+
 ## Guidelines
 
 These apply to every phase.

@@ -46,20 +46,6 @@ fn no_input_leaves_the_camera_where_it_was() {
 }
 
 #[test]
-fn w_a_s_d_do_not_move_the_camera() {
-    // The map pans with the mouse at the screen edge only, as in the
-    // original.
-    for key in [Key::W, Key::A, Key::S, Key::D] {
-        let mut cam = controller();
-        let before = cam.camera();
-
-        cam.update(&holding(&[key]), 0.1);
-
-        assert_eq!(before, cam.camera(), "{key:?} moved the camera");
-    }
-}
-
-#[test]
 fn panning_twice_as_long_pans_twice_as_far() {
     let mut short = controller();
     let mut long = controller();
@@ -130,19 +116,6 @@ fn scrolling_up_zooms_in_and_scrolling_down_zooms_out() {
         (cam.camera().zoom - start).abs() < 1e-3,
         "zoom should return"
     );
-}
-
-#[test]
-fn q_and_e_zoom_as_well_as_the_wheel() {
-    let mut out = controller();
-    let mut in_ = controller();
-    let start = out.camera().zoom;
-
-    out.update(&holding(&[Key::Q]), 0.1);
-    in_.update(&holding(&[Key::E]), 0.1);
-
-    assert!(out.camera().zoom < start);
-    assert!(in_.camera().zoom > start);
 }
 
 #[test]
@@ -369,7 +342,23 @@ fn zooming_out_from_near_an_edge_pulls_the_view_back_onto_the_map() {
     let mut cam = controller();
     cam.look_at(Vec2::new(10.0, 10.0));
 
-    cam.update(&holding(&[Key::Q]), 0.25);
+    for _ in 0..10 {
+        cam.update(&scrolling(-1.0), 0.016);
+    }
 
     assert!(inside_map(&cam), "shows {:?}", shown(&cam));
+}
+
+#[test]
+fn no_key_moves_or_zooms_the_camera() {
+    // The mouse alone moves the view: the edge pans, the wheel zooms. The
+    // keyboard is kept for game shortcuts, as in the original.
+    for key in Key::ALL {
+        let mut cam = controller();
+        let before = cam.camera();
+
+        cam.update(&holding(&[key]), 0.1);
+
+        assert_eq!(before, cam.camera(), "{key:?} moved or zoomed the camera");
+    }
 }

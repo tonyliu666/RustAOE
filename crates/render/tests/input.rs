@@ -34,12 +34,12 @@ fn a_release_clears_the_down_state() {
 fn keys_track_edges_and_levels_separately() {
     let mut input = InputState::default();
     input.press_key(Key::Tab);
-    input.hold_key(Key::W);
+    input.hold_key(Key::Space);
 
     assert!(input.key_pressed(Key::Tab));
     assert!(input.key_down(Key::Tab));
-    assert!(input.key_down(Key::W));
-    assert!(!input.key_pressed(Key::W));
+    assert!(input.key_down(Key::Space));
+    assert!(!input.key_pressed(Key::Space));
 }
 
 #[test]
@@ -55,23 +55,23 @@ fn cursor_and_scroll_are_carried_verbatim() {
 #[test]
 fn releasing_a_key_clears_the_held_level() {
     let mut input = InputState::default();
-    input.press_key(Key::W);
+    input.press_key(Key::Space);
     input.begin_frame();
-    input.hold_key(Key::W);
+    input.hold_key(Key::Space);
 
-    input.release_key(Key::W);
+    input.release_key(Key::Space);
 
-    assert!(!input.key_down(Key::W));
-    assert!(!input.key_pressed(Key::W));
+    assert!(!input.key_down(Key::Space));
+    assert!(!input.key_pressed(Key::Space));
 }
 
 #[test]
 fn releasing_a_key_that_was_never_held_is_harmless() {
     let mut input = InputState::default();
-    input.hold_key(Key::A);
+    input.hold_key(Key::Digit1);
 
-    input.release_key(Key::D);
+    input.release_key(Key::Digit2);
 
-    assert!(input.key_down(Key::A));
-    assert!(!input.key_down(Key::D));
+    assert!(input.key_down(Key::Digit1));
+    assert!(!input.key_down(Key::Digit2));
 }

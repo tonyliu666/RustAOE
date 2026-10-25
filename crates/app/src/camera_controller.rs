@@ -1,13 +1,12 @@
-//! Turning the mouse at the screen edge, the wheel, and the zoom keys into
-//! camera motion.
+//! Turning the mouse at the screen edge and the wheel into camera motion.
 //!
 //! Camera state is presentation, so it lives here rather than in `sim` and is
 //! free to use floating point. In hotseat play each player has their own
 //! controller: where someone is looking is not part of the simulation.
 
-use render::{Camera, InputState, Key, MouseButton, Vec2};
+use render::{Camera, InputState, MouseButton, Vec2};
 
-/// A camera plus the mouse and keyboard bindings that move it.
+/// A camera plus the mouse bindings that move it. No key moves the view.
 #[derive(Clone, PartialEq, Debug)]
 pub struct CameraController {
     camera: Camera,
@@ -27,8 +26,6 @@ impl CameraController {
     pub const EDGE_SCROLL_PIXELS: f32 = 8.0;
     /// Zoom factor per unit of wheel scroll.
     pub const ZOOM_PER_SCROLL: f32 = 1.1;
-    /// Zoom factor per second of held zoom key.
-    pub const ZOOM_PER_SECOND: f32 = 4.0;
     /// Screen pixels per tile at the widest view, at most: the view also
     /// stops zooming out once the map fills the window.
     pub const MIN_ZOOM: f32 = 4.0;
@@ -65,13 +62,9 @@ impl CameraController {
 
         // Zoom before panning, so the clamp below is applied at the zoom the
         // frame ends on rather than the one it started at.
-        let mut zoom_factor = Self::ZOOM_PER_SCROLL.powf(input.scroll);
-        if input.key_down(Key::E) {
-            zoom_factor *= Self::ZOOM_PER_SECOND.powf(dt);
-        }
-        if input.key_down(Key::Q) {
-            zoom_factor /= Self::ZOOM_PER_SECOND.powf(dt);
-        }
+        // Only the wheel zooms: the mouse alone moves the view, and the
+        // keyboard is kept for game shortcuts.
+        let zoom_factor = Self::ZOOM_PER_SCROLL.powf(input.scroll);
         self.camera.zoom *= zoom_factor;
         self.clamp_to_map();
 

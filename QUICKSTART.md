@@ -73,7 +73,7 @@ band of forest.
 | --- | --- |
 | Mouse at a screen edge | Scroll the map that way, diagonally in corners |
 | `F10` | Lock the mouse inside the window (and free it again) |
-| `Q` / `E`, or mouse wheel | Zoom out / in |
+| Mouse wheel | Zoom out / in |
 | Left click a unit | Select it |
 | Left drag | Box-select your units |
 | Left click empty ground | Clear the selection |
@@ -83,6 +83,10 @@ band of forest.
 | `1` to `9` | Train a unit type at one of your buildings: the overlay lists which key trains which (by default `1` villager, 50 gold; `2` soldier, 60 gold) |
 | `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit |
+
+The mouse alone moves the view: the screen edge scrolls and the wheel zooms.
+No key moves or zooms the camera; the keyboard is for game shortcuts, as in
+the original.
 
 The mouse is free to leave the window. Resting it at an edge scrolls the map.
 Press `F10` to lock it inside the window, as AoE2's "lock mouse to window"

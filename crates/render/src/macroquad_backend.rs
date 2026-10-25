@@ -145,13 +145,7 @@ const BUTTONS: [(MouseButton, mq::MouseButton); 3] = [
     (MouseButton::Middle, mq::MouseButton::Middle),
 ];
 
-const KEYS: [(Key, mq::KeyCode); 19] = [
-    (Key::W, mq::KeyCode::W),
-    (Key::A, mq::KeyCode::A),
-    (Key::S, mq::KeyCode::S),
-    (Key::D, mq::KeyCode::D),
-    (Key::Q, mq::KeyCode::Q),
-    (Key::E, mq::KeyCode::E),
+const KEYS: [(Key, mq::KeyCode); 13] = [
     (Key::Tab, mq::KeyCode::Tab),
     (Key::Escape, mq::KeyCode::Escape),
     (Key::Space, mq::KeyCode::Space),

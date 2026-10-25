@@ -33,12 +33,6 @@ impl MouseButton {
 /// rather than a silently dead binding.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Key {
-    W,
-    A,
-    S,
-    D,
-    Q,
-    E,
     Tab,
     Escape,
     Space,
@@ -52,6 +46,25 @@ pub enum Key {
     Digit8,
     Digit9,
     F10,
+}
+
+impl Key {
+    /// Every key, so tests can check a rule holds for all of them.
+    pub const ALL: [Key; 13] = [
+        Key::Tab,
+        Key::Escape,
+        Key::Space,
+        Key::Digit1,
+        Key::Digit2,
+        Key::Digit3,
+        Key::Digit4,
+        Key::Digit5,
+        Key::Digit6,
+        Key::Digit7,
+        Key::Digit8,
+        Key::Digit9,
+        Key::F10,
+    ];
 }
 
 /// One frame of input.
