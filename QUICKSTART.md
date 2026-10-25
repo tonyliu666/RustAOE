@@ -126,17 +126,33 @@ handover: your view and your selected units are still there when you come back.
 
 ## 5. Play the first game in three minutes
 
+**What you start with.** Each player has a town centre, a barracks (the
+smaller building to the town centre's right), three villagers standing below
+the town centre, a gold mine to the lower left, and 200 gold. There are **no
+soldiers on the map at the start**: you train them (step 3). Player 1 starts in
+the top-left of the map, player 2 in the bottom-right, with a band of forest
+between them. The overlay at the top shows whose turn it is, their resources,
+and which number key trains which unit.
+
 1. **Gather.** Box-select your three villagers. Right click the gold mine near
    your base. They walk over, mine a load of ten gold, carry it back to the
    town centre, deposit it, and go again: one order, no micromanagement.
 2. **Grow.** Once you are above 50 gold, press `1` a few times to queue
    villagers. Gold is charged when you queue, not when the unit appears, so you
    cannot queue five units on one unit's worth of gold.
-3. **Build an army.** Press `2` to train soldiers at the barracks.
-4. **Switch sides.** Press `Tab` and do the same for the other player.
-5. **Fight.** Select some soldiers, right click an enemy unit or building. They
-   walk into range and start hitting it. Health bars appear above anything that
-   has taken damage.
+3. **Build an army.** Press `2` to train a soldier at your barracks for 60
+   gold. About 6 seconds later it appears next to the barracks. Press `2`
+   again to queue more, up to five, while you can pay. (The soldier is drawn
+   with the original's two-handed swordsman for now; Phase 1.6 switches it to
+   the militia's own sprite.) Villagers take 5 seconds with `1`.
+4. **Switch sides.** Press `Tab` and do the same for the other player. Each
+   player keeps their own view, so `Tab` jumps to the other base; `Tab` again
+   brings yours back as you left it.
+5. **Fight.** Select some soldiers (left-drag a box around them), scroll to the
+   enemy by moving the mouse to the screen edge, and right click an enemy unit
+   or building. They walk into range and start hitting it. Health bars appear
+   above anything that has taken damage. A town centre takes a while: 1000 hit
+   points at 8 damage a second per soldier.
 6. **Win.** A player is out when all of their buildings are destroyed; the last
    player left wins. The overlay announces the winner, and the simulation keeps
    running afterwards.
