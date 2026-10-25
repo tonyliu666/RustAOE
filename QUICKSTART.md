@@ -182,7 +182,9 @@ turn it is.
    brings yours back as you left it.
 5. **Fight.** Select some soldiers (left-drag a box around them), scroll to the
    enemy by moving the mouse to the screen edge, and right click an enemy unit
-   or building. They walk into range and start hitting it. Health bars appear
+   or building. They walk up until they touch it, as the original's militia
+   does (its range is measured between edges and is 0 for melee), and start
+   hitting it. Health bars appear
    above anything that has taken damage. A town centre takes a while: 1000 hit
    points at 8 damage a second per soldier.
 6. **Win.** A player is out when all of their buildings are destroyed; the last
@@ -226,9 +228,8 @@ four default names.
 
 The tool prints what it had to round, what it left out and why, and which
 graphics the original draws in several pieces. `original.ron` loads with
-`--content original.ron`, but expect a different game: the original's melee
-range is measured between unit edges and ours between centres, and its
-soldier costs food the game cannot gather yet. The game's own numbers stay in
+`--content original.ron`, but expect a different game: its soldier costs
+food the game cannot gather yet. The game's own numbers stay in
 `default.ron` until plan Phase 2 adopts the converted ones.
 
 ## 7. Record and replay a game

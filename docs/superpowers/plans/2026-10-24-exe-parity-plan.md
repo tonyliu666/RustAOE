@@ -1,7 +1,7 @@
 # Plan: Path from the RTS PoC to the Age of Empires II: The Conquerors Target
 
 **Date:** 2026-10-24 (revised the same day after the Phase 1 review and direction check)
-**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 steps 1 to 5 and 5b (drawing in parts) done; 5c (edge-to-edge range) next, then step 6 (performance checkpoint). Phase 1.6 finishes before more interface work.
+**Status:** Phases 0, 1, and 1.5 done; the pre-stage is done; pre-stage 2 (selecting buildings and the command panel) done, inserted before Phase 1.6 step 3b. Phase 1.6 steps 1 to 5, 5b (drawing in parts), and 5c (range between edges) done; step 6 (performance checkpoint) next. Phase 1.6 finishes before more interface work.
 **Builds on:** [`docs/superpowers/specs/2026-08-04-rts-poc-design.md`](../specs/2026-08-04-rts-poc-design.md)
 **Reference:** `reverse/` (decompiled `aoc.exe`, function index, strings)
 
@@ -230,6 +230,10 @@ From the pre-stage 2 review and direction check, recorded rather than fixed:
 - Each pre-stage adds features on the top-down projection (the camera's open middle, picking by drawn body, screen-space panels), so the Phase 12 isometric rework grows. Decide whether to pull the isometric projection forward before Phase 3 adds placement.
 - Presentation-only fields (`sprite`, `icon`) sit in the content every replay embeds, so each new one is a replay break. Consider splitting them out before more are added.
 - Buildings and units are now each drawn back to front, but trees, buildings, and units are still not sorted together.
+
+From Phase 1.6 step 5c:
+
+- Melee contact uses a provisional tolerance, `World::CONTACT` (an eighth of a tile), because local avoidance keeps crowding units a little short of a range of 0. Find the original's tolerance in the decompile and replace it.
 
 From the Phase 1 review, accepted as minor and not yet fixed:
 

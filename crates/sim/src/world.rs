@@ -329,6 +329,14 @@ pub struct World {
 }
 
 impl World {
+    /// How far apart two edges may be and still touch, in tiles: an eighth.
+    ///
+    /// Units pressing on a target push each other a little away from it, so
+    /// with an exact test only the first to arrive would ever reach a melee
+    /// range of 0. Provisional: the original's own tolerance is still to be
+    /// found in the decompile (exe-parity plan, Phase 1.6 step 5c).
+    pub const CONTACT: Fx = Fx::from_frac(1, 8);
+
     /// Single-unit paths solved per tick.
     ///
     /// A budget rather than solving every request immediately, so that a
@@ -722,21 +730,51 @@ impl World {
         }
     }
 
-    /// Half the width of a target, so that reach can be measured to its edge.
+    /// Whether `target` is within the attacker's range, measured as the
+    /// original measures it: between edges. A unit's edge is its radius from
+    /// its centre; a building's or mine's is its footprint, so its corners
+    /// are farther than its sides. A melee unit's range is 0: it hits what it
+    /// touches.
     ///
-    /// Without this a soldier would have to stand inside a 4x4 town centre to
-    /// hit it, which the terrain it stamps makes impossible.
-    fn radius_of(&self, target: EntityId) -> Option<Fx> {
+    /// Edges within [`World::CONTACT`] of each other count as touching.
+    ///
+    /// In raw 16.16 units squared, as `i64`, so that the comparison is exact.
+    fn in_reach(&self, attacker: UnitId, target: EntityId) -> Option<bool> {
+        let unit = &self.units[attacker];
+        let stats = self.content.unit(unit.kind);
+        let limit = i64::from((stats.range + stats.radius + World::CONTACT).to_bits());
+        let pos = unit.pos;
+        let footprint = |origin: TilePos, size: i32| {
+            // The gap along one axis from the unit's centre to the span
+            // [from, from + size), zero inside it.
+            let gap = |p: Fx, from: i32| {
+                let (lo, hi) = (Fx::from_int(from), Fx::from_int(from + size));
+                i64::from(if p < lo {
+                    (lo - p).to_bits()
+                } else if p > hi {
+                    (p - hi).to_bits()
+                } else {
+                    0
+                })
+            };
+            let (dx, dy) = (gap(pos.x, origin.x), gap(pos.y, origin.y));
+            dx * dx + dy * dy <= limit * limit
+        };
         match target {
-            EntityId::Unit(id) => self.units.get(id).map(|u| self.content.unit(u.kind).radius),
-            EntityId::Building(id) => self.buildings.get(id).map(|b| Fx::from_frac(b.size, 2)),
-            EntityId::Mine(id) => self.mines.get(id).map(|_| Fx::from_frac(Mine::SIZE, 2)),
+            EntityId::Unit(id) => {
+                let other = self.units.get(id)?;
+                let reach = limit + i64::from(self.content.unit(other.kind).radius.to_bits());
+                Some((other.pos - pos).length_squared() <= reach * reach)
+            }
+            EntityId::Building(id) => {
+                let b = self.buildings.get(id)?;
+                Some(footprint(b.origin, b.size))
+            }
+            EntityId::Mine(id) => {
+                let m = self.mines.get(id)?;
+                Some(footprint(m.origin, Mine::SIZE))
+            }
         }
-    }
-
-    /// How close an attacker has to be to `target` to land a hit.
-    fn reach(&self, attacker: UnitId, target: EntityId) -> Option<Fx> {
-        Some(self.content.unit(self.units[attacker].kind).range + self.radius_of(target)?)
     }
 
     // --- Phase 2: production ----------------------------------------------
@@ -1034,10 +1072,8 @@ impl World {
         // because the target moves.
         if let Order::Attack { target, .. } = self.units[id].order {
             let target_pos = self.position_of(target)?;
-            let reach = self.reach(id, target)?;
             let offset = target_pos - pos;
-            let limit = reach.to_bits() as i64;
-            return (offset.length_squared() > limit * limit).then(|| offset.with_length(Fx::ONE));
+            return (!self.in_reach(id, target)?).then(|| offset.with_length(Fx::ONE));
         }
 
         match self.units[id].order.route()?.clone() {
@@ -1180,18 +1216,14 @@ impl World {
             let Order::Attack { target, .. } = self.units[id].order else {
                 continue;
             };
-            let Some(target_pos) = self.position_of(target) else {
+            let Some(in_reach) = self.in_reach(id, target) else {
                 // The victim died, possibly to someone else. Stop swinging.
                 self.units[id].order = Order::Idle;
                 continue;
             };
             let stats = self.content.unit(self.units[id].kind);
             let (cooldown, damage) = (stats.attack_cooldown, stats.damage);
-            let Some(reach) = self.reach(id, target) else {
-                continue;
-            };
-            let reach = reach.to_bits() as i64;
-            if (target_pos - self.units[id].pos).length_squared() > reach * reach {
+            if !in_reach {
                 continue;
             }
             if self.units[id].attack_cooldown > 0 {

@@ -141,6 +141,14 @@ fn a_wounded_unit_gets_a_health_bar() {
         units: smallvec![attacker],
         target: sim::EntityId::Unit(victim),
     }]);
+    // A melee soldier walks up to touch the villager first.
+    let full = world.view().content().unit(UnitKind::VILLAGER).max_hp;
+    for _ in 0..100 {
+        if world.view().unit(victim).is_some_and(|u| u.hp < full) {
+            break;
+        }
+        world.step(&[]);
+    }
 
     let mut renderer = RecordingRenderer::new();
     draw(&mut renderer, &world, &hud(&[], None));

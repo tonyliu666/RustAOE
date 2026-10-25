@@ -140,6 +140,8 @@ fn a_unit_starts_with_the_hit_points_from_content() {
 fn a_hit_deals_the_damage_from_content() {
     let mut content = Content::default();
     content.unit_mut(UnitKind::SOLDIER).damage = 15;
+    // Reach from the next tile, so that the first swing lands at once.
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
     let (mut world, _, victim) = duel(content, 1);
     run(&mut world, 2);
 
@@ -358,6 +360,8 @@ fn the_largest_damage_content_allows_kills_rather_than_overflowing() {
     // back to life, so the two builds would play different games.
     let mut content = Content::default();
     content.unit_mut(UnitKind::SOLDIER).damage = i32::MAX;
+    // Both reach the villager from where they stand, so both swing at once.
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
     let map = base_map()
         .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(20, 10))
         .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(21, 10))

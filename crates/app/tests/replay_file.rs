@@ -266,11 +266,23 @@ fn a_replay_from_before_drawing_in_parts_is_refused_by_version() {
     let error = load_text("version-four", "(version: 4, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 4, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_edge_to_edge_range_is_refused_by_version() {
+    // Version 5 measured reach centre to centre; its fights would play out
+    // differently now.
+    let error = load_text("version-five", "(version: 5, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 4,
-                expected: 5
+                found: 5,
+                expected: 6
             })
         ),
         "{error:?}"

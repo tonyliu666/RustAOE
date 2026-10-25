@@ -45,7 +45,7 @@
             max_hp: 60,
             speed: (1, 8),
             damage: 8,
-            range: (3, 2),          // 1.5 tiles, centre to centre
+            range: (0, 1),          // between edges, as in the original: melee
             attack_cooldown: 20,    // one hit per second
             radius: (1, 4),
             cost: (gold: 60),

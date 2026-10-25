@@ -45,7 +45,8 @@ pub struct UnitStats {
     pub speed: Fx,
     /// Zero for a unit that cannot attack.
     pub damage: i32,
-    /// Attack reach in tiles, measured centre to centre.
+    /// Attack reach in tiles, measured between edges as the original
+    /// measures it: 0 for melee, which hits what it touches.
     pub range: Fx,
     /// Ticks between attacks.
     pub attack_cooldown: u32,
@@ -342,7 +343,8 @@ impl Default for Content {
                     max_hp: 60,
                     speed: Fx::from_frac(1, 8),
                     damage: 8,
-                    range: Fx::from_frac(3, 2),
+                    // The militia's: melee.
+                    range: Fx::ZERO,
                     attack_cooldown: 20,
                     radius: Fx::from_frac(1, 4),
                     cost: Resources {

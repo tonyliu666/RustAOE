@@ -346,6 +346,14 @@ fn the_only_filled_rectangles_are_health_bars() {
         units: smallvec::smallvec![soldier],
         target: sim::EntityId::Unit(villager),
     }]);
+    // A melee soldier walks up to touch the villager first.
+    let full = world.view().content().unit(UnitKind::VILLAGER).max_hp;
+    for _ in 0..100 {
+        if world.view().unit(villager).is_some_and(|u| u.hp < full) {
+            break;
+        }
+        world.step(&[]);
+    }
     let mut renderer = RecordingRenderer::new();
     let set = sprites(&mut renderer);
 
