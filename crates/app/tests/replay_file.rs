@@ -361,7 +361,24 @@ fn a_replay_from_before_farms_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 11,
-                expected: 12
+                ..
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_hand_drop_offs_stood_is_refused_by_version() {
+    // Version 12's villagers went back to work after a hand drop-off.
+    let error = load_text("version-twelve", "(version: 12, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 12,
+                expected: 13
             })
         ),
         "{error:?}"

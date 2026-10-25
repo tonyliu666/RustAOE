@@ -41,8 +41,9 @@ impl Replay {
     /// version 10 gives sites and loads a resource and the gather numbers one
     /// set per resource; version 11 lets a building take only some
     /// resources; version 12 gives each site a size and whether it blocks,
-    /// for farms, and removes a site once it is used up.
-    pub const FORMAT_VERSION: u32 = 12;
+    /// for farms, and removes a site once it is used up; version 13 has a
+    /// villager stand after a drop-off by hand.
+    pub const FORMAT_VERSION: u32 = 13;
 
     /// How often the checksum is sampled during recording.
     ///

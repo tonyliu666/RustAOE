@@ -98,7 +98,7 @@ the bottom-right, behind a band of forest.
 | Left click empty ground | Clear the selection |
 | Right click ground | Move there |
 | Right click a tree, a gold or stone mine, a forage bush, or a farm | Send selected villagers to gather it |
-| Right click your town centre, mill, lumber camp, or mining camp | Selected villagers carrying a load that building takes drop it off there now, before they are full, then go back to where they were gathering |
+| Right click your town centre, mill, lumber camp, or mining camp | Selected villagers carrying a load that building takes drop it off there now, before they are full, then stand idle |
 | Right click an enemy | Attack it |
 | Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 food; barracks: soldier, 60 gold) |
 | `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
@@ -188,7 +188,8 @@ your resources; the line under it says whose turn it is.
    beside sends the villagers to the nearest tree on its edge, as in the
    original. To bank a part load early, select
    the villager and right click a building that takes it: it drops off what
-   it carries and walks back. Left click one villager to watch: the
+   it carries and then stands idle, as in the original; send it back to work
+   with another right click. Left click one villager to watch: the
    information panel shows its
    name, its hit points, and `carrying 4 gold` as the load grows to ten,
    back to nothing once it is deposited.

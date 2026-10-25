@@ -1,5 +1,5 @@
 //! Dropping off a load by hand: a loaded villager sent to a drop-off
-//! deposits there early, then goes back to the mine it was working.
+//! deposits there early, then stands, as in the original.
 
 use sim::{BuildingKind, Command, MapSpec, Order, PlayerId, TilePos, UnitId, UnitKind, World};
 use smallvec::smallvec;
@@ -65,13 +65,14 @@ fn deposit(world: &mut World, villager: UnitId, at: sim::BuildingId) {
 }
 
 #[test]
-fn a_part_load_dropped_off_by_hand_is_banked_and_the_villager_goes_back_to_mining() {
+fn a_part_load_dropped_off_by_hand_is_banked_and_the_villager_stands() {
+    // As in the original: dropping off by hand ends the gathering; the
+    // villager waits for its next order rather than going back.
     let (mut world, villager, mine) = world();
     mine_until(&mut world, villager, mine, 4);
     let town_centre = building(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
 
     deposit(&mut world, villager, town_centre);
-    let load = 4;
     for _ in 0..400 {
         if gold(&world) > 0 {
             break;
@@ -79,22 +80,15 @@ fn a_part_load_dropped_off_by_hand_is_banked_and_the_villager_goes_back_to_minin
         world.step(&[]);
     }
 
-    assert_eq!(gold(&world), load, "the part load is banked");
-    let mut back_to_mining = false;
+    assert_eq!(gold(&world), 4, "the part load is banked");
     for _ in 0..300 {
         world.step(&[]);
-        if matches!(
-            world.view().unit(villager).expect("the villager").order,
-            Order::Gather {
-                phase: sim::GatherPhase::Gathering,
-                ..
-            }
-        ) {
-            back_to_mining = true;
-            break;
-        }
     }
-    assert!(back_to_mining, "it did not go back to the mine");
+    assert!(matches!(
+        world.view().unit(villager).expect("the villager").order,
+        Order::Idle
+    ));
+    assert_eq!(carrying(&world, villager), 0, "it went back to mining");
 }
 
 #[test]

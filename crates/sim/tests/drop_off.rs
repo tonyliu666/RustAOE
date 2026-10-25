@@ -121,13 +121,17 @@ fn a_load_cannot_be_dropped_off_by_hand_where_it_is_not_taken() {
         building: camp,
     }]);
 
-    assert!(!matches!(
-        world.view().unit(villager).expect("the villager").order,
-        sim::Order::Gather {
-            phase: sim::GatherPhase::ToDropOff { building },
-            ..
-        } if building == camp
-    ));
+    let order = world.view().unit(villager).expect("the villager").order.clone();
+    assert!(
+        !matches!(
+            order,
+            sim::Order::Gather {
+                phase: sim::GatherPhase::ToDropOff { building },
+                ..
+            } | sim::Order::Deposit { building, .. } if building == camp
+        ),
+        "{order:?}"
+    );
 }
 
 #[test]

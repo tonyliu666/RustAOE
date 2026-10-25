@@ -258,3 +258,13 @@ reachability check dropped; bodies ignored, farms given a body, the back one
 winning, sites drawn unsorted, a body's scale, the stone mine's picture.
 Workspace 590 passed, clippy clean. In the game, player one's villagers sent
 to a crown in the woodline's middle column banked 60 wood within 50 seconds.
+
+### A drop-off by hand ends gathering (user report, 2026-10-25)
+
+Step 1c had a villager dropped off by hand go back to the site it was
+working. The user pointed out that in the original it stands idle after
+the drop-off, and asked for that. `Command::Deposit` now always ends in
+`Order::Deposit`: bank on touch, then stand. The automatic return when a
+load is full is unchanged. Replay format 13. The drop-off test that checked
+a refused hand drop-off now also rejects a `Deposit` order at the wrong
+building, which the old check could not see; mutation caught.

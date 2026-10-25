@@ -744,10 +744,10 @@ impl World {
             .map(|(id, _)| id)
     }
 
-    /// Sends loaded villagers to drop off at one of their owner's drop-offs.
-    /// One that was gathering goes back to its mine afterwards; one that
-    /// was not stands. Units carrying nothing, units whose load the building
-    /// does not take, and other players' buildings are ignored.
+    /// Sends loaded villagers to drop off at one of their owner's drop-offs,
+    /// then stand, as in the original: dropping off by hand ends gathering.
+    /// Units carrying nothing, units whose load the building does not take,
+    /// and other players' buildings are ignored.
     fn order_deposit(&mut self, player: PlayerId, units: &[UnitId], building: BuildingId) {
         let Some(target) = self.buildings.get(building) else {
             return;
@@ -767,16 +767,9 @@ impl World {
             .collect();
         let route = self.plan_adjacent(&ids, origin, size);
         for id in ids {
-            self.units[id].order = match self.units[id].order {
-                Order::Gather { site: mine, .. } => Order::Gather {
-                    site: mine,
-                    phase: GatherPhase::ToDropOff { building },
-                    route: route.clone(),
-                },
-                _ => Order::Deposit {
-                    building,
-                    route: route.clone(),
-                },
+            self.units[id].order = Order::Deposit {
+                building,
+                route: route.clone(),
             };
             self.units[id].stuck_ticks = 0;
         }
@@ -1057,8 +1050,8 @@ impl World {
         *stock = stock.saturating_add(carried);
     }
 
-    /// A villager dropping off by hand with no mine to go back to: banks
-    /// once it touches the drop-off, then stands.
+    /// A villager dropping off by hand: banks once it touches the drop-off,
+    /// then stands.
     fn deposit_and_stand(&mut self, id: UnitId, building: BuildingId) {
         let Some(target) = self.buildings.get(building) else {
             // The drop-off is gone; the load stays carried.
