@@ -652,3 +652,25 @@ fn the_default_villager_costs_food_as_the_originals_does() {
     );
     assert_eq!(content.unit(UnitKind::SOLDIER).cost.gold, 60);
 }
+
+#[test]
+fn the_default_buildings_are_drawn_as_the_originals_dark_age_british_ones() {
+    // From the .dat: the barracks (unit 12) stands with SLP 2683, one piece;
+    // the town centre (unit 109) is its own graphic's pieces (889, 3596,
+    // 4612; 890 is in no archive) and its three annexes' (891; 3595, 4611;
+    // 3594, 4610), drawn at one point in that order.
+    let content = Content::default();
+    let barracks = content.building(BuildingKind::BARRACKS);
+    let town_centre = content.building(BuildingKind::TOWN_CENTER);
+
+    assert_eq!(
+        (barracks.sprite, barracks.parts.as_slice()),
+        (2683, &[][..])
+    );
+    assert_eq!(town_centre.sprite, 3596);
+    assert_eq!(
+        town_centre.parts,
+        [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]
+    );
+    assert!(content.unit(UnitKind::VILLAGER).parts.is_empty());
+}

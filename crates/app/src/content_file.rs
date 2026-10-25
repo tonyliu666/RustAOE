@@ -97,6 +97,7 @@ struct ContentFile {
 struct UnitFile {
     name: String,
     sprite: u32,
+    parts: Vec<u32>,
     icon: u32,
     gathers: bool,
     max_hp: i32,
@@ -124,6 +125,7 @@ struct ResourcesFile {
 struct BuildingFile {
     name: String,
     sprite: u32,
+    parts: Vec<u32>,
     icon: u32,
     size: i32,
     max_hp: i32,
@@ -190,6 +192,7 @@ impl UnitFile {
             train_ticks: self.train_ticks,
             gathers: self.gathers,
             sprite: self.sprite,
+            parts: self.parts,
             icon: self.icon,
             name: self.name,
         })
@@ -214,6 +217,7 @@ impl BuildingFile {
         Ok(BuildingStats {
             name: self.name,
             sprite: self.sprite,
+            parts: self.parts,
             icon: self.icon,
             size: self.size,
             max_hp: self.max_hp,

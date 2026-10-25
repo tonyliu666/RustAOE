@@ -1,23 +1,39 @@
 //! Converting a whole `.dat`, built in the test, to the game's content.
 
-use assets::dat::{Civ, Combat, Cost, Creatable, Dat, Graphic, GraphicDelta, Task, Unit};
+use assets::dat::{Annex, Civ, Combat, Cost, Creatable, Dat, Graphic, GraphicDelta, Task, Unit};
 use datconv::{convert, ConvertError, Selection};
 
-fn graphic(id: i16, slp: i32, deltas: usize) -> Option<Graphic> {
+/// A graphic drawing `slp`, with pieces naming other graphics (-1 for this
+/// graphic's own SLP).
+fn graphic(id: i16, slp: i32, pieces: &[i16]) -> Option<Graphic> {
     Some(Graphic {
         id,
         name: format!("G{id}"),
         slp,
         frame_count: 1,
         angle_count: 1,
-        deltas: (0..deltas)
-            .map(|_| GraphicDelta {
-                graphic_id: 0,
+        deltas: pieces
+            .iter()
+            .map(|&graphic_id| GraphicDelta {
+                graphic_id,
                 offset_x: 0,
                 offset_y: 0,
             })
             .collect(),
     })
+}
+
+/// SLPs the fake install lacks, as the real one lacks the villager's idle
+/// pieces and one piece of the town centre.
+const NOT_IN_THE_INSTALL: [u32; 3] = [1477, 1478, 890];
+
+fn in_the_install(slp: u32) -> bool {
+    !NOT_IN_THE_INSTALL.contains(&slp)
+}
+
+/// [`convert`] with the fake install's sprites.
+fn convert_with(dat: &Dat, selection: Selection) -> Result<datconv::Conversion, ConvertError> {
+    convert(dat, 1, selection, &in_the_install)
 }
 
 fn part(resource: i16, amount: i16, used: bool) -> Cost {
@@ -54,13 +70,14 @@ fn unit(kind: u8, id: i16, name: &str, class: i16) -> Unit {
             train_location: 109,
             button: 1,
         }),
+        annexes: Vec::new(),
     }
 }
 
 /// A file with one civilisation (after Gaia) holding the four types the
 /// game has, a gold miner, a spearman, and a scout with no sprite.
 fn dat() -> Dat {
-    let mut units: Vec<Option<Unit>> = vec![None; 600];
+    let mut units: Vec<Option<Unit>> = vec![None; 700];
     let mut villager = unit(70, 83, "VMBAS", 4);
     villager.drop_sites = Some([109, -1]);
     units[83] = Some(villager);
@@ -105,7 +122,15 @@ fn dat() -> Dat {
     town_centre.icon = 28;
     town_centre.collision = [2.0, 2.0, 0.0];
     town_centre.speed = Some(0.0);
+    town_centre.annexes = vec![Annex {
+        unit: 618,
+        offset: [1.0, -1.0],
+    }];
     units[109] = Some(town_centre);
+    let mut annex = unit(80, 618, "RTWC1A", 3);
+    annex.standing_graphic = 15;
+    annex.creatable = None;
+    units[618] = Some(annex);
     let mut barracks = unit(80, 12, "BRKS", 3);
     barracks.hit_points = 1200;
     barracks.standing_graphic = 4;
@@ -114,7 +139,7 @@ fn dat() -> Dat {
     barracks.speed = Some(0.0);
     units[12] = Some(barracks);
 
-    let mut unit_tasks: Vec<Option<Vec<Task>>> = vec![None; 600];
+    let mut unit_tasks: Vec<Option<Vec<Task>>> = vec![None; 700];
     unit_tasks[579] = Some(vec![Task {
         action: 5,
         class: -1,
@@ -127,10 +152,25 @@ fn dat() -> Dat {
     Dat {
         graphics: vec![
             None,
-            graphic(1, 1479, 0),
-            graphic(2, 993, 0),
-            graphic(3, 3596, 4),
-            graphic(4, 2683, 0),
+            // The villager: two idle pieces the install lacks, then itself.
+            graphic(1, 1479, &[10, -1, 11]),
+            graphic(2, 993, &[]),
+            // The town centre: a shadow, a missing piece, itself, a post.
+            graphic(3, 3596, &[12, 13, -1, 14]),
+            // The barracks names itself three times.
+            graphic(4, 2683, &[-1, -1, -1]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            graphic(10, 1477, &[]),
+            graphic(11, 1478, &[]),
+            graphic(12, 889, &[]),
+            graphic(13, 890, &[]),
+            graphic(14, 4612, &[]),
+            // The town centre's annex.
+            graphic(15, 891, &[]),
         ],
         after_graphics: 0,
         random_maps_at: 0,
@@ -138,14 +178,14 @@ fn dat() -> Dat {
         effects_at: 0,
         effects: 0,
         unit_headers_at: 0,
-        unit_headers: 600,
+        unit_headers: 700,
         units_present: 0,
         unit_tasks,
         civs_at: 0,
         civs: vec![
             Civ {
                 name: "Gaia".to_string(),
-                units: vec![None; 600],
+                units: vec![None; 700],
             },
             Civ {
                 name: "British".to_string(),
@@ -159,7 +199,7 @@ fn dat() -> Dat {
 
 #[test]
 fn the_default_conversion_writes_the_four_types_the_game_has_under_its_names() {
-    let converted = convert(&dat(), 1, Selection::Default).expect("converts");
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
 
@@ -171,7 +211,7 @@ fn the_default_conversion_writes_the_four_types_the_game_has_under_its_names() {
 
 #[test]
 fn each_field_is_converted_by_its_rule() {
-    let converted = convert(&dat(), 1, Selection::Default).expect("converts");
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
     let content = app::parse_content(&converted.ron).expect("loads and validates");
     let villager = &content.units[0];
     let soldier = &content.units[1];
@@ -206,7 +246,7 @@ fn only_the_units_class_that_gathers_gathers() {
     // The villager has no gather task of its own; the gold miner, a unit of
     // the same class it turns into to work, does.
     let content = app::parse_content(
-        &convert(&dat(), 1, Selection::Default)
+        &convert_with(&dat(), Selection::Default)
             .expect("converts")
             .ron,
     )
@@ -219,7 +259,7 @@ fn only_the_units_class_that_gathers_gathers() {
 #[test]
 fn a_building_a_gatherer_drops_at_is_a_drop_off() {
     let content = app::parse_content(
-        &convert(&dat(), 1, Selection::Default)
+        &convert_with(&dat(), Selection::Default)
             .expect("converts")
             .ron,
     )
@@ -232,7 +272,7 @@ fn a_building_a_gatherer_drops_at_is_a_drop_off() {
 #[test]
 fn a_building_trains_the_converted_units_whose_train_location_it_is() {
     let content = app::parse_content(
-        &convert(&dat(), 1, Selection::Default)
+        &convert_with(&dat(), Selection::Default)
             .expect("converts")
             .ron,
     )
@@ -252,7 +292,7 @@ fn a_building_trains_the_converted_units_whose_train_location_it_is() {
 #[test]
 fn gathering_comes_from_the_gold_miner() {
     let content = app::parse_content(
-        &convert(&dat(), 1, Selection::Default)
+        &convert_with(&dat(), Selection::Default)
             .expect("converts")
             .ron,
     )
@@ -264,7 +304,7 @@ fn gathering_comes_from_the_gold_miner() {
 
 #[test]
 fn each_entry_names_its_original_unit_id() {
-    let converted = convert(&dat(), 1, Selection::Default).expect("converts");
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
 
     for (name, id) in [
         ("villager", 83),
@@ -283,7 +323,7 @@ fn each_entry_names_its_original_unit_id() {
 
 #[test]
 fn every_value_that_was_rounded_is_reported() {
-    let converted = convert(&dat(), 1, Selection::Default).expect("converts");
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
 
     // The soldier's 1 tile a second is 3276.8 in 65536ths of a tile a tick;
     // the gold miner's rate gives 52.77 ticks a gold.
@@ -303,22 +343,68 @@ fn every_value_that_was_rounded_is_reported() {
 }
 
 #[test]
-fn a_graphic_drawn_in_pieces_is_reported() {
-    let converted = convert(&dat(), 1, Selection::Default).expect("converts");
+fn a_type_drawn_in_pieces_gets_its_pieces_and_annexes_as_parts() {
+    // The town centre: its graphic's pieces in order (the piece the install
+    // lacks left out, -1 its own SLP), then its annex's.
+    let content = app::parse_content(
+        &convert_with(&dat(), Selection::Default)
+            .expect("converts")
+            .ron,
+    )
+    .expect("loads");
+
+    assert_eq!(content.buildings[0].parts, [889, 3596, 4612, 891]);
+}
+
+#[test]
+fn a_type_that_is_only_its_own_sprite_has_no_parts() {
+    // The villager's other pieces are in no archive, and the barracks names
+    // only itself: each is drawn with its sprite alone.
+    let content = app::parse_content(
+        &convert_with(&dat(), Selection::Default)
+            .expect("converts")
+            .ron,
+    )
+    .expect("loads");
 
     assert!(
-        converted
-            .report
-            .iter()
-            .any(|l| l.contains("town_center") && l.contains("4 more pieces")),
-        "{:#?}",
-        converted.report
+        content.units[0].parts.is_empty(),
+        "{:?}",
+        content.units[0].parts
     );
+    assert!(content.buildings[1].parts.is_empty());
+}
+
+#[test]
+fn a_piece_the_install_lacks_is_left_out_and_reported() {
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
+
+    for slp in NOT_IN_THE_INSTALL {
+        assert!(
+            converted
+                .report
+                .iter()
+                .any(|l| l.contains(&format!("SLP {slp}"))),
+            "{slp}: {:#?}",
+            converted.report
+        );
+    }
+}
+
+#[test]
+fn a_type_whose_own_sprite_the_install_lacks_cannot_be_converted() {
+    let converted = convert(&dat(), 1, Selection::All, &|slp| slp != 993).expect("converts");
+
+    assert!(!converted.ron.contains("sprmn_74"));
+    assert!(converted
+        .report
+        .iter()
+        .any(|l| l.contains("sprmn_74") && l.contains("left out")));
 }
 
 #[test]
 fn every_unit_and_building_can_be_converted_with_unique_names() {
-    let converted = convert(&dat(), 1, Selection::All).expect("converts");
+    let converted = convert_with(&dat(), Selection::All).expect("converts");
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
     let units: Vec<&str> = content.units.iter().map(|u| u.name.as_str()).collect();
@@ -339,7 +425,7 @@ fn every_unit_and_building_can_be_converted_with_unique_names() {
 
 #[test]
 fn a_unit_that_cannot_be_converted_is_left_out_and_reported() {
-    let converted = convert(&dat(), 1, Selection::All).expect("converts");
+    let converted = convert_with(&dat(), Selection::All).expect("converts");
 
     assert!(!converted.ron.contains("scout_448"));
     assert!(
@@ -358,7 +444,7 @@ fn a_missing_unit_the_game_needs_is_an_error_naming_it() {
     dat.civs[1].units[74] = None;
 
     assert_eq!(
-        convert(&dat, 1, Selection::Default).err(),
+        convert_with(&dat, Selection::Default).err(),
         Some(ConvertError::MissingUnit {
             id: 74,
             name: "soldier"
@@ -369,7 +455,7 @@ fn a_missing_unit_the_game_needs_is_an_error_naming_it() {
 #[test]
 fn a_civilisation_the_file_does_not_have_is_an_error() {
     assert_eq!(
-        convert(&dat(), 7, Selection::Default).err(),
+        convert(&dat(), 7, Selection::Default, &in_the_install).err(),
         Some(ConvertError::NoCiv(7))
     );
 }

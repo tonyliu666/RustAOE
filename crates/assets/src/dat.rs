@@ -196,6 +196,17 @@ pub struct Unit {
     pub combat: Option<Combat>,
     /// Types 70 and 80.
     pub creatable: Option<Creatable>,
+    /// A building's annexes: further units drawn as parts of it, such as
+    /// the town centre's sections. Empty for every other unit.
+    pub annexes: Vec<Annex>,
+}
+
+/// A unit drawn as part of a building, offset from its centre.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Annex {
+    pub unit: i16,
+    /// In tiles, x and y.
+    pub offset: [f32; 2],
 }
 
 /// How a unit fights.
@@ -566,6 +577,7 @@ fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
         drop_sites: None,
         combat: None,
         creatable: None,
+        annexes: Vec::new(),
     };
     if kind < 20 || kind == 90 {
         return Ok(unit);
@@ -641,11 +653,22 @@ fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
     });
     if kind == 80 {
         // Construction and snow graphics, adjacent mode, graphics angle,
-        // disappears, stack unit, foundation, overlay, tech, can burn, four
-        // annexes, head and transform units, transform and construction
-        // sounds, garrison type, heal and repair rates, pile unit, and the
-        // looting table.
-        r.skip(2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 4 * 10 + 2 + 2 + 2 + 2 + 1 + 4 + 4 + 2 + 6)?;
+        // disappears, stack unit, foundation, overlay, tech, can burn.
+        r.skip(2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 2 + 1)?;
+        for _ in 0..4 {
+            let annex = r.i16()?;
+            let offset = [r.f32()?, r.f32()?];
+            if annex >= 0 {
+                unit.annexes.push(Annex {
+                    unit: annex,
+                    offset,
+                });
+            }
+        }
+        // Head and transform units, transform and construction sounds,
+        // garrison type, heal and repair rates, pile unit, and the looting
+        // table.
+        r.skip(2 + 2 + 2 + 2 + 1 + 4 + 4 + 2 + 6)?;
     }
     Ok(unit)
 }

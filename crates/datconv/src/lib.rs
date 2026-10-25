@@ -11,8 +11,10 @@
 //! in the report, so nothing is rounded silently.
 
 use assets::dat::{Cost, Dat, Unit};
+use assets::Drs;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::path::Path;
 
 /// Ticks in a second of game time.
 const TICKS_PER_SECOND: f64 = 20.0;
@@ -213,6 +215,7 @@ struct UnitEntry {
     name: String,
     unit: Unit,
     sprite: i32,
+    parts: Vec<u32>,
     gathers: bool,
     speed: (i32, i32),
     damage: i32,
@@ -228,6 +231,7 @@ struct BuildingEntry {
     name: String,
     unit: Unit,
     sprite: i32,
+    parts: Vec<u32>,
     size: i32,
     drop_off: bool,
 }
@@ -235,6 +239,10 @@ struct BuildingEntry {
 /// What the whole file says about gathering, for the per-unit rules.
 struct Facts<'a> {
     dat: &'a Dat,
+    /// The civilisation's units, by ID.
+    units: &'a [Option<Unit>],
+    /// Whether the install holds an SLP.
+    in_install: &'a dyn Fn(u32) -> bool,
     /// The classes of units that have a gather task: a villager has none of
     /// its own, but the gold miner it turns into has.
     gathering_classes: BTreeSet<i16>,
@@ -243,7 +251,11 @@ struct Facts<'a> {
 }
 
 impl<'a> Facts<'a> {
-    fn of(dat: &'a Dat, units: &[Option<Unit>]) -> Facts<'a> {
+    fn of(
+        dat: &'a Dat,
+        units: &'a [Option<Unit>],
+        in_install: &'a dyn Fn(u32) -> bool,
+    ) -> Facts<'a> {
         let gathering_classes: BTreeSet<i16> = units
             .iter()
             .flatten()
@@ -266,6 +278,8 @@ impl<'a> Facts<'a> {
             .collect();
         Facts {
             dat,
+            units,
+            in_install,
             gathering_classes,
             drop_offs,
         }
@@ -280,30 +294,84 @@ fn note<T: std::fmt::Debug>(report: &mut Vec<String>, field: &str, value: Rounde
     value.value
 }
 
+/// A unit's own sprite and the SLPs to draw it with: its standing
+/// graphic's pieces in order (-1 naming the graphic's own SLP) and, for a
+/// building, each annex's. A piece whose SLP the install lacks is left out,
+/// as the original leaves it out, and reported. `parts` is empty when the
+/// unit is drawn with its own sprite alone.
 fn sprite_of(
     facts: &Facts<'_>,
     unit: &Unit,
     name: &str,
     report: &mut Vec<String>,
-) -> Result<i32, String> {
-    let sprite = facts.dat.slp_of(unit.standing_graphic).ok_or_else(|| {
-        format!(
-            "its standing graphic {} has no sprite",
-            unit.standing_graphic
-        )
-    })?;
-    let pieces = usize::try_from(unit.standing_graphic)
-        .ok()
-        .and_then(|g| facts.dat.graphics.get(g))
-        .and_then(|g| g.as_ref())
-        .map_or(0, |g| g.deltas.len());
-    if pieces > 0 {
-        report.push(format!(
-            "{name}: graphic {} has {pieces} more pieces, not drawn yet",
-            unit.standing_graphic
-        ));
+) -> Result<(i32, Vec<u32>), String> {
+    let sprite = facts
+        .dat
+        .slp_of(unit.standing_graphic)
+        .filter(|slp| (facts.in_install)(*slp as u32))
+        .ok_or_else(|| {
+            format!(
+                "its standing graphic {} has no sprite in the install",
+                unit.standing_graphic
+            )
+        })?;
+    let mut parts = pieces(facts, unit.standing_graphic, name, report);
+    for annex in &unit.annexes {
+        let annex_unit = usize::try_from(annex.unit)
+            .ok()
+            .and_then(|id| facts.units.get(id))
+            .and_then(|u| u.as_ref());
+        match annex_unit {
+            Some(annex_unit) => {
+                parts.extend(pieces(facts, annex_unit.standing_graphic, name, report));
+            }
+            None => report.push(format!("{name}: annex unit {} does not exist", annex.unit)),
+        }
     }
-    Ok(sprite)
+    parts.dedup();
+    if parts == [sprite as u32] {
+        parts.clear();
+    }
+    Ok((sprite, parts))
+}
+
+/// The SLPs a graphic draws, in order, that the install holds.
+fn pieces(facts: &Facts<'_>, graphic: i16, name: &str, report: &mut Vec<String>) -> Vec<u32> {
+    let Some(g) = usize::try_from(graphic)
+        .ok()
+        .and_then(|index| facts.dat.graphics.get(index))
+        .and_then(|g| g.as_ref())
+    else {
+        return Vec::new();
+    };
+    let named: Vec<Option<i32>> = if g.deltas.is_empty() {
+        vec![facts.dat.slp_of(graphic)]
+    } else {
+        g.deltas
+            .iter()
+            .map(|d| {
+                facts.dat.slp_of(if d.graphic_id < 0 {
+                    graphic
+                } else {
+                    d.graphic_id
+                })
+            })
+            .collect()
+    };
+    named
+        .into_iter()
+        .flatten()
+        .map(|slp| slp as u32)
+        .filter(|&slp| {
+            let here = (facts.in_install)(slp);
+            if !here {
+                report.push(format!(
+                    "{name}: piece SLP {slp} is in no archive, left out as the original does"
+                ));
+            }
+            here
+        })
+        .collect()
 }
 
 fn convert_unit(
@@ -313,7 +381,7 @@ fn convert_unit(
     report: &mut Vec<String>,
 ) -> Result<UnitEntry, String> {
     let mut notes = Vec::new();
-    let sprite = sprite_of(facts, unit, &name, &mut notes)?;
+    let (sprite, parts) = sprite_of(facts, unit, &name, &mut notes)?;
     if unit.icon < 0 {
         return Err("it has no icon".to_string());
     }
@@ -359,6 +427,7 @@ fn convert_unit(
         name,
         unit: unit.clone(),
         sprite,
+        parts,
         speed,
         damage,
         range,
@@ -375,7 +444,7 @@ fn convert_building(
     report: &mut Vec<String>,
 ) -> Result<BuildingEntry, String> {
     let mut notes = Vec::new();
-    let sprite = sprite_of(facts, unit, &name, &mut notes)?;
+    let (sprite, parts) = sprite_of(facts, unit, &name, &mut notes)?;
     if unit.icon < 0 {
         return Err("it has no icon".to_string());
     }
@@ -396,15 +465,23 @@ fn convert_building(
         name,
         unit: unit.clone(),
         sprite,
+        parts,
         size,
     })
 }
 
-/// Converts civilisation `civ` of `dat`.
-pub fn convert(dat: &Dat, civ: usize, selection: Selection) -> Result<Conversion, ConvertError> {
+/// Converts civilisation `civ` of `dat`. `in_install` says whether the
+/// user's install holds an SLP (see [`sprites_in`]): a piece it lacks is left
+/// out, as the original leaves it out.
+pub fn convert(
+    dat: &Dat,
+    civ: usize,
+    selection: Selection,
+    in_install: &dyn Fn(u32) -> bool,
+) -> Result<Conversion, ConvertError> {
     let civilisation = dat.civs.get(civ).ok_or(ConvertError::NoCiv(civ))?;
     let units = &civilisation.units;
-    let facts = Facts::of(dat, units);
+    let facts = Facts::of(dat, units, in_install);
     let mut report = Vec::new();
     let find = |id: i16, name: &'static str| {
         usize::try_from(id)
@@ -513,11 +590,12 @@ fn write_ron(
         };
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            icon: {},\n            gathers: {},\n            max_hp: {},\n            speed: {:?},\n            damage: {},\n            range: {:?},\n            attack_cooldown: {},\n            radius: {:?},\n            cost: ({cost}),\n            train_ticks: {},\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: {:?},\n            icon: {},\n            gathers: {},\n            max_hp: {},\n            speed: {:?},\n            damage: {},\n            range: {:?},\n            attack_cooldown: {},\n            radius: {:?},\n            cost: ({cost}),\n            train_ticks: {},\n        ),\n",
             u.name,
             u.unit.id,
             u.unit.name,
             u.sprite,
+            u.parts,
             u.unit.icon,
             u.gathers,
             u.unit.hit_points,
@@ -544,11 +622,12 @@ fn write_ron(
         let trains: Vec<String> = trained.iter().map(|u| format!("\"{}\"", u.name)).collect();
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: {},\n            trains: [{}],\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: {:?},\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: {},\n            trains: [{}],\n        ),\n",
             b.name,
             b.unit.id,
             b.unit.name,
             b.sprite,
+            b.parts,
             b.unit.icon,
             b.size,
             b.unit.hit_points,
@@ -561,4 +640,37 @@ fn write_ron(
         "    ],\n    gather: (\n        carry_capacity: {carry_capacity},\n        ticks_per_gold: {ticks_per_gold},\n    ),\n)\n"
     );
     out
+}
+
+/// The original's archives, any of which may hold a sprite.
+const ARCHIVES: [&str; 8] = [
+    "sounds_x1.drs",
+    "gamedata_x1.drs",
+    "gamedata_x1_p1.drs",
+    "sounds.drs",
+    "graphics.drs",
+    "terrain.drs",
+    "interfac.drs",
+    "gamedata.drs",
+];
+
+/// Every SLP ID in the install's archives under `dir/data`. Archives the
+/// install lacks are skipped.
+pub fn sprites_in(dir: &Path) -> Result<BTreeSet<u32>, String> {
+    let mut sprites = BTreeSet::new();
+    for name in ARCHIVES {
+        let path = dir.join("data").join(name);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        };
+        let drs = Drs::parse(&bytes).map_err(|error| format!("{}: {error:?}", path.display()))?;
+        sprites.extend(
+            drs.entries()
+                .filter(|(kind, _, _)| *kind == "slp")
+                .map(|(_, id, _)| id),
+        );
+    }
+    Ok(sprites)
 }

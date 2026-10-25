@@ -179,6 +179,7 @@ fn a_unit_type_added_only_in_the_file_loads_and_can_be_trained() {
     let archer = r#"(
             name: "archer",
             sprite: 1270,
+            parts: [],
             icon: 17,
             gathers: false,
             max_hp: 30,
@@ -237,6 +238,30 @@ fn an_icon_is_read_from_the_file() {
 #[test]
 fn a_type_without_an_icon_is_an_error() {
     let result = parse_content(&default_with("icon: 15,", ""));
+
+    assert!(
+        matches!(result, Err(ContentFileError::Malformed(_))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_types_parts_are_read_from_the_file() {
+    let content = parse_content(&default_with(
+        "sprite: 1473,\n            parts: [],",
+        "sprite: 1473,\n            parts: [7, 1473, 8],",
+    ))
+    .expect("parses");
+
+    assert_eq!(content.unit(UnitKind::VILLAGER).parts, [7, 1473, 8]);
+}
+
+#[test]
+fn a_type_without_parts_is_an_error() {
+    let result = parse_content(&default_with(
+        "sprite: 1473,\n            parts: [],",
+        "sprite: 1473,",
+    ));
 
     assert!(
         matches!(result, Err(ContentFileError::Malformed(_))),

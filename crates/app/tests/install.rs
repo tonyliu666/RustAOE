@@ -366,3 +366,118 @@ fn an_icon_frame_with_no_pixels_is_an_error_naming_the_entry() {
     );
     remove(&dir);
 }
+
+// --- buildings drawn in parts -----------------------------------------------------
+
+fn town_centre_in_parts(parts: Vec<u32>) -> Content {
+    let mut content = Content::default();
+    content.building_mut(BuildingKind::TOWN_CENTER).parts = parts;
+    content
+}
+
+#[test]
+fn a_type_drawn_in_parts_is_composed_into_one_sprite_around_their_shared_point() {
+    // Part 7001 is 4 pixels wide with its point 1 pixel in; part 7002 is 2
+    // wide and sits up and to the right, its point 3 pixels to its left and
+    // 1 below. Together: 6 by 2 pixels, the shared point at (1, 1).
+    let dir = install(
+        "parts",
+        graphics(&[
+            (7001, common::piece(4, (1, 0), 9)),
+            (7002, common::piece(2, (-3, 1), 7)),
+        ]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let content = town_centre_in_parts(vec![7001, 7002]);
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &content)
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let town_centre = sprites.building(BuildingKind::TOWN_CENTER, PlayerId::ONE);
+    assert_eq!(renderer.texture_size(town_centre.texture), Some((6, 2)));
+    assert_eq!(town_centre.hotspot, render::Vec2::new(1.0, 1.0));
+    let pixels = renderer
+        .texture_pixels(town_centre.texture)
+        .expect("uploaded");
+    let at = |x: usize, y: usize| &pixels[(y * 6 + x) * 4..(y * 6 + x) * 4 + 4];
+    assert_eq!(at(0, 1), colour(9), "the first part's row");
+    assert_eq!(at(3, 1), colour(9));
+    assert_eq!(at(4, 0), colour(7), "the second part, above and right");
+    assert_eq!(at(5, 0), colour(7));
+    assert_eq!(at(0, 0)[3], 0, "between the parts is transparent");
+    remove(&dir);
+}
+
+#[test]
+fn a_later_part_is_drawn_over_an_earlier_one() {
+    let dir = install(
+        "parts-order",
+        graphics(&[
+            (7001, common::piece(3, (0, 0), 9)),
+            (7002, common::piece(1, (-1, 0), 7)),
+        ]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let content = town_centre_in_parts(vec![7001, 7002]);
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &content)
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let texture = sprites
+        .building(BuildingKind::TOWN_CENTER, PlayerId::ONE)
+        .texture;
+    let pixels = renderer.texture_pixels(texture).expect("uploaded");
+    assert_eq!(
+        &pixels[4..8],
+        colour(7),
+        "the second part covers the first's middle"
+    );
+    remove(&dir);
+}
+
+#[test]
+fn a_part_the_install_does_not_have_is_an_error_naming_the_entry() {
+    let dir = install("parts-missing", graphics(&[]), slp(1, 2, &TWO_PIXELS));
+    let content = town_centre_in_parts(vec![3596, 7777]);
+
+    let result = load_images(&dir, &content);
+
+    assert!(
+        matches!(&result, Err(AssetError::MissingGraphic { entry, id: 7777 }) if entry == "town_center"),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn a_later_parts_transparent_pixels_leave_the_earlier_part_showing() {
+    // Part 7002 covers the same three pixels as 7001, but its first is
+    // transparent: 7001 shows through there.
+    let dir = install(
+        "parts-gap",
+        graphics(&[
+            (7001, common::piece(3, (0, 0), 9)),
+            (7002, common::piece_with_gap(3, 1, (0, 0), 7)),
+        ]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let content = town_centre_in_parts(vec![7001, 7002]);
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &content)
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let texture = sprites
+        .building(BuildingKind::TOWN_CENTER, PlayerId::ONE)
+        .texture;
+    let pixels = renderer.texture_pixels(texture).expect("uploaded");
+    assert_eq!(&pixels[0..4], colour(9), "through the gap");
+    assert_eq!(&pixels[4..8], colour(7));
+    remove(&dir);
+}

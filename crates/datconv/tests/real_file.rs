@@ -2,6 +2,13 @@
 
 use datconv::{convert, Selection};
 
+/// Whether the real install holds an SLP, in any of its archives.
+fn in_the_install() -> impl Fn(u32) -> bool {
+    let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
+    let sprites = datconv::sprites_in(std::path::Path::new(&dir)).expect("the archives read");
+    move |slp| sprites.contains(&slp)
+}
+
 fn real_dat() -> assets::dat::Dat {
     let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
     let bytes = std::fs::read(std::path::Path::new(&dir).join("data/empires2_x1_p1.dat"))
@@ -13,7 +20,8 @@ fn real_dat() -> assets::dat::Dat {
 #[test]
 #[ignore = "needs the game's data: set AOE_ASSETS and run with --ignored"]
 fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers() {
-    let converted = convert(&real_dat(), 1, Selection::Default).expect("converts");
+    let converted =
+        convert(&real_dat(), 1, Selection::Default, &in_the_install()).expect("converts");
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
     let villager = &content.units[0];
@@ -29,6 +37,20 @@ fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers()
     );
     assert!(!soldier.gathers);
     assert!(content.buildings[0].drop_off, "the town centre takes gold");
+    // Drawn as the original draws them: the town centre from its pieces and
+    // annexes, the barracks and the units from their own sprites.
+    assert_eq!(
+        content.buildings[0].parts,
+        [889, 3596, 4612, 891, 3595, 4611, 3594, 4610]
+    );
+    assert_eq!(
+        (
+            content.buildings[1].sprite,
+            content.buildings[1].parts.len()
+        ),
+        (2683, 0)
+    );
+    assert!(content.units.iter().all(|u| u.parts.is_empty()));
     // The game can draw it: every sprite and icon it names is in the install.
     let dir = std::env::var("AOE_ASSETS").expect("AOE_ASSETS names an install");
     app::load_images(std::path::Path::new(&dir), &content).expect("the install draws it");
@@ -41,7 +63,7 @@ fn the_four_types_convert_to_content_the_game_loads_with_the_originals_numbers()
 #[test]
 #[ignore = "needs the game's data: set AOE_ASSETS and run with --ignored"]
 fn every_unit_and_building_of_a_civilisation_converts_to_content_the_game_loads() {
-    let converted = convert(&real_dat(), 1, Selection::All).expect("converts");
+    let converted = convert(&real_dat(), 1, Selection::All, &in_the_install()).expect("converts");
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
     let left_out = converted

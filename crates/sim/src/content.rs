@@ -31,6 +31,10 @@ pub struct UnitStats {
     /// graphics table, which names an SLP plus extra pieces; the Phase 1.6
     /// converter resolves those to SLP IDs.
     pub sprite: u32,
+    /// When not empty, the SLPs drawn instead of `sprite` alone, in order and
+    /// each at the same ground point, as the original draws a graphic's
+    /// pieces and a building's annexes: each SLP's own hotspot places it.
+    pub parts: Vec<u32>,
     /// Its button in the interface: a frame in the original's unit icons,
     /// `interfac.drs` 50730.
     pub icon: u32,
@@ -60,6 +64,8 @@ pub struct BuildingStats {
     pub name: String,
     /// SLP ID in the original's `data/graphics.drs`, as for units.
     pub sprite: u32,
+    /// The SLPs drawn instead of `sprite` alone, as for units.
+    pub parts: Vec<u32>,
     /// A frame in the original's building icons, `interfac.drs` 50705.
     pub icon: u32,
     /// Footprint side in tiles; the footprint is square.
@@ -309,6 +315,7 @@ impl Default for Content {
                 UnitStats {
                     name: "villager".to_string(),
                     sprite: 1473,
+                    parts: Vec::new(),
                     icon: 15,
                     gathers: true,
                     max_hp: 40,
@@ -329,6 +336,7 @@ impl Default for Content {
                 UnitStats {
                     name: "soldier".to_string(),
                     sprite: 993,
+                    parts: Vec::new(),
                     icon: 8,
                     gathers: false,
                     max_hp: 60,
@@ -347,7 +355,11 @@ impl Default for Content {
             buildings: vec![
                 BuildingStats {
                     name: "town_center".to_string(),
-                    sprite: 901,
+                    // The Dark Age British town centre, unit 109 in the .dat: its
+                    // graphic's pieces (890 is in no archive) and its three
+                    // annexes', drawn at one point.
+                    sprite: 3596,
+                    parts: vec![889, 3596, 4612, 891, 3595, 4611, 3594, 4610],
                     icon: 28,
                     size: 4,
                     max_hp: 1000,
@@ -356,7 +368,9 @@ impl Default for Content {
                 },
                 BuildingStats {
                     name: "barracks".to_string(),
-                    sprite: 131,
+                    // The Dark Age British barracks, unit 12: one piece.
+                    sprite: 2683,
+                    parts: Vec::new(),
                     icon: 2,
                     size: 3,
                     max_hp: 600,

@@ -256,11 +256,21 @@ fn a_replay_from_before_icons_is_refused_by_version() {
     let error = load_text("version-three", "(version: 3, seed: 1)");
 
     assert!(
+        matches!(error, Err(app::ReplayError::Version { found: 3, .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_drawing_in_parts_is_refused_by_version() {
+    let error = load_text("version-four", "(version: 4, seed: 1)");
+
+    assert!(
         matches!(
             error,
             Err(app::ReplayError::Version {
-                found: 3,
-                expected: 4
+                found: 4,
+                expected: 5
             })
         ),
         "{error:?}"

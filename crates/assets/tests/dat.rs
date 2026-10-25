@@ -539,6 +539,8 @@ struct UnitSpec {
     train_location: i16,
     button: u8,
     damage_graphics: usize,
+    /// A building's annexes: (unit, x offset, y offset).
+    annexes: [(i16, f32, f32); 4],
 }
 
 fn villager_spec() -> UnitSpec {
@@ -562,6 +564,7 @@ fn villager_spec() -> UnitSpec {
         train_location: 109,
         button: 1,
         damage_graphics: 1,
+        annexes: [(-1, 0.0, 0.0); 4],
     }
 }
 
@@ -667,8 +670,8 @@ fn unit(b: &mut Bytes, u: &UnitSpec) {
             .i16(-1)
             .i16(-1)
             .u8(0);
-        for _ in 0..4 {
-            b.i16(-1).f32(0.0).f32(0.0);
+        for (annex, x, y) in u.annexes {
+            b.i16(annex).f32(x).f32(y);
         }
         b.i16(-1)
             .i16(-1)
@@ -872,6 +875,41 @@ fn each_unit_type_has_the_parts_its_type_has() {
     assert_eq!(parts(8), (60, true, true, true, false));
     assert_eq!(parts(10), (80, true, true, true, true));
     assert_eq!(parts(11), (90, false, false, false, false));
+}
+
+#[test]
+fn a_buildings_annexes_are_read_and_empty_slots_left_out() {
+    let building = UnitSpec {
+        kind: 80,
+        id: 109,
+        annexes: [
+            (618, -1.5, 1.0),
+            (-1, 0.0, 0.0),
+            (620, 1.0, -0.5),
+            (-1, 0.0, 0.0),
+        ],
+        ..villager_spec()
+    };
+    let data = with_civs(&[("Gaia", vec![Some(building)])]);
+    let units = read_civ_units(&data);
+
+    let read = units[0][0].as_ref().expect("the building");
+
+    assert_eq!(
+        read.annexes,
+        [
+            assets::dat::Annex {
+                unit: 618,
+                offset: [-1.5, 1.0],
+            },
+            assets::dat::Annex {
+                unit: 620,
+                offset: [1.0, -0.5],
+            },
+        ]
+    );
+    let villager = units[0].iter().flatten().find(|u| u.kind == 70);
+    assert!(villager.is_none_or(|u| u.annexes.is_empty()));
 }
 
 #[test]

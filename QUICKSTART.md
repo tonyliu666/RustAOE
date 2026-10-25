@@ -79,7 +79,8 @@ there is nothing to draw otherwise.
 The first build takes a couple of minutes; after that it is seconds. `--release`
 matters: a debug build simulates fine but the window feels sluggish.
 
-You should see grass, a town centre and a barracks with blue trim, three
+You should see grass, the original's Dark Age town centre (three thatched
+roofs on wooden posts) and barracks (a stone and palisade yard), three
 villagers, and a gold mine. The other base is far to the bottom-right, behind a
 band of forest.
 
@@ -309,6 +310,6 @@ no sound, two unit types by default (more can be added in content), only gold
 can be gathered, no tech tree, no save/load, no map editor, no minimap, no
 population count. Gathering has no pickaxe cursor yet, a villager cannot be
 sent to deposit a part load by hand, and its load is not shown; these come
-next. Units show one still frame facing south, the town
-centre is only its upper section, and the view is top-down rather than the
+next. Units show one still frame facing south, buildings are the British
+Dark Age ones for every player, and the view is top-down rather than the
 original's isometric one.

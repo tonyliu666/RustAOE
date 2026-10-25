@@ -147,30 +147,38 @@ pub fn slp(frames: usize, width: i32, commands: &[u8]) -> Vec<u8> {
 /// One player-colour pixel (value 3), then one plain pixel (colour 200).
 pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 
-/// The sprite IDs the game loads, with the sprite each gets.
+/// The sprite IDs the default content loads, with the sprite each gets;
+/// an override for an ID not among them is added as well.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
-    [
-        1473u32, 993, 901, 131, 1270, 4479, 51101, 50730, 50705, 50764,
-    ]
-    .into_iter()
-    .map(|id| {
-        let bytes = overrides.iter().find(|(o, _)| *o == id).map_or_else(
-            || {
-                if id == 50730 {
-                    icons(16)
-                } else if id == 50705 {
-                    icons_in(30, 7)
-                } else if id == 50764 {
-                    icons(100)
-                } else {
-                    slp(1, 2, &TWO_PIXELS)
-                }
-            },
-            |(_, b)| b.clone(),
-        );
-        (SLP, id, bytes)
-    })
-    .collect()
+    let defaults = [
+        1473u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 1270, 4479, 51101, 50730,
+        50705, 50764,
+    ];
+    let extra = overrides
+        .iter()
+        .map(|(id, _)| *id)
+        .filter(|id| !defaults.contains(id));
+    defaults
+        .into_iter()
+        .chain(extra)
+        .map(|id| {
+            let bytes = overrides.iter().find(|(o, _)| *o == id).map_or_else(
+                || {
+                    if id == 50730 {
+                        icons(16)
+                    } else if id == 50705 {
+                        icons_in(30, 7)
+                    } else if id == 50764 {
+                        icons(100)
+                    } else {
+                        slp(1, 2, &TWO_PIXELS)
+                    }
+                },
+                |(_, b)| b.clone(),
+            );
+            (SLP, id, bytes)
+        })
+        .collect::<Vec<_>>()
 }
 
 /// Writes a fake install to a fresh scratch directory: the palette, every
@@ -258,5 +266,35 @@ pub fn icons_in(frames: usize, colour: u8) -> Vec<u8> {
     for table in tables {
         out.extend(table);
     }
+    out
+}
+
+/// A one-row sprite `width` pixels wide in palette colour `colour`, with its
+/// hotspot at `hotspot`: a part of a building drawn in pieces.
+pub fn piece(width: usize, hotspot: (i32, i32), colour: u8) -> Vec<u8> {
+    piece_with_gap(width, 0, hotspot, colour)
+}
+
+/// [`piece`] whose first `gap` pixels are transparent.
+pub fn piece_with_gap(width: usize, gap: u16, hotspot: (i32, i32), colour: u8) -> Vec<u8> {
+    let mut out = b"2.0N".to_vec();
+    out.extend(1i32.to_le_bytes());
+    out.extend([0u8; 24]);
+    let at = 32 + 32;
+    out.extend(((at + 4) as u32).to_le_bytes()); // command table
+    out.extend((at as u32).to_le_bytes()); // outline table
+    out.extend(0u32.to_le_bytes());
+    out.extend(0u32.to_le_bytes());
+    out.extend((width as i32).to_le_bytes());
+    out.extend(1i32.to_le_bytes());
+    out.extend(hotspot.0.to_le_bytes());
+    out.extend(hotspot.1.to_le_bytes());
+    out.extend(gap.to_le_bytes()); // left padding: transparent
+    out.extend(0u16.to_le_bytes());
+    out.extend(((at + 8) as u32).to_le_bytes());
+    let drawn = width - usize::from(gap);
+    out.push((drawn as u8) << 2);
+    out.extend(std::iter::repeat_n(colour, drawn));
+    out.push(0x0F);
     out
 }

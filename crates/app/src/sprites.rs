@@ -413,17 +413,29 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
             hotspot: Vec2::new(first.hotspot_x as f32, first.hotspot_y as f32),
         })
     };
-    // One frame per player colour, for the type called `entry`.
-    let per_player = |entry: &str, id: u32| -> Result<Vec<Frame>, AssetError> {
+    // One frame per player colour, for the type called `entry`: its
+    // `sprite`, or its `parts` composed into one when it has any.
+    let per_player = |entry: &str, sprite: u32, parts: &[u32]| -> Result<Vec<Frame>, AssetError> {
+        let ids = if parts.is_empty() {
+            std::slice::from_ref(&sprite)
+        } else {
+            parts
+        };
         (0..PLAYER_SLOTS as u8)
             .map(|player| {
-                decode(id, player).map_err(|error| match error {
-                    AssetError::Missing { .. } => AssetError::MissingGraphic {
-                        entry: entry.to_string(),
-                        id,
-                    },
-                    other => other,
-                })
+                let frames = ids
+                    .iter()
+                    .map(|&id| {
+                        decode(id, player).map_err(|error| match error {
+                            AssetError::Missing { .. } => AssetError::MissingGraphic {
+                                entry: entry.to_string(),
+                                id,
+                            },
+                            other => other,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(compose(&frames))
             })
             .collect()
     };
@@ -506,14 +518,69 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
         units: content
             .units
             .iter()
-            .map(|u| per_player(&u.name, u.sprite))
+            .map(|u| per_player(&u.name, u.sprite, &u.parts))
             .collect::<Result<_, _>>()?,
         buildings: content
             .buildings
             .iter()
-            .map(|b| per_player(&b.name, b.sprite))
+            .map(|b| per_player(&b.name, b.sprite, &b.parts))
             .collect::<Result<_, _>>()?,
     })
+}
+
+/// Draws `frames` over one another, in order, each with its hotspot on one
+/// shared point, into one frame just large enough to hold them all.
+///
+/// This is how the original draws a graphic's pieces and a building's
+/// annexes: every piece at the unit's position, placed by its own hotspot.
+fn compose(frames: &[Frame]) -> Frame {
+    if let [only] = frames {
+        return only.clone();
+    }
+    // Each frame's corners relative to the shared point, in whole pixels.
+    let corners = |f: &Frame| {
+        let (x, y) = (-(f.hotspot.x as i64), -(f.hotspot.y as i64));
+        (
+            x,
+            y,
+            x + i64::from(f.image.width),
+            y + i64::from(f.image.height),
+        )
+    };
+    let (mut left, mut top, mut right, mut bottom) = (0, 0, 0, 0);
+    for (i, f) in frames.iter().enumerate() {
+        let (l, t, r, b) = corners(f);
+        if i == 0 {
+            (left, top, right, bottom) = (l, t, r, b);
+        } else {
+            (left, top, right, bottom) = (left.min(l), top.min(t), right.max(r), bottom.max(b));
+        }
+    }
+    let (width, height) = ((right - left) as u32, (bottom - top) as u32);
+    let mut rgba = vec![0u8; (width * height * 4) as usize];
+    for f in frames {
+        let (l, t, _, _) = corners(f);
+        for y in 0..f.image.height {
+            for x in 0..f.image.width {
+                let pixel = f.image.pixel(x, y);
+                if pixel[3] == 0 {
+                    continue;
+                }
+                let tx = (l - left) as u32 + x;
+                let ty = (t - top) as u32 + y;
+                let at = ((ty * width + tx) * 4) as usize;
+                rgba[at..at + 4].copy_from_slice(&pixel);
+            }
+        }
+    }
+    Frame {
+        image: Image {
+            width,
+            height,
+            rgba,
+        },
+        hotspot: Vec2::new(-left as f32, -top as f32),
+    }
 }
 
 /// Turns one of the original's diamond terrain tiles into a `size` x `size`
