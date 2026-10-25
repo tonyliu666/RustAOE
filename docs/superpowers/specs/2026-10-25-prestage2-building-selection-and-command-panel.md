@@ -1,7 +1,7 @@
 # Pre-stage 2: selecting buildings and the command panel
 
 **Date:** 2026-10-25
-**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (step 1 done)
+**Status:** Approved 2026-10-25, in progress on branch `feat/command-panel` (steps 1 and 2 done)
 **Plan:** [`2026-10-24-exe-parity-plan.md`](../plans/2026-10-24-exe-parity-plan.md), inserted before Phase 1.6 step 3b
 **Pulls forward:** part of plan Phase 8 (user interface)
 
@@ -106,3 +106,19 @@ minimap exists.
 from RON and required there. Defaults: villager 15, soldier 8, town centre 28,
 barracks 2. Replay format version 4; versions 1 to 3 are refused by version.
 Breaking the loader on purpose (ignoring the file's `icon`) fails the test.
+
+## Step 2 result (2026-10-25)
+
+`app::ui::Layout` gives the interface's rectangles for a window size,
+measured on 51101 at 800x600 and stretched with the image: top bar
+(0, 0, 800, 25); bottom row (0, 455, 800, 145); command panel
+(4, 461, 206, 127), with fifteen 36-pixel buttons from (7, 465) every 41
+pixels; information panel (219, 467, 280, 128); progress bar slot
+(271, 499, 100, 12); minimap frame (507, 461, 290, 136). The image is loaded
+as `Sprites::interface` (required) and drawn last over the whole window, the
+drag box under it. A press on the top bar or the bottom row neither starts a
+drag nor orders anything. Breaking each rule on purpose fails a test.
+
+Seen on the screenshot: the map's last rows lie under the bottom panel at the
+camera's southern limit, because the camera keeps the window, not the open
+middle, inside the map.

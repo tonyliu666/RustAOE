@@ -197,3 +197,43 @@ fn a_sound_with_a_sprites_id_does_not_hide_the_sprite() {
     assert_eq!(renderer.texture_size(villager.texture), Some((2, 1)));
     remove(&dir);
 }
+
+#[test]
+fn the_interface_image_is_loaded() {
+    // The real one is in interfac.drs; this fake install keeps it in
+    // graphics.drs, and the search finds it in whichever archive holds it.
+    let dir = install(
+        "interface",
+        graphics(&[(51101, three_pixels())]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    assert_eq!(
+        renderer.texture_size(sprites.interface.texture),
+        Some((3, 1))
+    );
+    remove(&dir);
+}
+
+#[test]
+fn an_install_without_the_interface_image_is_an_error() {
+    let files = graphics(&[])
+        .into_iter()
+        .filter(|(_, id, _)| *id != 51101)
+        .collect();
+    let dir = install("no-interface", files, slp(1, 2, &TWO_PIXELS));
+
+    let result = load_images(&dir, &Content::default());
+
+    assert!(
+        matches!(result, Err(AssetError::Missing { id: 51101, .. })),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}

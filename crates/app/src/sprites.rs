@@ -36,6 +36,11 @@ const GOLD_MINE: u32 = 4479;
 /// Gaia plus eight players: one decoded copy of each sprite per player
 /// colour.
 const PLAYER_SLOTS: usize = 9;
+/// The in-game interface for an 800x600 window, in `interfac.drs`: the top
+/// bar and the bottom row of panels, with the middle left transparent for
+/// the map. One image per civilisation; this is the first, used for every
+/// player until civilisations exist.
+const INTERFACE: u32 = 51101;
 
 /// An uploaded sprite and where its ground point is.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -55,6 +60,8 @@ pub struct Sprites {
     pub grass: Vec<TextureId>,
     pub tree: Sprite,
     pub gold_mine: Sprite,
+    /// The interface image, drawn stretched over the whole window.
+    pub interface: Sprite,
     /// Indexed by unit type ID, then player slot.
     pub units: Vec<[Sprite; PLAYER_SLOTS]>,
     /// Indexed by building type ID, then player slot.
@@ -114,6 +121,7 @@ pub struct GameImages {
     grass: Vec<Image>,
     tree: Frame,
     gold_mine: Frame,
+    interface: Frame,
     /// Per unit type ID, one frame per player slot.
     units: Vec<Vec<Frame>>,
     buildings: Vec<Vec<Frame>>,
@@ -133,6 +141,7 @@ impl GameImages {
         }
         let tree = upload_one(renderer, &self.tree);
         let gold_mine = upload_one(renderer, &self.gold_mine);
+        let interface = upload_one(renderer, &self.interface);
         let mut upload_set = |frames: &[Frame]| -> [Sprite; PLAYER_SLOTS] {
             std::array::from_fn(|i| upload_one(renderer, &frames[i]))
         };
@@ -151,6 +160,7 @@ impl GameImages {
             grass,
             tree,
             gold_mine,
+            interface,
             units,
             buildings,
         }
@@ -370,6 +380,7 @@ pub fn load_images(dir: &Path, content: &Content) -> Result<GameImages, AssetErr
         grass,
         tree: neutral(TREE)?,
         gold_mine: neutral(GOLD_MINE)?,
+        interface: neutral(INTERFACE)?,
         units: content
             .units
             .iter()

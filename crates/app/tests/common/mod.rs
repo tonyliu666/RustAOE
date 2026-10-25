@@ -18,8 +18,8 @@ pub fn sprite(renderer: &mut RecordingRenderer, size: (u32, u32), hotspot: (f32,
     }
 }
 
-/// One fake sprite per type of the default content and per player, two grass variations, a tree, and a
-/// gold mine.
+/// One fake sprite per type of the default content and per player, two grass
+/// variations, a tree, a gold mine, and the interface.
 pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
     let mut per_player = |size, hotspot| std::array::from_fn(|_| sprite(renderer, size, hotspot));
     let villager = per_player((21, 42), (10.0, 40.0));
@@ -32,10 +32,12 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
     ];
     let tree = sprite(renderer, (110, 129), (55.0, 120.0));
     let gold_mine = sprite(renderer, (82, 40), (41.0, 22.0));
+    let interface = sprite(renderer, (800, 600), (0.0, 0.0));
     Sprites {
         grass,
         tree,
         gold_mine,
+        interface,
         units: vec![villager, soldier],
         buildings: vec![town_center, barracks],
     }
@@ -133,7 +135,7 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 
 /// The sprite IDs the game loads, with the sprite each gets.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
-    [1473u32, 1181, 901, 131, 1270, 4479]
+    [1473u32, 1181, 901, 131, 1270, 4479, 51101]
         .into_iter()
         .map(|id| {
             let bytes = overrides

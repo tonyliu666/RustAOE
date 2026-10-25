@@ -62,8 +62,21 @@ pub fn draw_world<R: Renderer>(
     draw_buildings(renderer, view, sprites);
     draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
+    draw_interface(renderer, camera, sprites);
     draw_overlay(renderer, camera, view, hud);
     renderer.end_frame();
+}
+
+/// Draws the interface image over the whole window, on top of the map.
+///
+/// The renderer draws in world units, so the window's corner and size are
+/// turned into world units through the camera, as the overlay's text is.
+fn draw_interface<R: Renderer>(renderer: &mut R, camera: &Camera, sprites: &Sprites) {
+    renderer.sprite(
+        sprites.interface.texture,
+        camera.screen_to_world(Vec2::ZERO),
+        camera.viewport * (1.0 / camera.zoom),
+    );
 }
 
 /// `food 0  wood 0  gold 200  stone 0`, in the fixed resource order.

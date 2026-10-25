@@ -7,6 +7,7 @@
 //! will let a networked client hold exactly one of these later.
 
 use crate::pick;
+use crate::ui::Layout;
 use crate::CameraController;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
 use sim::{Command, EntityId, PlayerId, UnitId, UnitKind, WorldView};
@@ -178,10 +179,13 @@ impl Session {
         let camera = self.camera();
         let cursor = camera.screen_to_world(input.cursor);
 
-        self.update_selection(input, cursor, view);
+        // A press on the interface belongs to the interface: it neither
+        // starts a drag nor orders anything on the map underneath.
+        let on_interface = Layout::new(camera.viewport).blocks(input.cursor);
+        self.update_selection(input, cursor, on_interface, view);
 
         let mut commands = Vec::new();
-        if input.is_pressed(MouseButton::Right) {
+        if input.is_pressed(MouseButton::Right) && !on_interface {
             commands.extend(self.order(cursor, view));
         }
         commands.extend(self.training(input, view));
@@ -200,9 +204,17 @@ impl Session {
             .retain(|id| view.unit(*id).is_some_and(|u| u.owner == owner));
     }
 
-    fn update_selection(&mut self, input: &InputState, cursor: Vec2, view: WorldView<'_>) {
+    fn update_selection(
+        &mut self,
+        input: &InputState,
+        cursor: Vec2,
+        on_interface: bool,
+        view: WorldView<'_>,
+    ) {
         if input.is_pressed(MouseButton::Left) {
-            self.active_mut().drag_from = Some(cursor);
+            if !on_interface {
+                self.active_mut().drag_from = Some(cursor);
+            }
             return;
         }
         if !input.is_released(MouseButton::Left) {

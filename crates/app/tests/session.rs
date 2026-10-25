@@ -534,7 +534,7 @@ fn orders_are_stamped_with_whoever_holds_the_keyboard() {
         &mut session,
         &world,
         MouseButton::Right,
-        at(Vec2::new(11.5, 11.5)),
+        at(Vec2::new(10.5, 8.5)),
     );
 
     match commands.as_slice() {
@@ -746,4 +746,55 @@ fn a_third_trainable_unit_type_is_trained_with_key_three() {
         matches!(commands.as_slice(), [Command::Train { unit, .. }] if *unit == archer),
         "{commands:?}"
     );
+}
+
+// --- the interface ----------------------------------------------------------
+
+/// A point on the command panel, for this camera's window.
+fn on_command_panel() -> Vec2 {
+    let panel = app::Layout::new(camera().viewport).command_panel;
+    panel.min + panel.size * 0.5
+}
+
+#[test]
+fn a_left_click_on_the_command_panel_keeps_the_selection() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    let selected = session.selection().to_vec();
+    assert!(!selected.is_empty());
+
+    click(&mut session, &world, MouseButton::Left, on_command_panel());
+
+    assert_eq!(session.selection(), selected);
+}
+
+#[test]
+fn a_right_click_on_the_command_panel_orders_nothing() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    let commands = click(&mut session, &world, MouseButton::Right, on_command_panel());
+
+    assert_eq!(commands, []);
+}
+
+#[test]
+fn a_drag_started_on_the_interface_selects_nothing() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+    let selected = session.selection().to_vec();
+
+    let mut press = at_cursor(on_command_panel());
+    press.press(MouseButton::Left);
+    session.update(&press, 0.0, world.view());
+    assert_eq!(session.drag_box(Vec2::ZERO), None);
+    let mut release = at_cursor(at(Vec2::new(5.0, 5.0)));
+    release.hold(MouseButton::Left);
+    release.release(MouseButton::Left);
+    session.update(&release, 0.0, world.view());
+
+    assert_eq!(session.selection(), selected);
 }
