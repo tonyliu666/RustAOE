@@ -341,8 +341,9 @@ its phases), `crates/sim/src/path.rs` (flow fields and A*), then
 These are planned, each in its own phase of the plan; they are not bugs:
 
 no AI opponent, no fog of war, no building construction in game, no networking,
-no sound, two unit types by default (more can be added in content), only gold
-can be gathered, no tech tree, no save/load, no map editor, no minimap, no
-population count. Gathering has no pickaxe cursor yet; it comes with Phase 2. Units show one still frame facing south, buildings are the British
+no sound, two unit types by default (more can be added in content), no tech tree, no save/load, no map editor, no minimap, no
+population count. Over a site with villagers selected the cursor turns into the
+original's axe over trees and, provisionally, its hand over food, gold, and
+stone. Units show one still frame facing south, buildings are the British
 Dark Age ones for every player, and the view is top-down rather than the
 original's isometric one.

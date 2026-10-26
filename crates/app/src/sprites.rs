@@ -60,6 +60,15 @@ const UNIT_ICONS: u32 = 50730;
 const BUILDING_ICONS: u32 = 50705;
 /// The progress bar, in `interfac.drs`: frame n is n percent full.
 const PROGRESS_BAR: u32 = 50764;
+/// The mouse cursors, in `interfac.drs`: the original's `mcursors`, one
+/// sprite of 19 frames that the exe loads as a whole.
+const CURSORS: u32 = 51000;
+/// Which frame of [`CURSORS`] each of `Sprites::cursors` is: the arrow, then
+/// the job cursor for food, wood, gold, and stone. Frame 8 is the axe; the
+/// sprite has no pickaxe or sickle, and which frame the original shows for
+/// the other jobs is not yet read from the exe, so they take frame 3, the
+/// hand, provisionally.
+const CURSOR_FRAMES: [usize; 5] = [0, 3, 8, 3, 3];
 
 /// An uploaded sprite and where its ground point is.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -91,6 +100,8 @@ pub struct Sprites {
     pub building_icons: Vec<Sprite>,
     /// The progress bar, one sprite per frame: frame n is n percent full.
     pub progress: Vec<Sprite>,
+    /// Job cursors, indexed by resource (default, food, wood, gold, stone).
+    pub cursors: [Sprite; 5],
     /// Indexed by unit type ID, then player slot.
     pub units: Vec<[Sprite; PLAYER_SLOTS]>,
     /// Indexed by building type ID, then player slot.
@@ -164,6 +175,18 @@ impl Sprites {
     pub fn farm_at(&self, x: i32, y: i32) -> TextureId {
         self.farm[variation(x, y, self.farm.len())]
     }
+
+    /// The cursor for a resource: 0=default, 1=food, 2=wood, 3=gold, 4=stone.
+    pub fn cursor(&self, resource: Option<Resource>) -> &Sprite {
+        let idx = match resource {
+            None => 0,
+            Some(Resource::Food) => 1,
+            Some(Resource::Wood) => 2,
+            Some(Resource::Gold) => 3,
+            Some(Resource::Stone) => 4,
+        };
+        &self.cursors[idx]
+    }
 }
 
 /// Which of `count` variations of a ground texture tile (x, y) gets.
@@ -203,6 +226,7 @@ pub struct GameImages {
     unit_icons: Vec<Frame>,
     building_icons: Vec<Frame>,
     progress: Vec<Frame>,
+    cursors: [Frame; 5],
     /// Per unit type ID, one frame per player slot.
     units: Vec<Vec<Frame>>,
     buildings: Vec<Vec<Frame>>,
@@ -231,6 +255,7 @@ impl GameImages {
         let unit_icons = upload_all(&self.unit_icons);
         let building_icons = upload_all(&self.building_icons);
         let progress = upload_all(&self.progress);
+        let cursors = std::array::from_fn(|i| upload_one(renderer, &self.cursors[i]));
         let mut upload_set = |frames: &[Frame]| -> [Sprite; PLAYER_SLOTS] {
             std::array::from_fn(|i| upload_one(renderer, &frames[i]))
         };
@@ -259,6 +284,7 @@ impl GameImages {
             unit_icons,
             building_icons,
             progress,
+            cursors,
             units,
             buildings,
         }
@@ -539,6 +565,21 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
     if progress.is_empty() {
         return Err(AssetError::EmptySprite { id: PROGRESS_BAR });
     }
+    // The cursors keep their hotspots: the point of each is what is on the
+    // mouse.
+    let cursor_sprite = archives.sprite(CURSORS)?;
+    let mut cursors = Vec::with_capacity(CURSOR_FRAMES.len());
+    for index in CURSOR_FRAMES {
+        let header = cursor_sprite
+            .frames()
+            .nth(index)
+            .ok_or(AssetError::EmptySprite { id: CURSORS })?;
+        let mut frame = interface_frame(&cursor_sprite, CURSORS, index)?
+            .ok_or(AssetError::EmptySprite { id: CURSORS })?;
+        frame.hotspot = Vec2::new(header.hotspot_x as f32, header.hotspot_y as f32);
+        cursors.push(frame);
+    }
+    let cursors: [Frame; 5] = cursors.try_into().expect("one frame per cursor");
     // Neutral objects belong to Gaia: player slot 0's colours, each drawn
     // from its pieces.
     let neutral = |name: &str, ids: &[u32]| -> Result<Frame, AssetError> {
@@ -611,6 +652,7 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
             .map(|(name, look)| icon(&building_icons, BUILDING_ICONS, name, look.icon))
             .collect::<Result<_, _>>()?,
         progress,
+        cursors,
         units: unit_looks
             .iter()
             .map(|(name, look)| per_player(name, look.sprite, &look.parts))

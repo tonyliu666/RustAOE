@@ -1,0 +1,176 @@
+//! The mouse cursor: drawn by the game, over everything, as the original
+//! draws its own, and turned into the job's cursor when villagers are
+//! selected and the mouse is over something they would gather.
+
+mod common;
+
+use app::{draw_world, to_screen_space, Hud, Sprites};
+use render::{Camera, DrawCall, RecordingRenderer, Vec2};
+use sim::{BuildingKind, FxVec2, MapSpec, PlayerId, Resource, TilePos, UnitId, UnitKind, World};
+use std::collections::HashMap;
+
+fn camera() -> Camera {
+    Camera::new(Vec2::new(8.0, 8.0), 20.0, Vec2::new(800.0, 600.0))
+}
+
+/// A villager and a soldier of player one, and one site of each resource
+/// other than food on a farm.
+fn world() -> World {
+    World::new(
+        1,
+        MapSpec::new(16, 16)
+            .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+            .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(7, 6))
+            .with_site(Resource::Wood, TilePos::new(12, 2), 100)
+            .with_site(Resource::Gold, TilePos::new(12, 6), 100)
+            .with_site(Resource::Stone, TilePos::new(12, 10), 100)
+            .with_site(Resource::Food, TilePos::new(12, 14), 100),
+    )
+}
+
+fn unit(world: &World, kind: UnitKind) -> UnitId {
+    world
+        .view()
+        .units()
+        .find(|(_, u)| u.kind == kind)
+        .map(|(id, _)| id)
+        .expect("unit on the map")
+}
+
+/// Where a site of `resource` is drawn, so the mouse is over it.
+fn over(world: &World, resource: Resource) -> Vec2 {
+    let site = world
+        .view()
+        .sites()
+        .find(|(_, s)| s.resource == resource)
+        .map(|(_, s)| s.center())
+        .expect("site on the map");
+    to_screen_space(site)
+}
+
+/// Draws a frame with `selection` selected and the mouse at `mouse`, in
+/// world units, and returns the last sprite drawn: its texture, corner, and
+/// size.
+fn last_sprite(
+    renderer: &mut RecordingRenderer,
+    sprites: &Sprites,
+    world: &World,
+    selection: &[UnitId],
+    mouse: Vec2,
+) -> (render::TextureId, Vec2, Vec2) {
+    let hud = Hud {
+        active_player: PlayerId::ONE,
+        selection,
+        building: None,
+        drag_box: None,
+        replaying: false,
+        cursor_world: mouse,
+    };
+    let previous: HashMap<UnitId, FxVec2> = HashMap::new();
+    draw_world(
+        renderer,
+        &camera(),
+        world.view(),
+        &previous,
+        0.0,
+        &hud,
+        sprites,
+    );
+    renderer
+        .calls()
+        .iter()
+        .rev()
+        .find_map(|call| match call {
+            DrawCall::Sprite { texture, pos, size } => Some((*texture, *pos, *size)),
+            _ => None,
+        })
+        .expect("a sprite drawn")
+}
+
+fn close(a: Vec2, b: Vec2) -> bool {
+    (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+}
+
+#[test]
+fn with_a_villager_selected_the_cursor_over_a_tree_is_the_axe_on_top_of_everything() {
+    let mut renderer = RecordingRenderer::new();
+    let sprites = common::sprites(&mut renderer);
+    let world = world();
+    let mouse = over(&world, Resource::Wood);
+
+    let (texture, at, size) = last_sprite(
+        &mut renderer,
+        &sprites,
+        &world,
+        &[unit(&world, UnitKind::VILLAGER)],
+        mouse,
+    );
+
+    let axe = sprites.cursor(Some(Resource::Wood));
+    assert_eq!(texture, axe.texture, "not the axe");
+    // Drawn at its own pixel size whatever the zoom, its hotspot on the mouse.
+    let zoom = camera().zoom;
+    assert!(close(at, mouse - axe.hotspot * (1.0 / zoom)), "at {at:?}");
+    assert!(
+        close(size, Vec2::new(axe.width, axe.height) * (1.0 / zoom)),
+        "size {size:?}"
+    );
+}
+
+#[test]
+fn with_a_villager_selected_each_resource_shows_its_own_job_cursor() {
+    for resource in [Resource::Gold, Resource::Stone, Resource::Wood] {
+        let mut renderer = RecordingRenderer::new();
+        let sprites = common::sprites(&mut renderer);
+        let world = world();
+
+        let (texture, _, _) = last_sprite(
+            &mut renderer,
+            &sprites,
+            &world,
+            &[unit(&world, UnitKind::VILLAGER)],
+            over(&world, resource),
+        );
+
+        assert_eq!(
+            texture,
+            sprites.cursor(Some(resource)).texture,
+            "{resource:?}"
+        );
+    }
+}
+
+#[test]
+fn without_a_villager_selected_the_cursor_over_a_tree_is_the_plain_arrow() {
+    for selection in [vec![], vec![unit(&world(), UnitKind::SOLDIER)]] {
+        let mut renderer = RecordingRenderer::new();
+        let sprites = common::sprites(&mut renderer);
+        let world = world();
+        let mouse = over(&world, Resource::Wood);
+
+        let (texture, at, _) = last_sprite(&mut renderer, &sprites, &world, &selection, mouse);
+
+        let arrow = sprites.cursor(None);
+        assert_eq!(texture, arrow.texture, "selection {selection:?}");
+        let zoom = camera().zoom;
+        assert!(close(at, mouse - arrow.hotspot * (1.0 / zoom)), "at {at:?}");
+    }
+}
+
+#[test]
+fn with_a_villager_selected_the_cursor_over_open_ground_is_the_plain_arrow() {
+    let mut renderer = RecordingRenderer::new();
+    let sprites = common::sprites(&mut renderer);
+    let world = world();
+
+    let (texture, _, _) = last_sprite(
+        &mut renderer,
+        &sprites,
+        &world,
+        &[unit(&world, UnitKind::VILLAGER)],
+        to_screen_space(FxVec2::tile_center(TilePos::new(4, 12))),
+    );
+
+    assert_eq!(texture, sprites.cursor(None).texture);
+}

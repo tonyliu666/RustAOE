@@ -24,6 +24,7 @@ fn hud() -> Hud<'static> {
         building: None,
         drag_box: None,
         replaying: false,
+        cursor_world: Vec2::ZERO,
     }
 }
 

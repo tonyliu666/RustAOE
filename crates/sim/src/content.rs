@@ -353,64 +353,63 @@ impl Content {
 ///
 /// Every replay recorded before content became data was played with these, so
 /// changing them changes the outcome of those replays.
+///
+/// These are the values converted by `datconv` from the original's .dat
+/// (British civ). The `default.ron` file in `app/content` matches this.
 impl Default for Content {
     fn default() -> Content {
         // The order is the IDs: `UnitKind::VILLAGER` is 0, `SOLDIER` is 1,
-        // `BuildingKind::TOWN_CENTER` is 0, `BARRACKS` is 1.
+        // `BuildingKind::TOWN_CENTER` is 0, `BARRACKS` is 1,
+        // `MILL` is 2, `LUMBER_CAMP` is 3, `MINING_CAMP` is 4.
         Content {
             units: vec![
-                // 2.5 tiles per second at 20 Hz.
                 UnitStats {
                     name: "villager".to_string(),
                     gathers: true,
-                    max_hp: 40,
-                    speed: Fx::from_frac(1, 8),
-                    damage: 0,
+                    max_hp: 25,
+                    speed: Fx::from_bits(2621),
+                    damage: 3,
                     range: Fx::ZERO,
-                    attack_cooldown: 0,
-                    radius: Fx::from_frac(1, 4),
-                    // 50 food, as the original's .dat has it.
+                    attack_cooldown: 40,
+                    radius: Fx::from_bits(13107),
                     cost: Resources {
                         food: 50,
                         ..Resources::default()
                     },
-                    train_ticks: 100,
+                    train_ticks: 500,
                 },
                 UnitStats {
                     name: "soldier".to_string(),
                     gathers: false,
-                    max_hp: 60,
-                    speed: Fx::from_frac(1, 8),
-                    damage: 8,
-                    // The militia's: melee.
+                    max_hp: 40,
+                    speed: Fx::from_bits(2949),
+                    damage: 4,
                     range: Fx::ZERO,
-                    attack_cooldown: 20,
-                    radius: Fx::from_frac(1, 4),
+                    attack_cooldown: 40,
+                    radius: Fx::from_bits(13107),
                     cost: Resources {
-                        gold: 60,
+                        food: 60,
+                        gold: 20,
                         ..Resources::default()
                     },
-                    train_ticks: 120,
+                    train_ticks: 420,
                 },
             ],
             buildings: vec![
                 BuildingStats {
                     name: "town_center".to_string(),
                     size: 4,
-                    max_hp: 1000,
+                    max_hp: 2400,
                     drop_off: Resource::ALL.to_vec(),
                     trains: vec![UnitKind::VILLAGER],
                 },
                 BuildingStats {
                     name: "barracks".to_string(),
                     size: 3,
-                    max_hp: 600,
+                    max_hp: 1200,
                     drop_off: Vec::new(),
                     trains: vec![UnitKind::SOLDIER],
                 },
-                // The drop-off camps, from the .dat (units 68, 562, 584):
-                // two tiles a side, 1000 hit points, each taking what its
-                // jobs bring.
                 BuildingStats {
                     name: "mill".to_string(),
                     size: 2,
@@ -433,12 +432,24 @@ impl Default for Content {
                     trains: Vec::new(),
                 },
             ],
-            // One unit every two seconds at 20 Hz, ten to a load, for every
-            // resource until Phase 2 step 5 adopts the original's numbers.
-            gather: Gathering::uniform(GatherStats {
-                carry_capacity: 10,
-                ticks_per_unit: 40,
-            }),
+            gather: Gathering {
+                food: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 65,
+                },
+                wood: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 51,
+                },
+                gold: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 53,
+                },
+                stone: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 56,
+                },
+            },
         }
     }
 }

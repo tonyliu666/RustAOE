@@ -357,13 +357,7 @@ fn a_replay_from_before_farms_is_refused_by_version() {
     let error = load_text("version-eleven", "(version: 11, seed: 1)");
 
     assert!(
-        matches!(
-            error,
-            Err(app::ReplayError::Version {
-                found: 11,
-                ..
-            })
-        ),
+        matches!(error, Err(app::ReplayError::Version { found: 11, .. })),
         "{error:?}"
     );
 }
@@ -378,7 +372,27 @@ fn a_replay_from_before_hand_drop_offs_stood_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 12,
-                expected: 13
+                expected: 14
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_original_numbers_is_refused_by_version() {
+    // Version 13 had uniform gather numbers and wrong villager/soldier stats.
+    let error = load_text(
+        "version-thirteen",
+        "(version: 13, seed: 1, map: (width: 8, height: 8, blocked: [], buildings: [], mines: [], units: [], starting_gold: 0))",
+    );
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 13,
+                expected: 14
             })
         ),
         "{error:?}"

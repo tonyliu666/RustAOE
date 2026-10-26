@@ -30,10 +30,10 @@ fn the_default_content_is_valid() {
 
 #[test]
 fn an_unarmed_unit_needs_no_attack_cooldown() {
-    // The default villager has zero damage and zero cooldown.
-    let content = Content::default();
-    assert_eq!(content.unit(UnitKind::VILLAGER).damage, 0);
-    assert_eq!(content.unit(UnitKind::VILLAGER).attack_cooldown, 0);
+    // An unarmed unit (damage = 0) may have zero attack cooldown.
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::VILLAGER).damage = 0;
+    content.unit_mut(UnitKind::VILLAGER).attack_cooldown = 0;
     assert_eq!(content.validate(), Ok(()));
 }
 

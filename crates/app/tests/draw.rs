@@ -42,6 +42,7 @@ fn plain_hud() -> Hud<'static> {
         building: None,
         drag_box: None,
         replaying: false,
+        cursor_world: Vec2::ZERO,
     }
 }
 
@@ -252,7 +253,12 @@ fn the_interface_is_drawn_last_over_the_whole_window() {
             camera.viewport * (1.0 / camera.zoom)
         )]
     );
-    let (last, _, _) = renderer.sprites().last().expect("sprites drawn");
+    // Over everything but the mouse cursor, which is drawn over it.
+    let (last, _, _) = renderer
+        .sprites()
+        .filter(|(texture, _, _)| *texture != sprites.cursor(None).texture)
+        .last()
+        .expect("sprites drawn");
     assert_eq!(last, sprites.interface.texture);
 }
 

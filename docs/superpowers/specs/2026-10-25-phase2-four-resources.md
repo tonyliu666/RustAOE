@@ -268,3 +268,34 @@ the drop-off, and asked for that. `Command::Deposit` now always ends in
 load is full is unchanged. Replay format 13. The drop-off test that checked
 a refused hand drop-off now also rejects a `Deposit` order at the wrong
 building, which the old check could not see; mutation caught.
+
+### Job cursors drawn at the mouse (user report, 2026-10-26)
+
+The user saw that with a villager selected the cursor stayed the arrow over
+a tree. Three faults:
+
+- `draw_cursor` took the mouse's world position for a screen position and
+  turned it into world units a second time, so the cursor was drawn far
+  from the mouse, usually off screen. Its hotspot was ignored, and the
+  system's arrow stayed on top.
+- 51001 to 51004 are small plain arrows, not job cursors. The exe loads
+  its cursors from one sprite, `mcursors` (51000), of 19 frames
+  (`FUN_00576a10(..., 51000, 0x13)`). Frame 0 is the arrow, 3 the hand, 4
+  the sword, 7 the hammer, and 8 the axe. There is no pickaxe or sickle.
+- Nothing tested the cursor, so turning it off failed no test.
+
+Now the game hides the system cursor and draws its own over everything:
+the arrow, or the job's cursor when the selection includes a unit that
+gathers (by content, not by type index) and the mouse is over a site. It
+is drawn at its own pixel size at any zoom, its hotspot from the sprite on
+the mouse. Wood is frame 8, the axe. **Provisional:** food, gold, and stone
+take frame 3, the hand; which frame the original shows for them is not yet
+read from the exe, whose cursor choice goes through calls Ghidra could not
+follow.
+
+Tests: `crates/app/tests/cursor.rs` (4) and two in `install.rs`; RED first
+(drawn at (-11.4, -6.9), no arrow without a selection; loader asked for
+51001). Mutations caught (7): wood not the axe, hotspot dropped at load,
+hotspot ignored at draw, size not divided by zoom, any unit counted as a
+gatherer, never the job cursor, no cursor drawn. Screenshot: the axe on a
+tree and the hand on gold, with a villager selected. Workspace 603 passed.

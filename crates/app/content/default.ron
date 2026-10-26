@@ -16,26 +16,26 @@
 // Distances are in tiles.
 //
 // Costs list only the resources they use: `(food: 50, gold: 20)`; a resource
-// left out costs nothing. The villager costs 50 food, as in the original;
-// food cannot be gathered until Phase 2 of the exe-parity plan, so each player
-// starts with 200 food (the original's standard start) and 200 gold. The
-// soldier costs gold until Phase 2 gives it the militia's 60 food and 20 gold.
+// left out costs nothing. The villager costs 50 food, as in the original.
+// The soldier is the militia at 60 food and 20 gold, as converted by datconv.
+// Gather rates and carry capacities are per-resource from the original's job
+// units (forager 120, lumberjack 123, gold miner 579, stone miner 124).
 (
     units: [
         (
             name: "villager",
-            sprite: 1473,
+            sprite: 1479,
             parts: [],
             icon: 15,               // its button: a frame in interfac.drs 50730
             gathers: true,          // may gather and carry loads
-            max_hp: 40,
-            speed: (1, 8),          // tiles per tick: 2.5 tiles per second
-            damage: 0,              // zero: cannot be ordered to attack
+            max_hp: 25,
+            speed: (2621, 65536),   // 0.04 tiles per tick: 0.8 tiles per second
+            damage: 3,              // melee damage from .dat unit 83
             range: (0, 1),
-            attack_cooldown: 0,
-            radius: (1, 4),
+            attack_cooldown: 40,    // 2 seconds
+            radius: (13107, 65536), // 0.2 tiles
             cost: (food: 50),
-            train_ticks: 100,       // 5 seconds
+            train_ticks: 500,       // 25 seconds
         ),
         (
             name: "soldier",
@@ -43,14 +43,14 @@
             parts: [],
             icon: 8,
             gathers: false,
-            max_hp: 60,
-            speed: (1, 8),
-            damage: 8,
+            max_hp: 40,
+            speed: (2949, 65536),  // 0.045 tiles per tick: 0.9 tiles per second
+            damage: 4,
             range: (0, 1),          // between edges, as in the original: melee
-            attack_cooldown: 20,    // one hit per second
-            radius: (1, 4),
-            cost: (gold: 60),
-            train_ticks: 120,       // 6 seconds
+            attack_cooldown: 40,    // 2 seconds
+            radius: (13107, 65536), // 0.2 tiles
+            cost: (food: 60, gold: 20),
+            train_ticks: 420,       // 21 seconds
         ),
     ],
     buildings: [
@@ -65,7 +65,7 @@
             ],
             icon: 28,               // a frame in interfac.drs 50705
             size: 4,                // footprint, in tiles a side
-            max_hp: 1000,
+            max_hp: 2400,
             drop_off: [food, wood, gold, stone],  // what villagers may deposit here
             trains: ["villager"],
         ),
@@ -75,11 +75,12 @@
             parts: [],
             icon: 2,
             size: 3,
-            max_hp: 600,
+            max_hp: 1200,
             drop_off: [],
             trains: ["soldier"],
         ),
         // The drop-off camps, converted from the .dat (units 68, 562, 584).
+        // Two tiles a side, 1000 hit points, each taking what its jobs bring.
         (
             name: "mill",
             sprite: 3482,
@@ -111,13 +112,15 @@
             trains: [],
         ),
     ],
-    // How a villager gathers each resource: how much it carries, and ticks
-    // per unit gathered. One unit every 2 seconds for each until Phase 2 step
-    // 5 takes the original's numbers.
+    // Per-resource gather numbers from datconv (British civ):
+    // food (forager 120): 0.31/s -> 65 ticks/unit, carry 10
+    // wood (lumberjack 123): 0.39/s -> 51 ticks/unit, carry 10
+    // gold (gold miner 579): 0.38/s -> 53 ticks/unit, carry 10
+    // stone (stone miner 124): 0.36/s -> 56 ticks/unit, carry 10
     gather: (
-        food: (carry_capacity: 10, ticks_per_unit: 40),
-        wood: (carry_capacity: 10, ticks_per_unit: 40),
-        gold: (carry_capacity: 10, ticks_per_unit: 40),
-        stone: (carry_capacity: 10, ticks_per_unit: 40),
+        food: (carry_capacity: 10, ticks_per_unit: 65),
+        wood: (carry_capacity: 10, ticks_per_unit: 51),
+        gold: (carry_capacity: 10, ticks_per_unit: 53),
+        stone: (carry_capacity: 10, ticks_per_unit: 56),
     ),
 )

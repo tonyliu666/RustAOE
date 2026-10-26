@@ -1,7 +1,7 @@
 //! More than two players, Gaia, and per-player defeat.
 
 use sim::{
-    BuildingKind, Command, Content, EntityId, MapSpec, Outcome, PlayerId, TilePos, UnitId,
+    BuildingKind, Command, Content, EntityId, Fx, MapSpec, Outcome, PlayerId, TilePos, UnitId,
     UnitKind, World,
 };
 use smallvec::smallvec;
@@ -24,10 +24,14 @@ fn run(world: &mut World, ticks: u64) {
 }
 
 /// Content whose town centre falls to one soldier hit, so that a test can
-/// knock a player out in a few ticks.
+/// knock a player out in a few ticks. Uses old-style soldier stats (damage 8,
+/// cooldown 20) so 5 ticks is enough for the hit to land.
 fn fragile_town_centres() -> Content {
     let mut content = Content::default();
     content.building_mut(BuildingKind::TOWN_CENTER).max_hp = 8;
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::SOLDIER).attack_cooldown = 20;
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
     content
 }
 

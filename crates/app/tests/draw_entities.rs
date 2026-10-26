@@ -24,6 +24,7 @@ fn hud<'a>(selection: &'a [UnitId], drag_box: Option<(Vec2, Vec2)>) -> Hud<'a> {
         building: None,
         drag_box,
         replaying: false,
+        cursor_world: Vec2::ZERO,
     }
 }
 
@@ -421,7 +422,11 @@ fn draw_with_barracks_selected(renderer: &mut RecordingRenderer, world: &World) 
 /// until the first has `remaining` ticks left.
 fn training(count: usize, remaining: u32) -> World {
     let map = MapSpec::new(16, 16)
-        .with_starting_gold(1000)
+        .with_starting_resources(Resources {
+            food: 1000,
+            gold: 1000,
+            ..Resources::default()
+        })
         .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(1, 1))
         .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(10, 1));
     let mut world = World::new(7, map);

@@ -42,8 +42,10 @@ impl Replay {
     /// set per resource; version 11 lets a building take only some
     /// resources; version 12 gives each site a size and whether it blocks,
     /// for farms, and removes a site once it is used up; version 13 has a
-    /// villager stand after a drop-off by hand.
-    pub const FORMAT_VERSION: u32 = 13;
+    /// villager stand after a drop-off by hand; version 14 adopts the
+    /// original's gather rates, carry capacities, villager damage, and militia
+    /// cost from datconv.
+    pub const FORMAT_VERSION: u32 = 14;
 
     /// How often the checksum is sampled during recording.
     ///

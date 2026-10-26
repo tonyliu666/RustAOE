@@ -7,6 +7,7 @@
 //! filled rectangles are health bars, and the only lines are the selection
 //! outline and the drag box, as in the original.
 
+use crate::pick;
 use crate::pick::footprint_centre;
 use crate::pick::to_screen_space;
 use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
@@ -43,6 +44,8 @@ pub struct Hud<'a> {
     pub drag_box: Option<(Vec2, Vec2)>,
     /// Whether the simulation is being driven by a recording rather than input.
     pub replaying: bool,
+    /// Mouse cursor position in world coordinates, for drawing the job cursor.
+    pub cursor_world: Vec2,
 }
 
 /// Draws one complete frame.
@@ -70,6 +73,7 @@ pub fn draw_world<R: Renderer>(
     draw_command_panel(renderer, camera, view, hud, sprites);
     draw_info_panel(renderer, camera, view, hud, sprites);
     draw_overlay(renderer, camera, view, hud);
+    draw_cursor(renderer, camera, view, hud, sprites);
     renderer.end_frame();
 }
 
@@ -82,6 +86,39 @@ fn draw_interface<R: Renderer>(renderer: &mut R, camera: &Camera, sprites: &Spri
         sprites.interface.texture,
         camera.screen_to_world(Vec2::ZERO),
         camera.viewport * (1.0 / camera.zoom),
+    );
+}
+
+/// Draws the mouse cursor over everything, as the original draws its own:
+/// the plain arrow, or the job's cursor when the selection includes a unit
+/// that gathers and the mouse is over a site it would gather from. It keeps
+/// its own pixel size at any zoom, its hotspot on the mouse.
+fn draw_cursor<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    let gatherer_selected = hud.building.is_none()
+        && hud.selection.iter().any(|id| {
+            view.unit(*id)
+                .is_some_and(|unit| view.content().unit(unit.kind).gathers)
+        });
+    let resource = if gatherer_selected {
+        match pick::entity_at(view, hud.cursor_world, &sprites.bodies(view.content()), 0.0) {
+            Some(sim::EntityId::Site(site)) => view.site(site).map(|site| site.resource),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let cursor = sprites.cursor(resource);
+    let scale = 1.0 / camera.zoom;
+    renderer.sprite(
+        cursor.texture,
+        hud.cursor_world - cursor.hotspot * scale,
+        Vec2::new(cursor.width, cursor.height) * scale,
     );
 }
 

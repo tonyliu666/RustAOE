@@ -65,6 +65,7 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         bush,
         farm,
         interface,
+        cursors: std::array::from_fn(|_| sprite(renderer, (32, 32), (4.0, 2.0))),
         units: vec![villager, soldier],
         buildings: vec![town_center, barracks, mill, lumber_camp, mining_camp],
     }
@@ -164,8 +165,8 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 /// an override for an ID not among them is added as well.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
     let defaults = [
-        1473u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 3482, 3483, 3507, 3495,
-        2296, 4652, 4479, 2561, 4482, 1034, 2560, 51101, 50730, 50705, 50764,
+        1479u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 3482, 3483, 3507, 3495,
+        2296, 4652, 4479, 2561, 4482, 1034, 2560, 51101, 50730, 50705, 50764, 51000,
     ];
     let extra = overrides
         .iter()
@@ -183,6 +184,8 @@ pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
                         icons_in(52, 7)
                     } else if id == 50764 {
                         icons(100)
+                    } else if id == 51000 {
+                        icons(19)
                     } else {
                         slp(1, 2, &TWO_PIXELS)
                     }

@@ -121,7 +121,12 @@ fn a_load_cannot_be_dropped_off_by_hand_where_it_is_not_taken() {
         building: camp,
     }]);
 
-    let order = world.view().unit(villager).expect("the villager").order.clone();
+    let order = world
+        .view()
+        .unit(villager)
+        .expect("the villager")
+        .order
+        .clone();
     assert!(
         !matches!(
             order,

@@ -165,6 +165,9 @@ mod game {
         // The mouse starts free to leave the window; F10 holds it inside, as
         // AoE2's "lock mouse to window" does. See `Session::mouse_locked`.
         mq::set_cursor_grab(session.mouse_locked());
+        // The game draws the cursor itself, as the original does, so that it
+        // can turn into the job's cursor; the system's would sit on top.
+        mq::show_mouse(false);
 
         let mut pending: Vec<Command> = Vec::new();
         let mut previous: HashMap<UnitId, FxVec2> = world.view().snapshot().into_iter().collect();
@@ -218,6 +221,7 @@ mod game {
                 building: session.selected_building(),
                 drag_box: session.drag_box(cursor),
                 replaying: playback.is_some(),
+                cursor_world: cursor,
             };
             let alpha = (accumulator / TICK_SECONDS).clamp(0.0, 1.0);
             draw_world(

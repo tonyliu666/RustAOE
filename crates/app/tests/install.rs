@@ -81,14 +81,14 @@ fn an_empty_grass_frame_is_an_error_rather_than_a_crash() {
 fn a_unit_sprite_with_no_width_is_an_error_rather_than_an_infinite_scale() {
     let dir = install(
         "empty-unit",
-        graphics(&[(1473, slp(1, 0, &[0x0F]))]),
+        graphics(&[(1479, slp(1, 0, &[0x0F]))]),
         slp(1, 2, &TWO_PIXELS),
     );
 
     let result = load_images(&dir, &Content::default(), &looks());
 
     assert!(
-        matches!(result, Err(AssetError::EmptySprite { id: 1473 })),
+        matches!(result, Err(AssetError::EmptySprite { id: 1479 })),
         "{:?}",
         result.err()
     );
@@ -170,7 +170,7 @@ fn a_sprite_in_an_expansion_archive_overrides_the_base_games_copy() {
         slp(1, 2, &TWO_PIXELS),
         &[(
             "gamedata_x1_p1.drs",
-            vec![(common::SLP, 1473, three_pixels())],
+            vec![(common::SLP, 1479, three_pixels())],
         )],
     );
     let mut renderer = RecordingRenderer::new();
@@ -717,6 +717,61 @@ fn an_install_without_the_farm_ground_is_an_error() {
 
     assert!(
         matches!(result, Err(AssetError::Missing { id: 15004, .. })),
+        "{:?}",
+        result.err()
+    );
+    remove(&dir);
+}
+
+#[test]
+fn the_cursors_are_frames_of_the_originals_mouse_pointer_sprite_with_their_hotspots() {
+    // The original loads its cursors from one sprite, `mcursors` (51000), of
+    // 19 frames. Frame n of the fake is n + 1 pixels wide; frame 8, the axe,
+    // has its hotspot moved so the test sees it carried through.
+    let mut cursors = common::icons(19);
+    let axe_header = 32 + 32 * 8;
+    cursors[axe_header + 24..axe_header + 32].copy_from_slice(&[5, 0, 0, 0, 7, 0, 0, 0]);
+    let dir = install(
+        "cursors",
+        graphics(&[(51000, cursors)]),
+        slp(1, 2, &TWO_PIXELS),
+    );
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = load_images(&dir, &Content::default(), &looks())
+        .expect("loads")
+        .upload(&mut renderer);
+
+    let width = |resource| {
+        renderer
+            .texture_size(sprites.cursor(resource).texture)
+            .map(|(w, _)| w)
+    };
+    assert_eq!(width(None), Some(1), "the arrow is frame 0");
+    assert_eq!(
+        width(Some(sim::Resource::Wood)),
+        Some(9),
+        "the axe is frame 8"
+    );
+    assert_eq!(
+        sprites.cursor(Some(sim::Resource::Wood)).hotspot,
+        render::Vec2::new(5.0, 7.0)
+    );
+    remove(&dir);
+}
+
+#[test]
+fn an_install_without_the_cursors_is_an_error() {
+    let files = graphics(&[])
+        .into_iter()
+        .filter(|(_, id, _)| *id != 51000)
+        .collect();
+    let dir = install("no-cursors", files, slp(1, 2, &TWO_PIXELS));
+
+    let result = load_images(&dir, &Content::default(), &looks());
+
+    assert!(
+        matches!(result, Err(AssetError::Missing { id: 51000, .. })),
         "{:?}",
         result.err()
     );

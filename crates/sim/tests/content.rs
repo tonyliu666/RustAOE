@@ -142,6 +142,9 @@ fn a_hit_deals_the_damage_from_content() {
     content.unit_mut(UnitKind::SOLDIER).damage = 15;
     // Reach from the next tile, so that the first swing lands at once.
     content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
+    // Villager max_hp is now 25 by default; set explicitly to 40 so the
+    // assertion matches the old test expectation.
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 40;
     let (mut world, _, victim) = duel(content, 1);
     run(&mut world, 2);
 
@@ -152,6 +155,9 @@ fn a_hit_deals_the_damage_from_content() {
 fn swings_are_spaced_by_the_cooldown_from_content() {
     let mut content = Content::default();
     content.unit_mut(UnitKind::SOLDIER).attack_cooldown = 1;
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 40;
     let (mut world, _, victim) = duel(content, 1);
     // Five eight-damage swings kill a forty-hit-point villager. At the default
     // cooldown of 20 ticks that takes 80 ticks or more.
@@ -164,6 +170,8 @@ fn swings_are_spaced_by_the_cooldown_from_content() {
 fn a_hit_lands_from_the_range_in_content() {
     let mut content = Content::default();
     content.unit_mut(UnitKind::SOLDIER).range = Fx::from_int(10);
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 40;
     let (mut world, _, victim) = duel(content, 8);
     // Walking eight tiles at the default range takes over fifty ticks.
     run(&mut world, 2);
@@ -197,6 +205,7 @@ fn a_villager_armed_by_content_can_be_ordered_to_attack() {
     content.unit_mut(UnitKind::VILLAGER).damage = 5;
     content.unit_mut(UnitKind::VILLAGER).range = Fx::from_frac(3, 2);
     content.unit_mut(UnitKind::VILLAGER).attack_cooldown = 20;
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 40;
     let map = base_map()
         .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(20, 10))
         .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(20, 11));
@@ -311,8 +320,10 @@ fn gold_is_mined_at_the_rate_in_content() {
     let mut content = Content::default();
     content.gather.gold.ticks_per_unit = 1;
     let mut world = gathering(content);
-    // At the default 40 ticks per gold this is about two gold.
-    run(&mut world, 100);
+    // At the default 40 ticks per gold this is about two gold. With the
+    // original's slower villager speed, walking to the mine takes ~100 ticks,
+    // so run longer to allow mining to start.
+    run(&mut world, 300);
 
     assert!(
         mine_remaining(&world) <= 4990,
@@ -401,7 +412,8 @@ fn banking_a_load_into_a_full_treasury_saturates_rather_than_overflowing() {
         site: mine,
     }]);
     // Long enough at the default numbers to bank a full ten-gold load.
-    run(&mut world, 700);
+    // With original speeds and gather rates, 700 ticks was enough. Now slower.
+    run(&mut world, 1500);
 
     assert_eq!(world.view().gold(PlayerId::ONE), i32::MAX);
 }
@@ -490,6 +502,8 @@ fn with_archer() -> (Content, UnitKind) {
     archer.damage = 6;
     archer.range = Fx::from_int(4);
     archer.max_hp = 30;
+    // Default train_ticks is now 420; shorten for the test so 125 ticks is enough.
+    archer.train_ticks = 50;
     content.units.push(archer);
     let kind = content.unit_named("archer").expect("the archer was added");
     content
@@ -501,7 +515,8 @@ fn with_archer() -> (Content, UnitKind) {
 
 #[test]
 fn a_unit_type_added_only_in_content_is_trained_and_fights_with_its_own_numbers() {
-    let (content, archer) = with_archer();
+    let (mut content, archer) = with_archer();
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 40;
     let map = base_map().with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(16, 12));
     let mut world = World::with_content(SEED, map, content);
     let barracks = building(&world, PlayerId::ONE, BuildingKind::BARRACKS);
@@ -525,7 +540,8 @@ fn a_unit_type_added_only_in_content_is_trained_and_fights_with_its_own_numbers(
         units: smallvec![bowman],
         target: EntityId::Unit(victim),
     }]);
-    run(&mut world, 60);
+    // Archer speed is 0.045 tiles/tick; distance ~9 tiles takes ~200 ticks.
+    run(&mut world, 300);
 
     // The archer's six damage, not the soldier's eight, so the villager's
     // hit points are a multiple of six below forty.
@@ -618,8 +634,8 @@ fn the_built_in_map_needs_a_town_centre_and_says_so() {
 
 #[test]
 fn the_default_villager_costs_food_as_the_originals_does() {
-    // 50 food, as the original's .dat (unit 83) has it; the soldier keeps
-    // its 60 gold until Phase 2.
+    // 50 food, as the original's .dat (unit 83) has it.
+    // Soldier is the militia at 60 food + 20 gold from datconv.
     let content = Content::default();
 
     assert_eq!(
@@ -629,5 +645,71 @@ fn the_default_villager_costs_food_as_the_originals_does() {
             ..sim::Resources::default()
         }
     );
-    assert_eq!(content.unit(UnitKind::SOLDIER).cost.gold, 60);
+    assert_eq!(
+        content.unit(UnitKind::SOLDIER).cost,
+        sim::Resources {
+            food: 60,
+            gold: 20,
+            ..sim::Resources::default()
+        }
+    );
+}
+
+#[test]
+fn the_default_villager_has_the_originals_damage() {
+    // Villager damage is 3 from the .dat (unit 83 combat), not zero.
+    let content = Content::default();
+
+    assert_eq!(content.unit(UnitKind::VILLAGER).damage, 3);
+    assert_eq!(content.unit(UnitKind::VILLAGER).attack_cooldown, 40);
+}
+
+#[test]
+fn the_default_soldier_has_the_militias_cost_from_datconv() {
+    // Militia (unit 74) costs 60 food and 20 gold, not 60 gold.
+    let content = Content::default();
+
+    assert_eq!(
+        content.unit(UnitKind::SOLDIER).cost,
+        sim::Resources {
+            food: 60,
+            gold: 20,
+            ..sim::Resources::default()
+        }
+    );
+}
+
+#[test]
+fn the_default_gather_has_per_resource_rates_from_datconv() {
+    let content = Content::default();
+
+    // Forager (120): 0.31 food/s -> 65 ticks/unit, carries 10
+    assert_eq!(content.gather.food.carry_capacity, 10);
+    assert_eq!(content.gather.food.ticks_per_unit, 65);
+
+    // Lumberjack (123): 0.39 wood/s -> 51 ticks/unit, carries 10
+    assert_eq!(content.gather.wood.carry_capacity, 10);
+    assert_eq!(content.gather.wood.ticks_per_unit, 51);
+
+    // Gold miner (579): 0.38 gold/s -> 53 ticks/unit, carries 10
+    assert_eq!(content.gather.gold.carry_capacity, 10);
+    assert_eq!(content.gather.gold.ticks_per_unit, 53);
+
+    // Stone miner (124): 0.36 stone/s -> 56 ticks/unit, carries 10
+    assert_eq!(content.gather.stone.carry_capacity, 10);
+    assert_eq!(content.gather.stone.ticks_per_unit, 56);
+}
+
+#[test]
+fn the_default_town_centre_has_the_originals_hit_points() {
+    let content = Content::default();
+
+    assert_eq!(content.building(BuildingKind::TOWN_CENTER).max_hp, 2400);
+}
+
+#[test]
+fn the_default_barracks_has_the_originals_hit_points() {
+    let content = Content::default();
+
+    assert_eq!(content.building(BuildingKind::BARRACKS).max_hp, 1200);
 }

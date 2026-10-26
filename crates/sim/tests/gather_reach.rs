@@ -119,14 +119,15 @@ fn a_villager_deposits_only_once_it_touches_the_drop_off() {
 #[test]
 fn a_villager_still_mines_load_after_load() {
     // With the final approach to touch, the loop of mining, walking back,
-    // and depositing still runs on its own.
+    // and depositing still runs on its own. New numbers are slower; give it
+    // more time to complete three full cycles.
     let (mut world, villager, mine) = world();
     world.step(&[Command::Gather {
         player: PlayerId::ONE,
         units: smallvec![villager],
         site: mine,
     }]);
-    for _ in 0..3000 {
+    for _ in 0..5000 {
         world.step(&[]);
     }
 
