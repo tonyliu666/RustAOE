@@ -4,9 +4,11 @@
 
 mod common;
 
-use app::{draw_world, to_screen_space, Hud, Sprites};
+use app::{draw_world, entity_at, to_screen_space, Hud, Layout, Session, Sprites};
 use render::{Camera, DrawCall, RecordingRenderer, Vec2};
-use sim::{BuildingKind, FxVec2, MapSpec, PlayerId, Resource, TilePos, UnitId, UnitKind, World};
+use sim::{
+    BuildingKind, EntityId, FxVec2, MapSpec, PlayerId, Resource, TilePos, UnitId, UnitKind, World,
+};
 use std::collections::HashMap;
 
 fn camera() -> Camera {
@@ -59,6 +61,18 @@ fn last_sprite(
     selection: &[UnitId],
     mouse: Vec2,
 ) -> (render::TextureId, Vec2, Vec2) {
+    last_sprite_seen_by(renderer, &camera(), sprites, world, selection, mouse)
+}
+
+/// [`last_sprite`], seen through `camera`.
+fn last_sprite_seen_by(
+    renderer: &mut RecordingRenderer,
+    camera: &Camera,
+    sprites: &Sprites,
+    world: &World,
+    selection: &[UnitId],
+    mouse: Vec2,
+) -> (render::TextureId, Vec2, Vec2) {
     let hud = Hud {
         active_player: PlayerId::ONE,
         selection,
@@ -70,7 +84,7 @@ fn last_sprite(
     let previous: HashMap<UnitId, FxVec2> = HashMap::new();
     draw_world(
         renderer,
-        &camera(),
+        camera,
         world.view(),
         &previous,
         0.0,
@@ -170,6 +184,78 @@ fn with_a_villager_selected_the_cursor_over_open_ground_is_the_plain_arrow() {
         &world,
         &[unit(&world, UnitKind::VILLAGER)],
         to_screen_space(FxVec2::tile_center(TilePos::new(4, 12))),
+    );
+
+    assert_eq!(texture, sprites.cursor(None).texture);
+}
+
+#[test]
+fn the_job_cursor_shows_exactly_where_a_right_click_would_pick_the_site() {
+    // A villager stands in front of a tree. The cursor must agree with what
+    // a right-click there would order: the axe where the click picks the
+    // tree, the arrow where it picks the villager, whose click target is
+    // grown to the session's smallest at this zoom.
+    let world = World::new(
+        1,
+        MapSpec::new(16, 16)
+            .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(12, 4))
+            .with_site(Resource::Wood, TilePos::new(12, 3), 100),
+    );
+    let selected = unit(&world, UnitKind::VILLAGER);
+    let tree = over(&world, Resource::Wood);
+    let mut renderer = RecordingRenderer::new();
+    let sprites = common::sprites(&mut renderer);
+    let bodies = sprites.bodies(world.view().content());
+    let min = Session::MIN_PICK_PIXELS / camera().zoom;
+
+    let mut disagreements = Vec::new();
+    for dy in -15..=15 {
+        for dx in -15..=15 {
+            let mouse = tree + Vec2::new(dx as f32, dy as f32) * 0.2;
+            let picks_site = matches!(
+                entity_at(world.view(), mouse, &bodies, min),
+                Some(EntityId::Site(_))
+            );
+            let mut renderer = RecordingRenderer::new();
+            let sprites = common::sprites(&mut renderer);
+            let (texture, _, _) = last_sprite(&mut renderer, &sprites, &world, &[selected], mouse);
+            let axe = texture == sprites.cursor(Some(Resource::Wood)).texture;
+            if axe != picks_site {
+                disagreements.push(mouse);
+            }
+        }
+    }
+    assert!(disagreements.is_empty(), "{disagreements:?}");
+}
+
+#[test]
+fn over_the_interface_the_cursor_is_the_plain_arrow_even_above_a_tree() {
+    // A right-click on the interface orders nothing on the map beneath it,
+    // so the cursor must not offer the job there. The camera puts the tree
+    // under the bottom panel.
+    let world = world();
+    let tree = over(&world, Resource::Wood);
+    let viewport = Vec2::new(800.0, 600.0);
+    let on_panel = Vec2::new(400.0, 580.0);
+    assert!(Layout::new(viewport).blocks(on_panel), "not on the panel");
+    let zoom = 20.0;
+    let camera = Camera::new(
+        tree - (on_panel - viewport * 0.5) * (1.0 / zoom),
+        zoom,
+        viewport,
+    );
+    let mut renderer = RecordingRenderer::new();
+    let sprites = common::sprites(&mut renderer);
+
+    let (texture, _, _) = last_sprite_seen_by(
+        &mut renderer,
+        &camera,
+        &sprites,
+        &world,
+        &[unit(&world, UnitKind::VILLAGER)],
+        tree,
     );
 
     assert_eq!(texture, sprites.cursor(None).texture);

@@ -45,8 +45,9 @@ unit's resource storage, which the reader does not keep yet (step 1).
 2. **Forests:** every forest tile is a tree with the original's wood. It
    blocks movement until it is cut down, then frees its tile.
 3. **The villager attacks** as the original's does, with 3 melee damage.
-4. **The villager's picture** stays sprite 1473, as the user chose earlier;
-   its standing graphic from the `.dat` is 1479.
+4. **The villager's picture** is sprite 1479, its standing graphic in the
+   `.dat`, as datconv converts it. (The user first chose to keep 1473; on
+   2026-10-26 they chose to follow datconv, which the gate test requires.)
 
 ## Design
 
@@ -269,6 +270,36 @@ load is full is unchanged. Replay format 13. The drop-off test that checked
 a refused hand drop-off now also rejects a `Deposit` order at the wrong
 building, which the old check could not see; mutation caught.
 
+## Step 5 result (2026-10-26)
+
+`datconv` writes the gathering table, one set of numbers per resource from
+its job unit (forager 120, lumberjack 123, gold miner 579, stone miner 124),
+and `default.ron` adopts the converted values:
+
+| Number | Was | Now (British, from the `.dat`) |
+| --- | --- | --- |
+| Villager | 40 HP, 2.5 tiles/s, 0 damage, 5 s | 25 HP, 0.8 tiles/s, 3 damage every 2 s, 25 s |
+| Soldier (militia) | 60 HP, 8 damage, 60 gold, 6 s | 40 HP, 0.9 tiles/s, 4 damage every 2 s, 60 food + 20 gold, 21 s |
+| Unit radius | 1/4 tile | 0.2 tile |
+| Town centre, barracks | 1000, 600 HP | 2400, 1200 HP |
+| Gather, ticks per unit | one rate | food 65, wood 51, gold 53, stone 56 |
+| Carry | one capacity | 10 of each |
+
+The rates are the `.dat`'s per-second work rates turned into ticks at 20 Hz
+and rounded (food 64.5 to 65, wood 51.3 to 51, gold 52.6 to 53, stone 55.6
+to 56); `datconv` reports each rounding. The villager's sprite became 1479,
+the one the `.dat` names as its standing graphic. Replay format 14.
+
+The step's report claimed mutation checks for this step; none are recorded.
+The gate test below now holds `default.ron` to the conversion instead.
+
+## Step 6 result (2026-10-26)
+
+The information panel showing a selected villager and its load came early,
+in step 1b; the drop-off by hand in step 1c. This step added the job
+cursors. As first written they were drawn at the wrong place from the wrong
+sprite, with no test; the user's report below has the fix.
+
 ### Job cursors drawn at the mouse (user report, 2026-10-26)
 
 The user saw that with a villager selected the cursor stayed the arrow over
@@ -299,3 +330,129 @@ Tests: `crates/app/tests/cursor.rs` (4) and two in `install.rs`; RED first
 hotspot ignored at draw, size not divided by zoom, any unit counted as a
 gatherer, never the job cursor, no cursor drawn. Screenshot: the axe on a
 tree and the hand on gold, with a villager selected. Workspace 603 passed.
+
+### Review fixes (2026-10-26)
+
+The end-of-phase review (commit 5160fd1) changed the simulation without
+tests or a replay bump. Each change was checked:
+
+- **A load goes past a drop-off no villager can stand beside,** as a gather
+  order goes past a walled-in site. Kept, now with a test
+  (`a_load_goes_past_a_drop_off_walled_in_to_one_it_can_reach`, RED without
+  the rule) and replay format 15 with a refusal test for 14.
+  **Provisional:** "can stand beside" is a walkable tile beside the
+  building, not a found path.
+- **After a drop-off, retargeting if the site had become unreachable.**
+  Reverted. Nothing in the game today can wall a site in after a gather
+  order reached it (sites only disappear, and no buildings are placed in
+  play), so no test could make it run.
+- **The cursor picked with a fixed 0.125 tile,** described as
+  `World::CONTACT`, which is a simulation distance, not a click size. The
+  cursor now picks as a right-click picks, with
+  `Session::MIN_PICK_PIXELS / zoom`, so the cursor shows what the click
+  would order. Test: over a grid round a tree with a villager in front of
+  it, the axe shows exactly where a right-click picks the tree (RED with
+  0.125).
+
+Gate fixes:
+
+- **Gate 1.** Only gold had a conservation test. Added
+  `each_resource_is_conserved_and_banked_in_full_once_its_site_is_used_up`:
+  four villagers on a tree, a gold mine, a stone mine, and a farm, every
+  total checked every tick until every site is used up and removed.
+- **Gate 3.** No test held `default.ron` to the conversion. Added
+  `the_shipped_content_plays_by_the_numbers_converted_from_the_original` in
+  `datconv`'s real-file tests, which compares the whole rule content. It
+  failed at first: datconv's default selection held only the town centre
+  and the barracks, while `default.ron` had a mill and two camps written by
+  hand. The default selection now converts the mill (68), lumber camp (562),
+  and mining camp (584); their numbers were already the original's.
+
+Mutations caught: the drop-off rule removed (sim), the cursor picking at
+0.125 and at 0, the mill left out of the conversion, the replay version left
+at 14, a gather rate in `default.ron` changed, a load banked as gold, one
+unit lost per load. Workspace 607 passed, plus the three real-file tests.
+
+### Direction check fixes (2026-10-26)
+
+An unanchored direction check found four departures, fixed before Phase 2
+closes (replay format 16, refusing 15):
+
+1. **Farms were worked at the forager's rate.** datconv took food's numbers
+   from the forager (unit 120, 0.31 a second) alone, though the job table
+   above lists the farmer (unit 259, 0.53 a second). The gather numbers now
+   have a `farm` entry, converted from unit 259 (38 ticks per unit, carry
+   10), and a farm, the site that does not block, is worked at it. Test:
+   `a_farm_is_worked_at_the_farmers_rate_and_a_bush_at_the_foragers`.
+2. **A used-up site left its villagers standing.** In the original a
+   lumberjack whose tree falls moves on to the next with what it holds. Now
+   when a site is removed (`run_cleanup`, then `go_on_from`), each villager
+   working it goes on to the nearest reachable site of the same resource,
+   keeping its load; one on its way to a drop-off comes back to that site
+   instead. With none, a loaded villager banks and stands, an empty one
+   stands. A farmer does not go on, neither to another farm nor to a bush,
+   since the original reseeds farms rather than leaving them. A load is no
+   longer banked early just because the site ran out. **Provisional:** the
+   original searches within some distance of the used-up site; here any
+   distance will do, and "reachable" is still a walkable tile beside.
+3. **A villager whose site another used up stood holding its load.** It
+   now goes on with the others, or banks it.
+4. **The job cursor showed over the interface,** where a right-click
+   orders nothing on the map. Over the top bar or the bottom panel the
+   cursor is the arrow.
+
+Tests (RED first, each for the reason above): the farm rate; going on to the
+nearest tree and not a farther one; a miner going on to gold and not a
+nearer tree; the stranded villager banking; a villager whose last load used
+its tree up coming back to the next; a farmer going on to neither a farm nor
+a bush; the cursor over the panel; the replay refusal. Mutations caught
+(11): farm at the forager's rate, the farm going on, any resource taken,
+the farthest site taken, standing with a load when nothing is near, a
+villager on its way to bank not sent back, no going on at all, the cursor
+ignoring the interface, the farm converted from the forager, the replay
+left at 15, and (earlier) the drop-off rule.
+
+Also brought into line: the plan's hand drop-off now stands, as the user
+asked; the plan's food sources say hunt and fish moved to Phases 6 and 5;
+decision 4 now follows datconv's sprite, 1479, as the user chose on
+2026-10-26; `Session`'s comment on dropping off.
+
+### Left for Phase 3 (from the direction check)
+
+- **A hand drop-off at a walled-in building never finishes.**
+  `order_deposit` plans to a building with no free tile beside it and the
+  villager keeps its order forever. It cannot happen on today's maps; it
+  will once players place buildings, which Phase 3 brings. The automatic
+  drop-off already passes such buildings by.
+- **`mine_ticks` is not reset on a new order,** so part of a unit's
+  progress carries from one site to the next.
+- **The tick benchmark measures marching, not gathering.** Each tree cut
+  clears every cached flow field; that cost is not measured.
+- **A mixed selection right-clicked on a site** sends the villagers to
+  gather and leaves the soldiers without an order.
+
+## Step 7 result (2026-10-26)
+
+- **QUICKSTART:** the gather walkthrough has the job cursor, the original's
+  rates, farms faster than bushes, and villagers going on from a used-up
+  site; the "only gold can be gathered" limit is gone.
+- **Screenshot** (release build, a probe in `main.rs`, removed after): the
+  axe cursor over the woodline with a villager selected, the information
+  panel reading `carrying 7 wood`, and the stock bar rising for food, wood,
+  and gold.
+- **Benchmarks:** `docs/benchmarks.md`, end of Phase 2: 43.09 µs a step for
+  200 units, under budget.
+- **Code review and direction check:** both run; their findings are fixed
+  above or listed for Phase 3.
+- **Gate:**
+  1. Per-resource conservation:
+     `each_resource_is_conserved_and_banked_in_full_once_its_site_is_used_up`.
+  2. No delivery to a building that does not take the load: the tests in
+     `crates/sim/tests/drop_off.rs`.
+  3. `default.ron` is the conversion:
+     `the_shipped_content_plays_by_the_numbers_converted_from_the_original`
+     (needs the install; run with `--ignored`).
+  4. Workspace 615 passed, the three real-file tests pass, clippy clean, no
+     game data committed.
+
+Phase 2 is complete.

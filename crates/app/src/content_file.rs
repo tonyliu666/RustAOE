@@ -200,6 +200,7 @@ struct GatherFile {
     wood: GatherStatsFile,
     gold: GatherStatsFile,
     stone: GatherStatsFile,
+    farm: GatherStatsFile,
 }
 
 #[derive(Deserialize)]
@@ -267,6 +268,7 @@ impl ContentFile {
                 wood: self.gather.wood.stats(),
                 gold: self.gather.gold.stats(),
                 stone: self.gather.stone.stats(),
+                farm: self.gather.farm.stats(),
             },
         })
     }

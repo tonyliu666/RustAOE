@@ -372,7 +372,7 @@ fn a_replay_from_before_hand_drop_offs_stood_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 12,
-                expected: 14
+                expected: 16
             })
         ),
         "{error:?}"
@@ -392,7 +392,43 @@ fn a_replay_from_before_original_numbers_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 13,
-                expected: 14
+                expected: 16
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_walled_in_drop_offs_were_passed_by_is_refused_by_version() {
+    // Version 14 sent a load to the nearest drop-off even when no villager
+    // could stand beside it.
+    let error = load_text("version-fourteen", "(version: 14, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 14,
+                expected: 16
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_villagers_went_on_from_a_used_up_site_is_refused_by_version() {
+    // Version 15 worked farms at the forager's rate and had villagers stand
+    // when their site was used up.
+    let error = load_text("version-fifteen", "(version: 15, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 15,
+                expected: 16
             })
         ),
         "{error:?}"

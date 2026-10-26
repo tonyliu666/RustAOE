@@ -44,8 +44,11 @@ impl Replay {
     /// for farms, and removes a site once it is used up; version 13 has a
     /// villager stand after a drop-off by hand; version 14 adopts the
     /// original's gather rates, carry capacities, villager damage, and militia
-    /// cost from datconv.
-    pub const FORMAT_VERSION: u32 = 14;
+    /// cost from datconv; version 15 sends a load past a drop-off no
+    /// villager can stand beside; version 16 works farms at the farmer's
+    /// rate, adds `farm` to the gather numbers, and sends villagers on from a
+    /// used-up site to the nearest like it.
+    pub const FORMAT_VERSION: u32 = 16;
 
     /// How often the checksum is sampled during recording.
     ///

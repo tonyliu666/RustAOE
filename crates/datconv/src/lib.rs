@@ -34,12 +34,15 @@ const GATHER: i16 = 5;
 const BASE_ATTACKS: [i16; 2] = [3, 4];
 /// The job units a villager turns into while it gathers each resource (the
 /// male ones; the female ones have the same numbers), whose capacity and
-/// work rate become the game's gather numbers for that resource.
-const JOBS: [(&str, i16, &str); 4] = [
-    ("food", 120, "forager"),
-    ("wood", 123, "lumberjack"),
-    ("gold", 579, "gold miner"),
-    ("stone", 124, "stone miner"),
+/// work rate become the game's gather numbers for that resource. Food from a
+/// farm has its own job, the farmer. Each is (its entry in the gather table,
+/// the resource it carries, its unit ID, its name).
+const JOBS: [(&str, &str, i16, &str); 5] = [
+    ("food", "food", 120, "forager"),
+    ("wood", "wood", 123, "lumberjack"),
+    ("gold", "gold", 579, "gold miner"),
+    ("stone", "stone", 124, "stone miner"),
+    ("farm", "food", 259, "farmer"),
 ];
 
 /// A converted value, and the value before rounding when it had to be
@@ -176,7 +179,7 @@ pub fn ticks_per_unit(per_second: f32) -> Rounded<u32> {
 /// Which units to write.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Selection {
-    /// The four types the game has today, under the names it uses.
+    /// The types the game has today, under the names it uses.
     Default,
     /// Every trainable unit and building of the civilisation.
     All,
@@ -184,7 +187,13 @@ pub enum Selection {
 
 /// The types the game has today: original unit ID and our name.
 const DEFAULT_UNITS: [(i16, &str); 2] = [(83, "villager"), (74, "soldier")];
-const DEFAULT_BUILDINGS: [(i16, &str); 2] = [(109, "town_center"), (12, "barracks")];
+const DEFAULT_BUILDINGS: [(i16, &str); 5] = [
+    (109, "town_center"),
+    (12, "barracks"),
+    (68, "mill"),
+    (562, "lumber_camp"),
+    (584, "mining_camp"),
+];
 
 /// Why a file could not be converted.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -277,7 +286,7 @@ impl<'a> Facts<'a> {
             .map(|u| u.class)
             .collect();
         let mut drop_offs: BTreeMap<i16, Vec<&'static str>> = BTreeMap::new();
-        for (resource, job, _) in JOBS {
+        for (_, resource, job, _) in JOBS {
             let sites = usize::try_from(job)
                 .ok()
                 .and_then(|id| units.get(id))
@@ -626,14 +635,14 @@ pub fn convert(
     };
 
     let mut gather = Vec::new();
-    for (resource, id, job) in JOBS {
+    for (entry, _, id, job) in JOBS {
         let unit = find(id, job)?;
         let ticks = note(
             &mut report,
-            &format!("gather.{resource}.ticks_per_unit"),
+            &format!("gather.{entry}.ticks_per_unit"),
             ticks_per_unit(unit.work_rate.unwrap_or(0.0)),
         );
-        gather.push((resource, i32::from(unit.resource_capacity), ticks));
+        gather.push((entry, i32::from(unit.resource_capacity), ticks));
     }
 
     let ron = write_ron(

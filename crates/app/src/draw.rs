@@ -10,6 +10,7 @@
 use crate::pick;
 use crate::pick::footprint_centre;
 use crate::pick::to_screen_space;
+use crate::session::Session;
 use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
 use crate::ui::{trains_on_buttons, Layout, Rect};
 use render::{Camera, Color, Renderer, Vec2};
@@ -100,19 +101,20 @@ fn draw_cursor<R: Renderer>(
     hud: &Hud<'_>,
     sprites: &Sprites,
 ) {
-    let gatherer_selected = hud.building.is_none()
+    // On the interface a right-click orders nothing on the map beneath.
+    let on_interface =
+        Layout::new(camera.viewport).blocks(camera.world_to_screen(hud.cursor_world));
+    let gatherer_selected = !on_interface
+        && hud.building.is_none()
         && hud.selection.iter().any(|id| {
             view.unit(*id)
                 .is_some_and(|unit| view.content().unit(unit.kind).gathers)
         });
     let resource = if gatherer_selected {
-        // World::CONTACT is 1/8 tile; use as f32 tolerance for picking.
-        match pick::entity_at(
-            view,
-            hud.cursor_world,
-            &sprites.bodies(view.content()),
-            0.125,
-        ) {
+        // Picked as a right-click picks, so the cursor shows what the click
+        // would order.
+        let min = Session::MIN_PICK_PIXELS / camera.zoom;
+        match pick::entity_at(view, hud.cursor_world, &sprites.bodies(view.content()), min) {
             Some(sim::EntityId::Site(site)) => view.site(site).map(|site| site.resource),
             _ => None,
         }

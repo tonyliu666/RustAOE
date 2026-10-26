@@ -83,13 +83,15 @@ pub struct GatherStats {
     pub ticks_per_unit: u32,
 }
 
-/// The gather numbers for each resource.
+/// The gather numbers for each resource, and for food from a farm, which
+/// the original works with its own job unit (the farmer) at its own rate.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Gathering {
     pub food: GatherStats,
     pub wood: GatherStats,
     pub gold: GatherStats,
     pub stone: GatherStats,
+    pub farm: GatherStats,
 }
 
 impl Gathering {
@@ -100,6 +102,7 @@ impl Gathering {
             wood: stats,
             gold: stats,
             stone: stats,
+            farm: stats,
         }
     }
 
@@ -126,7 +129,7 @@ impl Gathering {
             self.get(resource)
                 .validate(&format!("gather.{}", resource.name()))?;
         }
-        Ok(())
+        self.farm.validate("gather.farm")
     }
 }
 
@@ -448,6 +451,10 @@ impl Default for Content {
                 stone: GatherStats {
                     carry_capacity: 10,
                     ticks_per_unit: 56,
+                },
+                farm: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 38,
                 },
             },
         }

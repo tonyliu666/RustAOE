@@ -986,11 +986,18 @@ impl World {
     }
 
     fn gather_extract(&mut self, id: UnitId, mine: SiteId) {
-        let Some(resource) = self.sites.get(mine).map(|s| s.resource) else {
-            self.units[id].order = Order::Idle;
+        let Some((resource, farm)) = self.sites.get(mine).map(|s| (s.resource, !s.blocks)) else {
+            // Used up and removed: bank whatever is in hand.
+            self.send_to_drop_off(id, mine);
             return;
         };
-        let gather = *self.content.gather.get(resource);
+        // A farm is worked at the farmer's rate, any other site at its
+        // resource's.
+        let gather = if farm {
+            self.content.gather.farm
+        } else {
+            *self.content.gather.get(resource)
+        };
         let unit = &mut self.units[id];
         unit.mine_ticks += 1;
         if unit.mine_ticks < gather.ticks_per_unit {
@@ -1005,8 +1012,9 @@ impl World {
             unit.carried = resource;
             unit.carrying += 1;
         }
-        let exhausted = self.sites[mine].remaining <= 0;
-        if self.units[id].carrying >= gather.carry_capacity || exhausted {
+        // A site used up is removed at the end of the tick, which sends its
+        // villagers on (`go_on_from`).
+        if self.units[id].carrying >= gather.carry_capacity {
             self.send_to_drop_off(id, mine);
         }
     }
@@ -1024,22 +1032,19 @@ impl World {
 
         self.bank(id);
 
-        // Head back for another load, unless the seam is gone or unreachable.
-        let Some(_mine_still_exists) = self.sites.get(mine) else {
+        // Head back for another load, unless the seam is gone.
+        let seam_alive = self.sites.get(mine).is_some_and(|m| m.remaining > 0);
+        if seam_alive {
+            let (origin, size) = (self.sites[mine].origin, self.sites[mine].size);
+            let route = self.plan_adjacent(&[id], origin, size);
+            self.units[id].order = Order::Gather {
+                site: mine,
+                phase: GatherPhase::ToSite,
+                route,
+            };
+        } else {
             self.units[id].order = Order::Idle;
-            return;
-        };
-        let Some(next_mine) = self.reachable_site_near(mine) else {
-            self.units[id].order = Order::Idle;
-            return;
-        };
-        let (origin, size) = (self.sites[next_mine].origin, self.sites[next_mine].size);
-        let route = self.plan_adjacent(&[id], origin, size);
-        self.units[id].order = Order::Gather {
-            site: next_mine,
-            phase: GatherPhase::ToSite,
-            route,
-        };
+        }
     }
 
     /// Banks a villager's load into its owner's stock.
@@ -1475,12 +1480,14 @@ impl World {
             .map(|(id, _)| id)
             .collect();
         let mut terrain_changed = false;
+        let mut removed = Vec::with_capacity(used_up.len());
         for id in used_up {
             let site = self.sites.remove(id).expect("listed above");
             if site.blocks {
                 self.stamp(site.footprint(), Tile::OPEN);
                 terrain_changed = true;
             }
+            removed.push((id, site));
         }
 
         let dead: Vec<BuildingId> = self
@@ -1499,6 +1506,63 @@ impl World {
         // that is no longer there.
         if terrain_changed {
             self.flow_fields.clear();
+        }
+        for (id, site) in removed {
+            self.go_on_from(id, &site);
+        }
+    }
+
+    /// Sends the villagers working a site that is used up on to the nearest
+    /// site of the same resource they can reach, as in the original, where a
+    /// lumberjack moves on to the next tree with whatever it holds. With none,
+    /// or from a farm, which the original reseeds rather than leaves, a
+    /// villager holding a load takes it to a drop-off and one holding nothing
+    /// stands. Provisional: the original searches within some distance of the
+    /// used-up site; here any distance will do.
+    fn go_on_from(&mut self, used_up: SiteId, site: &Site) {
+        let next = if site.blocks {
+            let centre = site.center();
+            self.sites
+                .iter()
+                .filter(|(_, s)| {
+                    s.resource == site.resource
+                        && s.blocks
+                        && s.remaining > 0
+                        && self.free_tile_beside(s.origin, s.size).is_some()
+                })
+                .min_by_key(|(_, s)| (s.center() - centre).length_squared())
+                .map(|(id, s)| (id, s.origin, s.size))
+        } else {
+            None
+        };
+        let workers: Vec<(UnitId, GatherPhase)> = self
+            .units
+            .iter()
+            .filter_map(|(id, unit)| match &unit.order {
+                Order::Gather { site, phase, .. } if *site == used_up => Some((id, *phase)),
+                _ => None,
+            })
+            .collect();
+        for (id, phase) in workers {
+            match (phase, next) {
+                // On the way to bank a load: come back to the next site.
+                (GatherPhase::ToDropOff { .. }, Some((next, ..))) => {
+                    if let Order::Gather { site, .. } = &mut self.units[id].order {
+                        *site = next;
+                    }
+                }
+                // Banks, then stands at the drop-off.
+                (GatherPhase::ToDropOff { .. }, None) => {}
+                (_, Some((next, origin, size))) => {
+                    let route = self.plan_adjacent(&[id], origin, size);
+                    self.units[id].order = Order::Gather {
+                        site: next,
+                        phase: GatherPhase::ToSite,
+                        route,
+                    };
+                }
+                (_, None) => self.send_to_drop_off(id, used_up),
+            }
         }
     }
 

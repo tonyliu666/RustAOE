@@ -4,7 +4,7 @@
 //! pure function of state and commands, so no mocks and no fixtures are needed.
 
 use sim::{
-    BuildingId, BuildingKind, Command, Content, EntityId, Fx, MapSpec, Outcome, PlayerId,
+    BuildingId, BuildingKind, Command, Content, EntityId, Fx, MapSpec, Outcome, PlayerId, Resource,
     Resources, SiteId, TilePos, UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
@@ -706,4 +706,59 @@ fn a_razed_building_stops_blocking_the_tiles_it_stood_on() {
             .expect("on the map")
             .passable
     );
+}
+
+#[test]
+fn each_resource_is_conserved_and_banked_in_full_once_its_site_is_used_up() {
+    // The Phase 2 gate: whatever a site gives up is carried, then banked, of
+    // the same resource, and nothing appears or vanishes on the way, not even
+    // when the site is used up and removed. Food comes from a farm.
+    let amount = 15;
+    let map = base_map()
+        .with_site(Resource::Wood, TilePos::new(10, 10), amount)
+        .with_site(Resource::Gold, TilePos::new(10, 12), amount)
+        .with_site(Resource::Stone, TilePos::new(10, 14), amount)
+        .with_farm(TilePos::new(10, 16), amount)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 10))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 12))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 14))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 17));
+    let mut world = world(map);
+    let pairs: Vec<(UnitId, sim::SiteId)> = world
+        .view()
+        .units()
+        .map(|(id, _)| id)
+        .zip(world.view().sites().map(|(id, _)| id))
+        .collect();
+    for (villager, site) in &pairs {
+        world.step(&[Command::Gather {
+            player: PlayerId::ONE,
+            units: smallvec![*villager],
+            site: *site,
+        }]);
+    }
+    let before = world.view().resources(PlayerId::ONE);
+    let totals = Resource::ALL.map(|r| world.view().total(r));
+
+    for _ in 0..6000 {
+        world.step(&[]);
+        for (resource, total) in Resource::ALL.into_iter().zip(totals) {
+            assert_eq!(
+                world.view().total(resource),
+                total,
+                "{resource:?} appeared or vanished at tick {}",
+                world.tick()
+            );
+        }
+    }
+
+    assert_eq!(world.view().sites().count(), 0, "every site used up");
+    let after = world.view().resources(PlayerId::ONE);
+    for resource in Resource::ALL {
+        assert_eq!(
+            after.get(resource) - before.get(resource),
+            amount,
+            "{resource:?} banked"
+        );
+    }
 }

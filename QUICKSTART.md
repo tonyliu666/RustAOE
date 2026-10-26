@@ -168,22 +168,26 @@ handover: your view and your selected units are still there when you come back.
 
 The town centre takes every resource. The amounts are the original's: a gold
 mine holds 800, a stone mine 350, a forage bush 125, a farm 175, a tree 100.
-A tree or mine that runs out disappears. There are **no soldiers on the map at
+A tree or mine that runs out disappears, and the villagers working it go on
+to the nearest one like it; a farm that runs out leaves its farmer standing. There are **no soldiers on the map at
 the start**: you train them (step 3). Player 1 starts in the top-left of the
 map, player 2 in the bottom-right, with a band of forest between them three
 trees deep, with two gaps to walk through (or cut your own). The top bar shows
 your resources; the line under it says whose turn it is.
 
 1. **Gather.** Box-select your three villagers. Right click a gold mine near
-   your base. They walk over, mine a load of ten gold (one gold every 2
-   seconds, so about 20 seconds a load), carry it to the nearest building
+   your base; with them selected the cursor turns into the original's job
+   cursor over it (the axe over trees). They walk over, mine a load of ten
+   gold (one gold about every 2.7 seconds, so about 27 seconds a load, at
+   the original's rate), carry it to the nearest building
    that takes gold (the mining camp) on their own, deposit it, and go again:
    one order, no micromanagement. The gold in the top bar goes up when a load
    is deposited, not while it is mined. A villager mines and deposits only
    once it touches the mine or the building, as in the original. Trees,
    stone, bushes, and farms work the same way, each load going to the nearest
    building that takes it: wood to the lumber camp, food to the mill. A
-   villager on a farm stands on it to work. Click anywhere on a tree's
+   villager on a farm stands on it to work, and farms faster than one at a
+   bush, as the original's farmer does. Click anywhere on a tree's
    picture, crown included; a tree inside the woodline that nobody can stand
    beside sends the villagers to the nearest tree on its edge, as in the
    original. To bank a part load early, select

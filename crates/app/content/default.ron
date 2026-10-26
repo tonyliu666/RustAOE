@@ -117,10 +117,12 @@
     // wood (lumberjack 123): 0.39/s -> 51 ticks/unit, carry 10
     // gold (gold miner 579): 0.38/s -> 53 ticks/unit, carry 10
     // stone (stone miner 124): 0.36/s -> 56 ticks/unit, carry 10
+    // farm (farmer 259): 0.53/s -> 38 ticks/unit, carry 10
     gather: (
         food: (carry_capacity: 10, ticks_per_unit: 65),
         wood: (carry_capacity: 10, ticks_per_unit: 51),
         gold: (carry_capacity: 10, ticks_per_unit: 53),
         stone: (carry_capacity: 10, ticks_per_unit: 56),
+        farm: (carry_capacity: 10, ticks_per_unit: 38),
     ),
 )

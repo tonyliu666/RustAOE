@@ -63,8 +63,7 @@ the current phase's spec.
   - Then restore `main.rs` from a backup and check with
     `grep -c PROBE crates/app/src/main.rs`.
 - **Commit or push only when asked.**
-  - Branch: `feat/rts-poc-milestone-1`. Last push: 4b9c616. Everything since
-    is unpushed.
+  - Branch: `feat/rts-poc-milestone-1`.
   - Commit messages are plain English prose and end with the
     `Co-Authored-By` line.
 - **Language:**
@@ -81,7 +80,7 @@ the current phase's spec.
 
 ## Rules and gotchas learned
 
-- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 13).
+- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 16).
   - Bump it whenever playback or the layout changes.
   - Add a test in `crates/app/tests/replay_file.rs` that refuses the previous
     version.
@@ -118,6 +117,12 @@ the current phase's spec.
     that takes it (`BuildingStats::drop_off`), then goes back.
   - A drop-off by hand (`Command::Deposit`) banks the load, then the
     villager stands idle, as the original does.
+  - A load goes past a drop-off no villager can stand beside.
+  - Each resource has its own gather numbers, and a farm has the farmer's
+    (`Gathering::farm`), all converted by datconv from the job units.
+  - When a site is used up (`run_cleanup`, `go_on_from`), its villagers go
+    on to the nearest reachable site of the same resource with their
+    loads; with none they bank and stand. Farmers do not go on.
 - **Sites:** `Site { origin, resource, remaining, size, blocks }`.
   - Mines, bushes, and trees are 1 tile and block it.
   - Farms are 3×3 and don't block.
@@ -125,6 +130,10 @@ the current phase's spec.
   - A gather order on a site with no walkable tile beside it goes to the
     nearest reachable site of the same resource; with none, the villagers
     stand.
+- **Cursor:** the game hides the system cursor and draws its own, frames of
+  `mcursors` (51000): the arrow, the axe (8) over trees with a gatherer
+  selected, the hand (3, provisional) over other sites. It picks as a
+  right-click does, and is the arrow over the interface.
 - **Drawing:**
   - Sites are drawn from the original graphics' pieces: gold [4479, 2561],
     stone [4482, 1034], bush [2560], forest oak [2296, 4652].
@@ -132,33 +141,16 @@ the current phase's spec.
   - Sites are drawn back to front and picked by their drawn rectangle; farms
     are picked by their tiles.
 
-## Where we are (2026-10-25)
+## Where we are (2026-10-26)
 
-Phase 2, four resources:
+**Phase 2 (four resources) is complete.** The spec has a result for each
+step, the direction check's fixes, and a "Left for Phase 3" list. The gate
+test that holds `default.ron` to the conversion needs the install:
+`AOE_ASSETS=$PWD/aoe2-install cargo test -p datconv --test real_file -- --ignored`.
 
-| Step | State |
-| --- | --- |
-| 1, 1b, 1c, 2, 3, 4 | Done and committed. |
-| 4: the map | Done; includes the woodline fix and drop-off-stands. Last commit 44376b2. |
-| 5: the original's numbers | Next. |
-| 6: gathering in the interface | Not started. |
-| 7: wrap-up | Not started. |
-
-**Step 5, the original's numbers:**
-- `datconv` writes the gathering table and the new types.
-- `default.ron` adopts the converted values:
-  - per-resource gather rates and carry capacity;
-  - the villager's attack (3 damage);
-  - the militia's real cost, 60 food + 20 gold. It is still 60 gold.
-- Bump the replay version.
-
-**Step 6, gathering in the interface:**
-- Job cursors (the pickaxe and others).
-- The carried load and unit details in the information panel.
-
-**Step 7, wrap-up:**
-- QUICKSTART and a screenshot check.
-- The end-of-phase code review and the unanchored direction check.
+**Next: Phase 3** in the plan. Read the plan's Phase 3 section and the
+"Left for Phase 3" list in the Phase 2 spec first, then write the Phase 3
+spec.
 
 Known provisional items:
 - Annex offsets are not added.
@@ -167,5 +159,7 @@ Known provisional items:
 - The contact tolerance.
 - Picking uses whole rectangles, not pixel outlines.
 - "Reachable" means a walkable tile beside the site, not a found path.
-- Farm crops don't run down yet.
+- Going on from a used-up site has no distance limit.
+- The food, gold, and stone job cursors are the hand.
+- Farm crops don't run down yet; the used-up farm (15005) is not drawn.
 - The terrain table in the `.dat` is skipped, not read.

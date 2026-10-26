@@ -295,8 +295,8 @@ impl Session {
                 })
             }
             // Your own drop-off with loaded villagers selected: they drop
-            // their loads off there, early, then go back to work. Units
-            // carrying nothing are left as they are.
+            // their loads off there, early, then stand, as in the original.
+            // Units carrying nothing are left as they are.
             Some(EntityId::Building(building))
                 if units
                     .iter()

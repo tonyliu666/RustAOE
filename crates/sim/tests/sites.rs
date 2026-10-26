@@ -117,6 +117,60 @@ fn a_villager_farms_food_from_a_farm() {
     assert!(world.view().resources(PlayerId::ONE).food > 0);
 }
 
+/// Food carried after `ticks` of working the first site of `map`, with a
+/// forager's rate of `forage` ticks per unit and a farmer's of `farm`.
+fn food_carried(map: MapSpec, forage: u32, farm: u32, ticks: u32) -> i32 {
+    let mut content = sim::Content::default();
+    content.gather.food.ticks_per_unit = forage;
+    content.gather.farm.ticks_per_unit = farm;
+    let mut world = World::with_content(1, map, content);
+    let (site, _) = world.view().sites().next().expect("the site");
+    let worker = villager(&world);
+    gather(&mut world, worker, site);
+    for _ in 0..ticks {
+        world.step(&[]);
+    }
+    world.view().unit(worker).expect("the villager").carrying
+}
+
+#[test]
+fn a_farm_is_worked_at_the_farmers_rate_and_a_bush_at_the_foragers() {
+    // As in the original, where a villager on a farm becomes a farmer
+    // (unit 259) and one at a bush a forager (unit 120), each with its own
+    // work rate.
+    let farm = || {
+        base().with_farm(TilePos::new(9, 3), 175).with_unit(
+            UnitKind::VILLAGER,
+            PlayerId::ONE,
+            TilePos::new(8, 4),
+        )
+    };
+    let bush = || {
+        base()
+            .with_site(Resource::Food, TilePos::new(9, 3), 175)
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(8, 3))
+    };
+
+    assert!(
+        food_carried(farm(), 1000, 3, 60) > 0,
+        "farmed at the forager's rate"
+    );
+    assert_eq!(
+        food_carried(farm(), 3, 1000, 60),
+        0,
+        "farmed at the forager's rate"
+    );
+    assert!(
+        food_carried(bush(), 3, 1000, 60) > 0,
+        "foraged at the farmer's rate"
+    );
+    assert_eq!(
+        food_carried(bush(), 1000, 3, 60),
+        0,
+        "foraged at the farmer's rate"
+    );
+}
+
 #[test]
 fn a_unit_walks_across_a_farm() {
     // From one side of a farm to the other, straight over it.
@@ -236,4 +290,154 @@ fn sent_to_a_site_it_cannot_reach_with_none_like_it_reachable_a_villager_stands(
         world.view().unit(worker).expect("the villager").order,
         sim::Order::Idle
     ));
+}
+
+/// Runs `ticks` empty ticks.
+fn run(world: &mut World, ticks: u32) {
+    for _ in 0..ticks {
+        world.step(&[]);
+    }
+}
+
+fn site_at(world: &World, at: TilePos) -> Option<sim::SiteId> {
+    world
+        .view()
+        .sites()
+        .find(|(_, s)| s.origin == at)
+        .map(|(id, _)| id)
+}
+
+#[test]
+fn when_its_tree_is_cut_down_a_villager_goes_on_to_the_nearest_tree() {
+    // As in the original, where a lumberjack moves on to the next tree
+    // rather than standing at the stump. The near tree is two tiles from the
+    // cut one, the far one eight.
+    let map = base()
+        .with_site(Resource::Wood, TilePos::new(10, 8), 3)
+        .with_site(Resource::Wood, TilePos::new(12, 8), 100)
+        .with_site(Resource::Wood, TilePos::new(18, 8), 100)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 8));
+    let mut world = World::new(1, map);
+    let first = site_at(&world, TilePos::new(10, 8)).expect("the first tree");
+    let near = site_at(&world, TilePos::new(12, 8)).expect("the near tree");
+    let far = site_at(&world, TilePos::new(18, 8)).expect("the far tree");
+    let worker = villager(&world);
+
+    gather(&mut world, worker, first);
+    run(&mut world, 1500);
+
+    assert!(world.view().site(first).is_none(), "the first tree is cut");
+    let left = |site| world.view().site(site).expect("standing").remaining;
+    assert!(left(near) < 100, "the near tree is not being cut");
+    assert_eq!(left(far), 100, "the far tree was cut first");
+    assert!(
+        matches!(
+            world.view().unit(worker).expect("the villager").order,
+            sim::Order::Gather { site, .. } if site == near
+        ),
+        "the villager stopped working"
+    );
+}
+
+#[test]
+fn when_its_mine_runs_out_a_villager_goes_on_to_a_mine_of_the_same_resource() {
+    // A tree stands nearer than the other gold mine; the miner still goes to
+    // the gold.
+    let map = base()
+        .with_site(Resource::Gold, TilePos::new(10, 8), 3)
+        .with_site(Resource::Wood, TilePos::new(12, 8), 100)
+        .with_site(Resource::Gold, TilePos::new(15, 8), 100)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 8));
+    let mut world = World::new(1, map);
+    let first = site_at(&world, TilePos::new(10, 8)).expect("the first mine");
+    let tree = site_at(&world, TilePos::new(12, 8)).expect("the tree");
+    let gold = site_at(&world, TilePos::new(15, 8)).expect("the other mine");
+    let worker = villager(&world);
+
+    gather(&mut world, worker, first);
+    run(&mut world, 1500);
+
+    let left = |site| world.view().site(site).expect("standing").remaining;
+    assert_eq!(left(tree), 100, "the miner cut wood");
+    assert!(left(gold) < 100, "the miner did not go on to the gold");
+}
+
+#[test]
+fn a_villager_whose_tree_another_cut_down_banks_its_load_rather_than_holding_it() {
+    // Two villagers on one tree and no other tree: when one takes the last
+    // wood, the other is left holding part of a load. It must take it to the
+    // drop-off, not stand with it.
+    let amount = 15;
+    let map = base()
+        .with_site(Resource::Wood, TilePos::new(10, 8), amount)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 8))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(11, 8));
+    let mut world = World::new(1, map);
+    let tree = site_at(&world, TilePos::new(10, 8)).expect("the tree");
+    let workers: Vec<UnitId> = world.view().units().map(|(id, _)| id).collect();
+    world.step(&[Command::Gather {
+        player: PlayerId::ONE,
+        units: workers.iter().copied().collect(),
+        site: tree,
+    }]);
+
+    run(&mut world, 3000);
+
+    for worker in &workers {
+        assert_eq!(
+            world.view().unit(*worker).expect("alive").carrying,
+            0,
+            "a villager still holds wood"
+        );
+    }
+    assert_eq!(world.view().resources(PlayerId::ONE).wood, amount);
+}
+
+#[test]
+fn when_a_farm_runs_out_its_farmer_does_not_go_on_to_other_food() {
+    // In the original a used-up farm is reseeded or left; the farmer walks
+    // neither to someone else's field nor to a forage bush.
+    let map = base()
+        .with_farm(TilePos::new(9, 8), 3)
+        .with_farm(TilePos::new(13, 8), 100)
+        .with_site(Resource::Food, TilePos::new(9, 12), 100)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(8, 9));
+    let mut world = World::new(1, map);
+    let first = site_at(&world, TilePos::new(9, 8)).expect("the first farm");
+    let other = site_at(&world, TilePos::new(13, 8)).expect("the other farm");
+    let bush = site_at(&world, TilePos::new(9, 12)).expect("the bush");
+    let worker = villager(&world);
+
+    gather(&mut world, worker, first);
+    run(&mut world, 1500);
+
+    let left = |site| world.view().site(site).expect("standing").remaining;
+    assert_eq!(left(other), 100, "went on to another farm");
+    assert_eq!(left(bush), 100, "went on to a bush");
+}
+
+#[test]
+fn a_villager_whose_last_load_used_up_its_tree_comes_back_to_the_next_one() {
+    // The tree holds exactly one load: the villager leaves to bank it on the
+    // tick the tree falls, and comes back to the next tree afterwards.
+    let map = base()
+        .with_site(Resource::Wood, TilePos::new(10, 8), 10)
+        .with_site(Resource::Wood, TilePos::new(12, 8), 100)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 8));
+    let mut world = World::new(1, map);
+    let first = site_at(&world, TilePos::new(10, 8)).expect("the first tree");
+    let next = site_at(&world, TilePos::new(12, 8)).expect("the next tree");
+    let worker = villager(&world);
+
+    gather(&mut world, worker, first);
+    run(&mut world, 2000);
+
+    assert!(
+        world.view().resources(PlayerId::ONE).wood >= 10,
+        "not banked"
+    );
+    assert!(
+        world.view().site(next).expect("standing").remaining < 100,
+        "the villager did not come back to the next tree"
+    );
 }

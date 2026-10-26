@@ -142,6 +142,7 @@ fn dat() -> Dat {
         (120, "VMFOR", 0.31, 10),
         (123, "VMLUM", 0.39, 12),
         (124, "VMMIN", 0.36, 10),
+        (259, "VMFARM", 0.53, 10),
     ] {
         let mut job = miner.clone();
         job.id = id;
@@ -172,6 +173,16 @@ fn dat() -> Dat {
     barracks.collision = [1.5, 1.5, 0.0];
     barracks.speed = Some(0.0);
     units[12] = Some(barracks);
+    // The mill and the camps, drawn here with the barracks' graphic.
+    for (id, name) in [(68, "MILL"), (562, "LMBR"), (584, "MINE")] {
+        let mut camp = unit(80, id, name, 3);
+        camp.hit_points = 1000;
+        camp.standing_graphic = 4;
+        camp.icon = 2;
+        camp.collision = [1.0, 1.0, 0.0];
+        camp.speed = Some(0.0);
+        units[usize::from(id as u16)] = Some(camp);
+    }
 
     let mut unit_tasks: Vec<Option<Vec<Task>>> = vec![None; 700];
     unit_tasks[579] = Some(vec![Task {
@@ -232,7 +243,7 @@ fn dat() -> Dat {
 }
 
 #[test]
-fn the_default_conversion_writes_the_four_types_the_game_has_under_its_names() {
+fn the_default_conversion_writes_the_types_the_game_has_under_its_names() {
     let converted = convert_with(&dat(), Selection::Default).expect("converts");
 
     let content = app::parse_content(&converted.ron).expect("loads and validates");
@@ -240,7 +251,16 @@ fn the_default_conversion_writes_the_four_types_the_game_has_under_its_names() {
     let units: Vec<&str> = content.units.iter().map(|u| u.name.as_str()).collect();
     let buildings: Vec<&str> = content.buildings.iter().map(|b| b.name.as_str()).collect();
     assert_eq!(units, ["villager", "soldier"]);
-    assert_eq!(buildings, ["town_center", "barracks"]);
+    assert_eq!(
+        buildings,
+        [
+            "town_center",
+            "barracks",
+            "mill",
+            "lumber_camp",
+            "mining_camp"
+        ]
+    );
 }
 
 #[test]
@@ -353,6 +373,12 @@ fn each_resources_gathering_comes_from_its_job_unit() {
     assert_eq!(numbers(sim::Resource::Wood), (12, 51), "lumberjack, 0.39");
     assert_eq!(numbers(sim::Resource::Gold), (10, 53), "gold miner, 0.379");
     assert_eq!(numbers(sim::Resource::Stone), (10, 56), "stone miner, 0.36");
+    let farm = content.gather.farm;
+    assert_eq!(
+        (farm.carry_capacity, farm.ticks_per_unit),
+        (10, 38),
+        "farmer, 0.53"
+    );
 }
 
 #[test]
@@ -472,6 +498,7 @@ fn every_unit_and_building_can_be_converted_with_unique_names() {
             "vmfor_120",
             "vmlum_123",
             "vmmin_124",
+            "vmfarm_259",
             "vmgld_579",
         ]
     );

@@ -176,3 +176,48 @@ fn the_town_centre_takes_every_resource_and_the_barracks_none() {
     );
     assert!(content.building(BuildingKind::BARRACKS).drop_off.is_empty());
 }
+
+#[test]
+fn a_load_goes_past_a_drop_off_walled_in_to_one_it_can_reach() {
+    // The lumber camp at (18, 3) is ringed by trees, so no villager can stand
+    // beside it; the wood goes to the town centre instead, as a gather order
+    // on a walled-in site goes to one it can reach. Provisional: "reach" is a
+    // walkable tile beside the building, not a found path.
+    let (content, camp) = with_lumber_camp();
+    let mut map = MapSpec::new(32, 32)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
+        .with_building(
+            BuildingKind::TOWN_CENTER,
+            PlayerId::TWO,
+            TilePos::new(28, 28),
+        )
+        .with_building(camp, PlayerId::ONE, TilePos::new(18, 3))
+        .with_site(Resource::Wood, TilePos::new(23, 3), 300)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(23, 5));
+    for y in 2..6 {
+        for x in 17..21 {
+            let beside = x == 17 || x == 20 || y == 2 || y == 5;
+            if beside {
+                map = map.with_site(Resource::Wood, TilePos::new(x, y), 300);
+            }
+        }
+    }
+    let mut world = World::with_content(1, map, content);
+    let (villager, _) = world.view().units().next().expect("the villager");
+    let (site, _) = world
+        .view()
+        .sites()
+        .find(|(_, s)| s.origin == TilePos::new(23, 3))
+        .expect("the tree worked");
+    world.step(&[Command::Gather {
+        player: PlayerId::ONE,
+        units: smallvec![villager],
+        site,
+    }]);
+
+    assert!(!ever_headed_to_the_camp(&mut world, villager, 3000));
+    assert!(
+        world.view().resources(PlayerId::ONE).wood > 0,
+        "banked at the town centre"
+    );
+}
