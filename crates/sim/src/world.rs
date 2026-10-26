@@ -1024,19 +1024,22 @@ impl World {
 
         self.bank(id);
 
-        // Head back for another load, unless the seam is gone.
-        let seam_alive = self.sites.get(mine).is_some_and(|m| m.remaining > 0);
-        if seam_alive {
-            let (origin, size) = (self.sites[mine].origin, self.sites[mine].size);
-            let route = self.plan_adjacent(&[id], origin, size);
-            self.units[id].order = Order::Gather {
-                site: mine,
-                phase: GatherPhase::ToSite,
-                route,
-            };
-        } else {
+        // Head back for another load, unless the seam is gone or unreachable.
+        let Some(_mine_still_exists) = self.sites.get(mine) else {
             self.units[id].order = Order::Idle;
-        }
+            return;
+        };
+        let Some(next_mine) = self.reachable_site_near(mine) else {
+            self.units[id].order = Order::Idle;
+            return;
+        };
+        let (origin, size) = (self.sites[next_mine].origin, self.sites[next_mine].size);
+        let route = self.plan_adjacent(&[id], origin, size);
+        self.units[id].order = Order::Gather {
+            site: next_mine,
+            phase: GatherPhase::ToSite,
+            route,
+        };
     }
 
     /// Banks a villager's load into its owner's stock.
@@ -1066,7 +1069,7 @@ impl World {
     }
 
     /// Sends a loaded villager to the nearest of its owner's buildings that
-    /// takes its load.
+    /// takes its load and has a free adjacent tile.
     fn send_to_drop_off(&mut self, id: UnitId, mine: SiteId) {
         let unit = &self.units[id];
         if unit.carrying == 0 {
@@ -1077,7 +1080,11 @@ impl World {
         let nearest = self
             .buildings
             .iter()
-            .filter(|(_, b)| b.owner == owner && self.content.building(b.kind).takes(load))
+            .filter(|(_, b)| {
+                b.owner == owner
+                    && self.content.building(b.kind).takes(load)
+                    && self.free_tile_beside(b.origin, b.size).is_some()
+            })
             .min_by_key(|(_, b)| (b.center() - pos).length_squared())
             .map(|(id, b)| (id, b.origin, b.size));
 

@@ -106,7 +106,13 @@ fn draw_cursor<R: Renderer>(
                 .is_some_and(|unit| view.content().unit(unit.kind).gathers)
         });
     let resource = if gatherer_selected {
-        match pick::entity_at(view, hud.cursor_world, &sprites.bodies(view.content()), 0.0) {
+        // World::CONTACT is 1/8 tile; use as f32 tolerance for picking.
+        match pick::entity_at(
+            view,
+            hud.cursor_world,
+            &sprites.bodies(view.content()),
+            0.125,
+        ) {
             Some(sim::EntityId::Site(site)) => view.site(site).map(|site| site.resource),
             _ => None,
         }

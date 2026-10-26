@@ -576,6 +576,9 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
             .ok_or(AssetError::EmptySprite { id: CURSORS })?;
         let mut frame = interface_frame(&cursor_sprite, CURSORS, index)?
             .ok_or(AssetError::EmptySprite { id: CURSORS })?;
+        // interface_frame sets hotspot to ZERO (for UI elements), but cursors
+        // need the SLP's actual hotspot so the game cursor is drawn with its
+        // hotspot on the mouse. Overwrite with the SLP header's hotspot.
         frame.hotspot = Vec2::new(header.hotspot_x as f32, header.hotspot_y as f32);
         cursors.push(frame);
     }
