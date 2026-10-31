@@ -10,7 +10,7 @@
 //! from zero. Every value that was not already whole in our units is listed
 //! in the report, so nothing is rounded silently.
 
-use assets::dat::{Cost, Dat, Unit};
+use assets::dat::{Cost, Dat, Storage, Unit};
 use assets::{Drs, ARCHIVE_ORDER};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -151,6 +151,27 @@ pub fn cost(costs: &[Cost]) -> [i32; 4] {
     ours
 }
 
+/// The population headroom (the original's resource 4) a unit holds in
+/// storage `mode`: 2 while it lives, as a villager's -1; 4 once it stands,
+/// as a house's +5. Whole places, rounded.
+pub fn headroom(storages: &[Storage], mode: u8) -> i32 {
+    let total: f64 = storages
+        .iter()
+        .filter(|s| s.resource == HEADROOM && s.mode == mode)
+        .map(|s| f64::from(s.amount))
+        .sum();
+    round(total)
+        .value
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+/// The original's population headroom resource.
+const HEADROOM: i16 = 4;
+/// Storage mode: held while the unit lives.
+const WHILE_ALIVE: u8 = 2;
+/// Storage mode: held once a building stands.
+const ONCE_BUILT: u8 = 4;
+
 /// A building's footprint in tiles a side: twice its half-width, at least
 /// one.
 pub fn building_size(half_width: f32) -> Rounded<i32> {
@@ -187,12 +208,13 @@ pub enum Selection {
 
 /// The types the game has today: original unit ID and our name.
 const DEFAULT_UNITS: [(i16, &str); 2] = [(83, "villager"), (74, "soldier")];
-const DEFAULT_BUILDINGS: [(i16, &str); 5] = [
+const DEFAULT_BUILDINGS: [(i16, &str); 6] = [
     (109, "town_center"),
     (12, "barracks"),
     (68, "mill"),
     (562, "lumber_camp"),
     (584, "mining_camp"),
+    (70, "house"),
 ];
 
 /// Why a file could not be converted.
@@ -242,6 +264,7 @@ struct UnitEntry {
     radius: (i32, i32),
     cost: [i32; 4],
     train_ticks: u32,
+    population_cost: i32,
 }
 
 /// A building type, converted.
@@ -253,6 +276,12 @@ struct BuildingEntry {
     size: i32,
     /// The resources it takes, by name.
     drop_off: Vec<&'static str>,
+    /// Ticks one villager takes to build it; `None` if no one builds it.
+    build_time: Option<u32>,
+    /// Places of population it adds once standing.
+    population_provided: i32,
+    /// What placing its foundation costs, as `[food, wood, gold, stone]`.
+    cost: [i32; 4],
 }
 
 /// What the whole file says about gathering, for the per-unit rules.
@@ -518,6 +547,7 @@ fn convert_unit(
         &field("train_ticks"),
         ticks(f32::from(creatable.train_time), true),
     );
+    let population_cost = (-headroom(&unit.storages, WHILE_ALIVE)).max(0);
     report.extend(notes);
     Ok(UnitEntry {
         gathers: facts.gathering_classes.contains(&unit.class),
@@ -532,6 +562,7 @@ fn convert_unit(
         attack_cooldown,
         radius,
         train_ticks,
+        population_cost,
     })
 }
 
@@ -557,6 +588,16 @@ fn convert_building(
     if i64::from(size) > MAX_BUILDING_SIZE {
         return Err(format!("its size {size} is larger than the game allows"));
     }
+
+    let build_time = unit.creatable.as_ref().map(|c| {
+        note(
+            &mut notes,
+            &format!("{name}.build_time"),
+            ticks(f32::from(c.train_time), true),
+        )
+    });
+    let population_provided = headroom(&unit.storages, ONCE_BUILT).max(0);
+
     report.extend(notes);
     Ok(BuildingEntry {
         drop_off: facts.drop_offs.get(&unit.id).cloned().unwrap_or_default(),
@@ -565,6 +606,9 @@ fn convert_building(
         sprite,
         parts,
         size,
+        build_time,
+        population_provided,
+        cost: unit.creatable.as_ref().map_or([0; 4], |c| cost(&c.costs)),
     })
 }
 
@@ -671,25 +715,11 @@ fn write_ron(
     );
     out.push_str("(\n    units: [\n");
     for u in units {
-        let [food, wood, gold, stone] = u.cost;
-        let parts: Vec<String> = [
-            ("food", food),
-            ("wood", wood),
-            ("gold", gold),
-            ("stone", stone),
-        ]
-        .into_iter()
-        .filter(|(_, amount)| *amount != 0)
-        .map(|(name, amount)| format!("{name}: {amount}"))
-        .collect();
-        let cost = if parts.is_empty() {
-            "food: 0".to_string()
-        } else {
-            parts.join(", ")
-        };
+        let cost = ron_cost(u.cost);
+        let pop_cost = format!("Some({})", u.population_cost);
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            gathers: {},\n            max_hp: {},\n            speed: {:?},\n            damage: {},\n            range: {:?},\n            attack_cooldown: {},\n            radius: {:?},\n            cost: ({cost}),\n            train_ticks: {},\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            gathers: {},\n            max_hp: {},\n            speed: {:?},\n            damage: {},\n            range: {:?},\n            attack_cooldown: {},\n            radius: {:?},\n            cost: ({cost}),\n            train_ticks: {},\n            population_cost: {},\n        ),\n",
             u.name,
             u.unit.id,
             u.unit.name,
@@ -704,6 +734,7 @@ fn write_ron(
             u.attack_cooldown,
             u.radius,
             u.train_ticks,
+            pop_cost,
         );
     }
     out.push_str("    ],\n    buildings: [\n");
@@ -719,9 +750,14 @@ fn write_ron(
             .collect();
         trained.sort_by_key(|u| (u.unit.creatable.as_ref().map_or(0, |c| c.button), u.unit.id));
         let trains: Vec<String> = trained.iter().map(|u| format!("\"{}\"", u.name)).collect();
+        let build_time = match b.build_time {
+            Some(ticks) => format!("Some({ticks})"),
+            None => "None".to_string(),
+        };
+        let cost = ron_cost(b.cost);
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: [{}],\n            trains: [{}],\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: [{}],\n            trains: [{}],\n            build_time: {},\n            population_provided: Some({}),\n            cost: ({cost}),\n        ),\n",
             b.name,
             b.unit.id,
             b.unit.name,
@@ -732,6 +768,8 @@ fn write_ron(
             b.unit.hit_points,
             b.drop_off.join(", "),
             trains.join(", "),
+            build_time,
+            b.population_provided,
         );
     }
     out.push_str("    ],\n    gather: (\n");
@@ -743,6 +781,26 @@ fn write_ron(
     }
     out.push_str("    ),\n)\n");
     out
+}
+
+/// A cost as RON: `food: 50, gold: 20`, the resources it takes, or
+/// `food: 0` for nothing.
+fn ron_cost([food, wood, gold, stone]: [i32; 4]) -> String {
+    let parts: Vec<String> = [
+        ("food", food),
+        ("wood", wood),
+        ("gold", gold),
+        ("stone", stone),
+    ]
+    .into_iter()
+    .filter(|(_, amount)| *amount != 0)
+    .map(|(name, amount)| format!("{name}: {amount}"))
+    .collect();
+    if parts.is_empty() {
+        "food: 0".to_string()
+    } else {
+        parts.join(", ")
+    }
 }
 
 /// What the user's install holds, as far as converting needs to know: every

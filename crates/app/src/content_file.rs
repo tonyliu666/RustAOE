@@ -166,6 +166,7 @@ struct UnitFile {
     radius: Fraction,
     cost: ResourcesFile,
     train_ticks: u32,
+    population_cost: Option<i32>,
 }
 
 /// `(food: 50)`: a resource left out is zero.
@@ -191,6 +192,13 @@ struct BuildingFile {
     drop_off: Vec<ResourceFile>,
     /// Unit types by name; turned into IDs when loaded.
     trains: Vec<String>,
+    /// Ticks one villager takes to build it; left out for a building no
+    /// one builds.
+    build_time: Option<u32>,
+    /// Places of population it adds once standing; left out, none.
+    population_provided: Option<i32>,
+    /// What placing its foundation costs.
+    cost: ResourcesFile,
 }
 
 #[derive(Deserialize)]
@@ -293,6 +301,7 @@ impl UnitFile {
             train_ticks: self.train_ticks,
             gathers: self.gathers,
             name: self.name,
+            population_cost: self.population_cost.unwrap_or(1),
         })
     }
 }
@@ -318,6 +327,14 @@ impl BuildingFile {
             max_hp: self.max_hp,
             drop_off: self.drop_off.iter().map(|r| r.resource()).collect(),
             trains,
+            build_time: self.build_time,
+            population_provided: self.population_provided.unwrap_or(0),
+            cost: Resources {
+                food: self.cost.food,
+                wood: self.cost.wood,
+                gold: self.cost.gold,
+                stone: self.cost.stone,
+            },
         })
     }
 }

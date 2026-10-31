@@ -176,7 +176,10 @@ mod game {
         loop {
             let dt = mq::get_frame_time();
             let input = input_source.poll();
-            if input.key_pressed(render::Key::Escape) {
+            // Escape quits, unless it is putting down a building being
+            // placed, which the session does.
+            if input.key_pressed(render::Key::Escape) && session.active().placing_building.is_none()
+            {
                 break;
             }
 
@@ -219,6 +222,7 @@ mod game {
                 active_player: session.active_player(),
                 selection: session.selection(),
                 building: session.selected_building(),
+                placing_building: session.active().placing_building,
                 drag_box: session.drag_box(cursor),
                 replaying: playback.is_some(),
                 cursor_world: cursor,

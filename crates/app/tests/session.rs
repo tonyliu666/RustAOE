@@ -1180,3 +1180,136 @@ fn right_clicking_a_building_that_does_not_take_the_load_is_no_drop_off() {
         "{commands:?}"
     );
 }
+
+// --- placing a building -----------------------------------------------------------
+
+/// Player one's villager stands on tile (5, 5).
+const VILLAGER_MIDDLE: Vec2 = Vec2::new(5.5, 5.5);
+
+fn placing(session: &Session) -> Option<BuildingKind> {
+    session.active().placing_building
+}
+
+/// Selects player one's villager and presses the first build button, the
+/// house.
+fn start_placing_a_house(session: &mut Session, world: &World) {
+    click(session, world, MouseButton::Left, at(VILLAGER_MIDDLE));
+    click(session, world, MouseButton::Left, button(0));
+}
+
+#[test]
+fn the_first_button_of_your_villager_picks_up_a_house_to_place() {
+    let world = world();
+    let mut session = session();
+
+    start_placing_a_house(&mut session, &world);
+
+    assert_eq!(placing(&session), Some(BuildingKind::HOUSE));
+}
+
+#[test]
+fn key_one_with_your_villager_selected_picks_up_a_house() {
+    let world = world();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(VILLAGER_MIDDLE));
+
+    session.update(&press(Key::Digit1), 0.0, world.view());
+
+    assert_eq!(placing(&session), Some(BuildingKind::HOUSE));
+}
+
+#[test]
+fn a_left_click_on_the_map_places_the_house_centred_on_the_cursor() {
+    let world = world();
+    let mut session = session();
+    start_placing_a_house(&mut session, &world);
+
+    // A 2x2 house centred near (9, 9) covers tiles (8, 8) to (9, 9).
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(9.2, 8.9)),
+    );
+
+    let town_centre = building_of(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
+    assert_eq!(
+        commands,
+        [Command::PlaceBuilding {
+            player: PlayerId::ONE,
+            building: town_centre,
+            kind: BuildingKind::HOUSE,
+            origin: TilePos::new(8, 8),
+        }]
+    );
+    assert_eq!(placing(&session), None);
+}
+
+#[test]
+fn placing_a_house_keeps_the_villager_selected() {
+    let world = world();
+    let mut session = session();
+    start_placing_a_house(&mut session, &world);
+    let villager = session.selection().to_vec();
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(9.0, 9.0)),
+    );
+
+    assert_eq!(session.selection(), villager);
+}
+
+#[test]
+fn a_right_click_puts_the_house_down_unplaced_and_orders_nothing() {
+    let world = world();
+    let mut session = session();
+    start_placing_a_house(&mut session, &world);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(9.0, 9.0)),
+    );
+
+    assert_eq!(commands, []);
+    assert_eq!(placing(&session), None);
+}
+
+#[test]
+fn escape_puts_the_house_down_unplaced() {
+    let world = world();
+    let mut session = session();
+    start_placing_a_house(&mut session, &world);
+
+    let commands = session.update(&press(Key::Escape), 0.0, world.view());
+
+    assert_eq!(commands, []);
+    assert_eq!(placing(&session), None);
+}
+
+#[test]
+fn a_click_on_the_interface_while_placing_places_nothing() {
+    let world = world();
+    let mut session = session();
+    start_placing_a_house(&mut session, &world);
+
+    let commands = click(&mut session, &world, MouseButton::Left, on_command_panel());
+
+    assert_eq!(commands, []);
+    assert_eq!(placing(&session), Some(BuildingKind::HOUSE));
+}
+
+#[test]
+fn a_mixed_selection_offers_no_buildings() {
+    let world = world();
+    let mut session = session();
+    select_all(&mut session, &world);
+
+    click(&mut session, &world, MouseButton::Left, button(0));
+
+    assert_eq!(placing(&session), None);
+}

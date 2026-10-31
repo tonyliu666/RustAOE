@@ -101,9 +101,12 @@ the bottom-right, behind a band of forest.
 | Right click your town centre, mill, lumber camp, or mining camp | Selected villagers carrying a load that building takes drop it off there now, before they are full, then stand idle |
 | Right click an enemy | Attack it |
 | Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 food; barracks: soldier, 60 gold) |
-| `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
+| Left click a building button | With only your villagers selected, the command panel shows the buildings they can put down: house, barracks, mill, lumber camp, mining camp. A click picks one up to place |
+| Left click the map while placing | Put the building's foundation down there, centred on the cursor, and pay its cost. Where it may not go (off the map, on impassable ground, on a building, foundation, or resource) the building under the cursor is drawn red and nothing is placed |
+| Right click or `Esc` while placing | Put the building back without placing it |
+| `1` to `9` | Press a command panel button by position: `1` is the first button. With nothing selected, they do nothing |
 | `Tab` | Hand the keyboard to the next player |
-| `Esc` | Quit |
+| `Esc` | Quit (while placing a building, cancels the placement instead) |
 
 The mouse alone moves the view: the screen edge scrolls and the wheel zooms.
 No key moves or zooms the camera; the keyboard is for game shortcuts, as in
@@ -344,10 +347,12 @@ its phases), `crates/sim/src/path.rs` (flow fields and A*), then
 
 These are planned, each in its own phase of the plan; they are not bugs:
 
-no AI opponent, no fog of war, no building construction in game, no networking,
+no AI opponent, no fog of war, no networking,
 no sound, two unit types by default (more can be added in content), no tech tree, no save/load, no map editor, no minimap, no
 population count. Over a site with villagers selected the cursor turns into the
 original's axe over trees and, provisionally, its hand over food, gold, and
 stone. Units show one still frame facing south, buildings are the British
 Dark Age ones for every player, and the view is top-down rather than the
-original's isometric one.
+original's isometric one. A placed foundation is drawn as its building,
+see-through, and stays a foundation: villagers do not walk over to build
+it yet, and the house does not raise the population yet.

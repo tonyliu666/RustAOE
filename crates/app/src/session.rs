@@ -10,7 +10,7 @@ use crate::pick;
 use crate::ui::{self, Layout};
 use crate::CameraController;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
-use sim::{BuildingId, Command, EntityId, PlayerId, UnitId, WorldView};
+use sim::{BuildingId, BuildingKind, Command, EntityId, PlayerId, UnitId, WorldView};
 use smallvec::SmallVec;
 
 /// One side's view of the game.
@@ -25,6 +25,9 @@ pub struct PlayerUi {
     pub building: Option<BuildingId>,
     /// Where the current left-drag started, in world units.
     pub drag_from: Option<Vec2>,
+    /// Building kind being placed, if in placement mode. The origin tile
+    /// under the cursor is the preview position.
+    pub placing_building: Option<BuildingKind>,
 }
 
 impl PlayerUi {
@@ -34,6 +37,7 @@ impl PlayerUi {
             selection: Vec::new(),
             building: None,
             drag_from: None,
+            placing_building: None,
         }
     }
 }
@@ -182,11 +186,40 @@ impl Session {
         // starts a drag nor orders anything on the map underneath.
         let layout = Layout::new(camera.viewport);
         let on_interface = layout.blocks(input.cursor);
-        self.update_selection(input, cursor, on_interface, view);
 
+        // Handle placement mode FIRST: left-click release places, right-click/ESC cancels.
+        // Don't run update_selection in placement mode.
         let mut commands = Vec::new();
-        if input.is_pressed(MouseButton::Right) && !on_interface {
-            commands.extend(self.order(cursor, view));
+        let tc = self.town_center(view);
+        let player = self.active;
+        let ui = self.active_mut();
+        let in_placement = ui.placing_building.is_some();
+
+        if in_placement {
+            ui.drag_from = None;
+            if input.is_released(MouseButton::Left) && !on_interface {
+                if let Some(kind) = ui.placing_building {
+                    if let Some(tc) = tc {
+                        let size = view.content().building(kind).size;
+                        let origin = pick::placement_origin(cursor, size);
+                        commands.push(Command::PlaceBuilding {
+                            player,
+                            building: tc,
+                            kind,
+                            origin,
+                        });
+                        ui.placing_building = None;
+                    }
+                }
+            } else if input.is_pressed(MouseButton::Right) || input.key_pressed(Key::Escape) {
+                ui.placing_building = None;
+            }
+        } else {
+            // Normal mode: selection and right-click orders.
+            self.update_selection(input, cursor, on_interface, view);
+            if input.is_pressed(MouseButton::Right) && !on_interface {
+                commands.extend(self.order(cursor, view));
+            }
         }
         commands.extend(self.command_panel(input, &layout, view));
         commands
@@ -340,25 +373,67 @@ impl Session {
         match target {
             EntityId::Unit(id) => view.unit(id).is_some_and(|u| u.owner != self.active),
             EntityId::Building(id) => view.building(id).is_some_and(|b| b.owner != self.active),
+            EntityId::Foundation(id) => view.foundation(id).is_some_and(|f| f.owner != self.active),
             EntityId::Site(_) => false,
         }
     }
 
+    /// Finds the player's town center, if any.
+    fn town_center(&self, view: WorldView<'_>) -> Option<BuildingId> {
+        view.buildings()
+            .find(|(_, b)| b.owner == self.active && b.kind == sim::BuildingKind::TOWN_CENTER)
+            .map(|(id, _)| id)
+    }
+
     /// The command panel: a click on one of its buttons, or the button's
-    /// number key, trains that button's unit type at the selected building.
-    /// With no building of yours selected there are no buttons, so the keys
-    /// do nothing.
+    /// number key, trains that button's unit type at the selected building,
+    /// or enters placement mode for that building kind when villagers are
+    /// selected.
     fn command_panel(
-        &self,
+        &mut self,
         input: &InputState,
         layout: &Layout,
         view: WorldView<'_>,
     ) -> Vec<Command> {
         let player = self.active;
-        let Some(building) = self.active().building else {
+        let ui = self.active_mut();
+
+        // If in placement mode, Escape or right-click on interface cancels it.
+        if ui.placing_building.is_some() {
+            if input.key_pressed(Key::Escape)
+                || (input.is_pressed(MouseButton::Right) && layout.blocks(input.cursor))
+            {
+                ui.placing_building = None;
+            }
             return Vec::new();
-        };
-        let trains = ui::trains_on_buttons(view, Some(building), player);
+        }
+
+        // Building selected: show train buttons.
+        if let Some(building) = ui.building {
+            let trains = ui::trains_on_buttons(view, Some(building), player);
+            let clicked = input
+                .is_pressed(MouseButton::Left)
+                .then(|| layout.buttons.iter().position(|b| b.contains(input.cursor)))
+                .flatten();
+            let keyed = BUTTON_KEYS
+                .iter()
+                .enumerate()
+                .filter(|(_, key)| input.key_pressed(**key))
+                .map(|(index, _)| index);
+            return clicked
+                .into_iter()
+                .chain(keyed)
+                .filter_map(|index| trains.get(index).copied())
+                .map(|unit| Command::Train {
+                    player,
+                    building,
+                    unit,
+                })
+                .collect();
+        }
+
+        // Your villagers selected: a button picks up its building to place.
+        let builds = ui::builds_on_buttons(view, &ui.selection, player);
         let clicked = input
             .is_pressed(MouseButton::Left)
             .then(|| layout.buttons.iter().position(|b| b.contains(input.cursor)))
@@ -368,16 +443,15 @@ impl Session {
             .enumerate()
             .filter(|(_, key)| input.key_pressed(**key))
             .map(|(index, _)| index);
-        clicked
+        if let Some(kind) = clicked
             .into_iter()
             .chain(keyed)
-            .filter_map(|index| trains.get(index).copied())
-            .map(|unit| Command::Train {
-                player,
-                building,
-                unit,
-            })
-            .collect()
+            .find_map(|index| builds.get(index).copied())
+        {
+            ui.placing_building = Some(kind);
+        }
+
+        Vec::new()
     }
 }
 

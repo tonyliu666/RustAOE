@@ -31,6 +31,12 @@ pub enum DrawCall {
         pos: Vec2,
         size: Vec2,
     },
+    TintedSprite {
+        texture: TextureId,
+        pos: Vec2,
+        size: Vec2,
+        tint: Color,
+    },
     EndFrame,
 }
 
@@ -72,6 +78,20 @@ impl RecordingRenderer {
     pub fn sprites(&self) -> impl Iterator<Item = (TextureId, Vec2, Vec2)> + '_ {
         self.calls.iter().filter_map(|call| match call {
             DrawCall::Sprite { texture, pos, size } => Some((*texture, *pos, *size)),
+            _ => None,
+        })
+    }
+
+    /// The tinted sprites recorded so far, as `(texture, pos, size, tint)`.
+    /// [`RecordingRenderer::sprites`] leaves them out.
+    pub fn tinted_sprites(&self) -> impl Iterator<Item = (TextureId, Vec2, Vec2, Color)> + '_ {
+        self.calls.iter().filter_map(|call| match call {
+            DrawCall::TintedSprite {
+                texture,
+                pos,
+                size,
+                tint,
+            } => Some((*texture, *pos, *size, *tint)),
             _ => None,
         })
     }
@@ -143,5 +163,14 @@ impl Renderer for RecordingRenderer {
 
     fn sprite(&mut self, texture: TextureId, pos: Vec2, size: Vec2) {
         self.calls.push(DrawCall::Sprite { texture, pos, size });
+    }
+
+    fn sprite_tinted(&mut self, texture: TextureId, pos: Vec2, size: Vec2, tint: Color) {
+        self.calls.push(DrawCall::TintedSprite {
+            texture,
+            pos,
+            size,
+            tint,
+        });
     }
 }

@@ -373,3 +373,38 @@ fn the_longest_range_and_widest_radius_allowed_still_measure_reach_safely() {
         "in reach at once"
     );
 }
+
+#[test]
+fn a_building_someone_builds_takes_some_time_to_build() {
+    assert_rejects(
+        |c| c.building_mut(BuildingKind::HOUSE).build_time = Some(0),
+        "house.build_time",
+        POSITIVE,
+    );
+}
+
+#[test]
+fn a_building_no_one_builds_has_no_build_time() {
+    let mut content = Content::default();
+    content.building_mut(BuildingKind::HOUSE).build_time = None;
+    assert_eq!(content.validate(), Ok(()));
+}
+
+#[test]
+fn a_building_cannot_cost_a_negative_amount() {
+    // It would pay the player for placing a foundation.
+    assert_rejects(
+        |c| c.building_mut(BuildingKind::HOUSE).cost.wood = -30,
+        "house.cost.wood",
+        NOT_NEGATIVE,
+    );
+}
+
+#[test]
+fn a_building_cannot_take_population_away() {
+    assert_rejects(
+        |c| c.building_mut(BuildingKind::HOUSE).population_provided = -5,
+        "house.population_provided",
+        NOT_NEGATIVE,
+    );
+}

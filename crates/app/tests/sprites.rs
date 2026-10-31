@@ -22,6 +22,7 @@ fn hud() -> Hud<'static> {
         active_player: PlayerId::ONE,
         selection: &[],
         building: None,
+        placing_building: None,
         drag_box: None,
         replaying: false,
         cursor_world: Vec2::ZERO,

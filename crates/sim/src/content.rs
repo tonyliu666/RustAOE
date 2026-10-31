@@ -44,6 +44,9 @@ pub struct UnitStats {
     pub cost: Resources,
     /// Ticks of training time.
     pub train_ticks: u32,
+    /// Places of population it takes while it lives: the original's
+    /// population headroom (resource 4) it holds, negated.
+    pub population_cost: i32,
 }
 
 /// Numbers for a building type.
@@ -60,6 +63,14 @@ pub struct BuildingStats {
     pub drop_off: Vec<Resource>,
     /// Unit types this building can train.
     pub trains: Vec<UnitKind>,
+    /// Ticks one villager takes to build it: the original's train time.
+    /// `None` for a building no one builds, such as a town centre's annex.
+    pub build_time: Option<u32>,
+    /// Places of population it adds once standing: the original's
+    /// population headroom (resource 4) it holds.
+    pub population_provided: i32,
+    /// Charged when its foundation is placed.
+    pub cost: Resources,
 }
 
 impl BuildingStats {
@@ -216,7 +227,13 @@ impl UnitStats {
             let name = format!("cost.{}", resource.name());
             check(self.cost.get(resource) >= 0, owner, &name, NOT_NEGATIVE)?;
         }
-        check(self.train_ticks > 0, owner, "train_ticks", POSITIVE)
+        check(self.train_ticks > 0, owner, "train_ticks", POSITIVE)?;
+        check(
+            self.population_cost >= 0,
+            owner,
+            "population_cost",
+            NOT_NEGATIVE,
+        )
     }
 }
 
@@ -238,6 +255,18 @@ impl BuildingStats {
             owner,
             "trains",
             "must name unit types in this content",
+        )?;
+        check(self.build_time != Some(0), owner, "build_time", POSITIVE)?;
+        // A negative cost would pay the player for placing a foundation.
+        for resource in Resource::ALL {
+            let name = format!("cost.{}", resource.name());
+            check(self.cost.get(resource) >= 0, owner, &name, NOT_NEGATIVE)?;
+        }
+        check(
+            self.population_provided >= 0,
+            owner,
+            "population_provided",
+            NOT_NEGATIVE,
         )
     }
 }
@@ -380,6 +409,7 @@ impl Default for Content {
                         ..Resources::default()
                     },
                     train_ticks: 500,
+                    population_cost: 1,
                 },
                 UnitStats {
                     name: "soldier".to_string(),
@@ -396,6 +426,7 @@ impl Default for Content {
                         ..Resources::default()
                     },
                     train_ticks: 420,
+                    population_cost: 1,
                 },
             ],
             buildings: vec![
@@ -405,6 +436,12 @@ impl Default for Content {
                     max_hp: 2400,
                     drop_off: Resource::ALL.to_vec(),
                     trains: vec![UnitKind::VILLAGER],
+                    build_time: Some(2000),
+                    population_provided: 5,
+                    cost: Resources {
+                        wood: 275,
+                        ..Resources::default()
+                    },
                 },
                 BuildingStats {
                     name: "barracks".to_string(),
@@ -412,6 +449,12 @@ impl Default for Content {
                     max_hp: 1200,
                     drop_off: Vec::new(),
                     trains: vec![UnitKind::SOLDIER],
+                    build_time: Some(1000),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 175,
+                        ..Resources::default()
+                    },
                 },
                 BuildingStats {
                     name: "mill".to_string(),
@@ -419,6 +462,12 @@ impl Default for Content {
                     max_hp: 1000,
                     drop_off: vec![Resource::Food],
                     trains: Vec::new(),
+                    build_time: Some(700),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 100,
+                        ..Resources::default()
+                    },
                 },
                 BuildingStats {
                     name: "lumber_camp".to_string(),
@@ -426,6 +475,12 @@ impl Default for Content {
                     max_hp: 1000,
                     drop_off: vec![Resource::Wood],
                     trains: Vec::new(),
+                    build_time: Some(700),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 100,
+                        ..Resources::default()
+                    },
                 },
                 BuildingStats {
                     name: "mining_camp".to_string(),
@@ -433,6 +488,25 @@ impl Default for Content {
                     max_hp: 1000,
                     drop_off: vec![Resource::Gold, Resource::Stone],
                     trains: Vec::new(),
+                    build_time: Some(700),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 100,
+                        ..Resources::default()
+                    },
+                },
+                BuildingStats {
+                    name: "house".to_string(),
+                    size: 2,
+                    max_hp: 900,
+                    drop_off: Vec::new(),
+                    trains: Vec::new(),
+                    build_time: Some(500),
+                    population_provided: 5,
+                    cost: Resources {
+                        wood: 30,
+                        ..Resources::default()
+                    },
                 },
             ],
             gather: Gathering {

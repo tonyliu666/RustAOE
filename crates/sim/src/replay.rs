@@ -47,8 +47,10 @@ impl Replay {
     /// cost from datconv; version 15 sends a load past a drop-off no
     /// villager can stand beside; version 16 works farms at the farmer's
     /// rate, adds `farm` to the gather numbers, and sends villagers on from a
-    /// used-up site to the nearest like it.
-    pub const FORMAT_VERSION: u32 = 16;
+    /// used-up site to the nearest like it; version 17 gives buildings a
+    /// cost, a build time, and the population they provide, units the
+    /// population they take, and adds `PlaceBuilding` and foundations.
+    pub const FORMAT_VERSION: u32 = 17;
 
     /// How often the checksum is sampled during recording.
     ///

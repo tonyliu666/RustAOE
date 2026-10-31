@@ -136,6 +136,17 @@ pub fn tile_at(world: Vec2) -> TilePos {
     TilePos::new(world.x.floor() as i32, world.y.floor() as i32)
 }
 
+/// The origin of a `size`-tile building placed with the cursor at `world`:
+/// the footprint whose middle is nearest the cursor, so the building sits
+/// centred under it. Provisional: the original's placement is judged by eye.
+pub fn placement_origin(world: Vec2, size: i32) -> TilePos {
+    let half = size as f32 * 0.5;
+    TilePos::new(
+        (world.x - half + 0.5).floor() as i32,
+        (world.y - half + 0.5).floor() as i32,
+    )
+}
+
 /// The unit under `world`.
 ///
 /// A click on a drawn body picks that unit; where drawn bodies overlap, the

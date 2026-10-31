@@ -30,6 +30,7 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
     let mill = per_player((200, 150), (100.0, 100.0));
     let lumber_camp = per_player((200, 150), (100.0, 100.0));
     let mining_camp = per_player((200, 150), (100.0, 100.0));
+    let house = per_player((120, 100), (60.0, 70.0));
     let grass = vec![
         renderer.load_texture(4, 4, &[0; 64]),
         renderer.load_texture(4, 4, &[0; 64]),
@@ -48,7 +49,7 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         sprite(renderer, (36, 36), (0.0, 0.0)),
     ];
     // One per building type of the default content.
-    let building_icons = (0..5)
+    let building_icons = (0..6)
         .map(|_| sprite(renderer, (36, 36), (0.0, 0.0)))
         .collect();
     let progress = (0..100)
@@ -67,7 +68,7 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         interface,
         cursors: std::array::from_fn(|_| sprite(renderer, (32, 32), (4.0, 2.0))),
         units: vec![villager, soldier],
-        buildings: vec![town_center, barracks, mill, lumber_camp, mining_camp],
+        buildings: vec![town_center, barracks, mill, lumber_camp, mining_camp, house],
     }
 }
 
@@ -166,7 +167,8 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
     let defaults = [
         1479u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 3482, 3483, 3507, 3495,
-        2296, 4652, 4479, 2561, 4482, 1034, 2560, 51101, 50730, 50705, 50764, 51000,
+        3500, 36, 2223, 2296, 4652, 4479, 2561, 4482, 1034, 2560, 51101, 50730, 50705, 50764,
+        51000,
     ];
     let extra = overrides
         .iter()

@@ -1,6 +1,8 @@
 //! Converting a whole `.dat`, built in the test, to the game's content.
 
-use assets::dat::{Annex, Civ, Combat, Cost, Creatable, Dat, Graphic, GraphicDelta, Task, Unit};
+use assets::dat::{
+    Annex, Civ, Combat, Cost, Creatable, Dat, Graphic, GraphicDelta, Storage, Task, Unit,
+};
 use datconv::{convert, ConvertError, Install, Selection};
 
 /// A graphic drawing `slp`, with pieces naming other graphics (-1 for this
@@ -63,6 +65,19 @@ fn part(resource: i16, amount: i16, used: bool) -> Cost {
     }
 }
 
+fn storage(resource: i16, amount: f32, mode: u8) -> Storage {
+    Storage {
+        resource,
+        amount,
+        mode,
+    }
+}
+
+/// Population headroom, the original's resource 4.
+fn headroom(amount: f32, mode: u8) -> Storage {
+    storage(4, amount, mode)
+}
+
 fn unit(kind: u8, id: i16, name: &str, class: i16) -> Unit {
     Unit {
         kind,
@@ -100,6 +115,9 @@ fn dat() -> Dat {
     let mut units: Vec<Option<Unit>> = vec![None; 700];
     let mut villager = unit(70, 83, "VMBAS", 4);
     villager.drop_sites = Some([109, -1]);
+    // As the original: a villager takes one place of population headroom
+    // (resource 4), while it lives (mode 2).
+    villager.storages = vec![headroom(-1.0, 2), storage(11, 1.0, 2)];
     units[83] = Some(villager);
     let mut militia = unit(70, 74, "SPRMN", 6);
     militia.hit_points = 40;
@@ -157,6 +175,15 @@ fn dat() -> Dat {
     town_centre.icon = 28;
     town_centre.collision = [2.0, 2.0, 0.0];
     town_centre.speed = Some(0.0);
+    // As the original: 275 wood and 100 stone, built in 150 seconds, and
+    // five places of population headroom once standing (mode 4).
+    town_centre.creatable = Some(Creatable {
+        costs: [part(1, 275, true), part(2, 100, true), part(-1, 0, false)],
+        train_time: 150,
+        train_location: 118,
+        button: 1,
+    });
+    town_centre.storages = vec![headroom(5.0, 4)];
     town_centre.annexes = vec![Annex {
         unit: 618,
         offset: [1.0, -1.0],
@@ -172,17 +199,45 @@ fn dat() -> Dat {
     barracks.icon = 2;
     barracks.collision = [1.5, 1.5, 0.0];
     barracks.speed = Some(0.0);
+    barracks.creatable = Some(Creatable {
+        costs: [part(1, 175, true), part(-1, 0, false), part(-1, 0, false)],
+        train_time: 50,
+        train_location: 118,
+        button: 2,
+    });
     units[12] = Some(barracks);
     // The mill and the camps, drawn here with the barracks' graphic.
-    for (id, name) in [(68, "MILL"), (562, "LMBR"), (584, "MINE")] {
+    for (id, name, train_time) in [(68, "MILL", 30), (562, "LMBR", 30), (584, "MINE", 30)] {
         let mut camp = unit(80, id, name, 3);
         camp.hit_points = 1000;
         camp.standing_graphic = 4;
         camp.icon = 2;
         camp.collision = [1.0, 1.0, 0.0];
         camp.speed = Some(0.0);
+        camp.creatable = Some(Creatable {
+            costs: [part(1, 100, true), part(-1, 0, false), part(-1, 0, false)],
+            train_time,
+            train_location: 118,
+            button: 3,
+        });
         units[usize::from(id as u16)] = Some(camp);
     }
+    // The house, as the original's unit 70: 30 wood, 25 seconds, and five
+    // places of population headroom once standing.
+    let mut house = unit(80, 70, "HOUS", 3);
+    house.hit_points = 900;
+    house.standing_graphic = 4;
+    house.icon = 34;
+    house.collision = [1.0, 1.0, 0.0];
+    house.speed = Some(0.0);
+    house.creatable = Some(Creatable {
+        costs: [part(1, 30, true), part(-1, 0, false), part(-1, 0, false)],
+        train_time: 25,
+        train_location: 118,
+        button: 1,
+    });
+    house.storages = vec![headroom(5.0, 4)];
+    units[70] = Some(house);
 
     let mut unit_tasks: Vec<Option<Vec<Task>>> = vec![None; 700];
     unit_tasks[579] = Some(vec![Task {
@@ -258,7 +313,8 @@ fn the_default_conversion_writes_the_types_the_game_has_under_its_names() {
             "barracks",
             "mill",
             "lumber_camp",
-            "mining_camp"
+            "mining_camp",
+            "house"
         ]
     );
 }
@@ -295,6 +351,90 @@ fn each_field_is_converted_by_its_rule() {
     let look = building_look("town_center");
     assert_eq!((look.sprite, look.icon), (3596, 28));
     assert_eq!(content.buildings[1].size, 3);
+}
+
+#[test]
+fn the_house_is_the_originals_unit_70() {
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
+    let looks = app::parse_looks(&converted.ron).expect("loads");
+
+    assert!(converted.ron.contains("name: \"house\", // unit 70 HOUS"));
+    assert_eq!(looks.building("house").expect("a look").icon, 34);
+}
+
+#[test]
+fn a_building_costs_what_the_original_charges_to_build_it() {
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
+    let content = app::parse_content(&converted.ron).expect("loads and validates");
+    let cost = |name: &str| {
+        content
+            .buildings
+            .iter()
+            .find(|b| b.name == name)
+            .expect("converted")
+            .cost
+    };
+
+    assert_eq!((cost("house").wood, cost("house").food), (30, 0));
+    assert_eq!(
+        (cost("town_center").wood, cost("town_center").stone),
+        (275, 100)
+    );
+    assert_eq!(cost("barracks").wood, 175);
+}
+
+#[test]
+fn a_buildings_construction_time_is_its_train_time_in_ticks() {
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
+    let content = app::parse_content(&converted.ron).expect("loads and validates");
+    let build_time = |name: &str| {
+        content
+            .buildings
+            .iter()
+            .find(|b| b.name == name)
+            .expect("converted")
+            .build_time
+    };
+
+    assert_eq!(build_time("house"), Some(500));
+    assert_eq!(build_time("town_center"), Some(3000));
+    assert_eq!(build_time("barracks"), Some(1000));
+}
+
+#[test]
+fn a_building_no_one_builds_has_no_construction_time() {
+    // The town centre's annex is not creatable: it is never built alone.
+    let converted = convert_with(&dat(), Selection::All).expect("converts");
+    let content = app::parse_content(&converted.ron).expect("loads and validates");
+
+    let annex = content
+        .buildings
+        .iter()
+        .find(|b| b.name == "rtwc1a_618")
+        .expect("converted");
+    assert_eq!(annex.build_time, None);
+    assert_eq!(annex.cost, sim::Resources::default());
+}
+
+#[test]
+fn population_is_the_originals_headroom_storage() {
+    let converted = convert_with(&dat(), Selection::Default).expect("converts");
+    let content = app::parse_content(&converted.ron).expect("loads and validates");
+    let provided = |name: &str| {
+        content
+            .buildings
+            .iter()
+            .find(|b| b.name == name)
+            .expect("converted")
+            .population_provided
+    };
+
+    assert_eq!(provided("house"), 5);
+    assert_eq!(provided("town_center"), 5);
+    assert_eq!(provided("barracks"), 0);
+    assert_eq!(content.units[0].population_cost, 1, "the villager");
+    // The soldier here holds no headroom storage, so takes no place.
+    assert_eq!(content.units[1].population_cost, 0, "the soldier");
 }
 
 #[test]

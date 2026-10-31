@@ -22,6 +22,7 @@ fn hud<'a>(selection: &'a [UnitId], drag_box: Option<(Vec2, Vec2)>) -> Hud<'a> {
         active_player: PlayerId::ONE,
         selection,
         building: None,
+        placing_building: None,
         drag_box,
         replaying: false,
         cursor_world: Vec2::ZERO,
@@ -398,6 +399,153 @@ fn with_no_building_selected_there_are_no_buttons() {
 
     let soldier = sprites.unit_icon(UnitKind::SOLDIER).texture;
     assert_eq!(drawn_with(&renderer, soldier), []);
+}
+
+#[test]
+fn your_selected_villager_shows_the_buildings_it_can_build_house_first() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+    let (villager, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::ONE)
+        .expect("a villager");
+    let selection = [villager];
+
+    let sprites = draw(&mut renderer, &world, &hud(&selection, None));
+
+    let buttons = app::Layout::new(camera().viewport).buttons;
+    let builds = app::builds_on_buttons(world.view(), &selection, PlayerId::ONE);
+    assert_eq!(builds.first(), Some(&BuildingKind::HOUSE));
+    for (kind, button) in builds.iter().zip(buttons) {
+        let icon = sprites.building_icon(*kind).texture;
+        assert_eq!(drawn_with(&renderer, icon), [in_world(button)], "{kind:?}");
+    }
+}
+
+#[test]
+fn another_players_villager_shows_no_build_buttons() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+    let (villager, _) = world
+        .view()
+        .units()
+        .find(|(_, u)| u.owner == PlayerId::ONE)
+        .expect("a villager");
+    let selection = [villager];
+    // Player two is looking at player one's villager.
+    let hud = Hud {
+        active_player: PlayerId::TWO,
+        ..hud(&selection, None)
+    };
+
+    let sprites = draw(&mut renderer, &world, &hud);
+
+    let house = sprites.building_icon(BuildingKind::HOUSE).texture;
+    assert_eq!(drawn_with(&renderer, house), []);
+}
+
+// --- placing a building ---------------------------------------------------------
+
+fn placing_at(cursor: Vec2) -> Hud<'static> {
+    Hud {
+        placing_building: Some(BuildingKind::HOUSE),
+        cursor_world: cursor,
+        ..hud(&[], None)
+    }
+}
+
+/// The tints the placement preview drew the house with.
+fn ghost_tints(renderer: &RecordingRenderer, sprites: &Sprites) -> Vec<Color> {
+    let house = sprites.building(BuildingKind::HOUSE, PlayerId::ONE).texture;
+    renderer
+        .tinted_sprites()
+        .filter(|(texture, _, _, _)| *texture == house)
+        .map(|(_, _, _, tint)| tint)
+        .collect()
+}
+
+#[test]
+fn a_house_being_placed_on_open_ground_is_drawn_see_through_under_the_cursor() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+
+    let sprites = draw(&mut renderer, &world, &placing_at(Vec2::new(8.0, 8.0)));
+
+    assert_eq!(ghost_tints(&renderer, &sprites), [app::PLACEABLE]);
+}
+
+#[test]
+fn a_house_that_may_not_go_where_the_cursor_is_is_drawn_red() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+
+    // Over the town centre, which covers tiles (1, 1) to (4, 4).
+    let sprites = draw(&mut renderer, &world, &placing_at(Vec2::new(2.5, 2.5)));
+
+    assert_eq!(ghost_tints(&renderer, &sprites), [app::UNPLACEABLE]);
+}
+
+#[test]
+fn the_placement_preview_is_the_building_alone_with_no_coloured_square() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+
+    draw(&mut renderer, &world, &placing_at(Vec2::new(8.0, 8.0)));
+    draw(&mut renderer, &world, &placing_at(Vec2::new(2.5, 2.5)));
+
+    let squares = renderer
+        .quads()
+        .filter(|(_, size, _)| *size == Vec2::new(2.0, 2.0));
+    assert_eq!(squares.count(), 0);
+}
+
+#[test]
+fn the_placement_preview_goes_under_the_interface() {
+    let mut renderer = RecordingRenderer::new();
+    let world = populated();
+
+    let sprites = draw(&mut renderer, &world, &placing_at(Vec2::new(8.0, 8.0)));
+
+    let house = sprites.building(BuildingKind::HOUSE, PlayerId::ONE).texture;
+    let interface = sprites.interface.texture;
+    let order: Vec<render::TextureId> = renderer
+        .calls()
+        .iter()
+        .filter_map(|call| match call {
+            DrawCall::Sprite { texture, .. } | DrawCall::TintedSprite { texture, .. } => {
+                Some(*texture)
+            }
+            _ => None,
+        })
+        .collect();
+    let ghost = order.iter().position(|t| *t == house);
+    let panel = order.iter().position(|t| *t == interface);
+    assert!(ghost < panel, "{ghost:?} {panel:?}");
+}
+
+#[test]
+fn a_placed_foundation_is_drawn_see_through_as_its_building() {
+    let mut renderer = RecordingRenderer::new();
+    let map = MapSpec::new(16, 16)
+        .with_starting_resources(Resources {
+            wood: 200,
+            ..Resources::default()
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1));
+    let mut world = World::new(7, map);
+    let town_centre = barracks_of(&world, PlayerId::ONE);
+    world.step(&[Command::PlaceBuilding {
+        player: PlayerId::ONE,
+        building: town_centre,
+        kind: BuildingKind::HOUSE,
+        origin: TilePos::new(8, 8),
+    }]);
+    assert_eq!(world.view().foundations().count(), 1);
+
+    let sprites = draw(&mut renderer, &world, &hud(&[], None));
+
+    assert_eq!(ghost_tints(&renderer, &sprites), [app::FOUNDATION]);
 }
 
 // --- the information panel --------------------------------------------------------

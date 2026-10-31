@@ -12,7 +12,7 @@ use crate::pick::footprint_centre;
 use crate::pick::to_screen_space;
 use crate::session::Session;
 use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
-use crate::ui::{trains_on_buttons, Layout, Rect};
+use crate::ui::{builds_on_buttons, trains_on_buttons, Layout, Rect};
 use render::{Camera, Color, Renderer, Vec2};
 use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, Site, TilePos, UnitId, WorldView};
 use std::collections::{HashMap, HashSet};
@@ -23,6 +23,16 @@ pub const SELECTION: Color = Color::rgb(0.95, 0.95, 0.95);
 pub const HEALTH: Color = Color::rgb(0.25, 0.85, 0.35);
 /// The empty part of a health bar.
 pub const HEALTH_LOST: Color = Color::rgba(0.1, 0.1, 0.1, 0.7);
+
+/// The tint of a building being placed where it may go: see-through.
+/// Provisional, judged by eye against the original.
+pub const PLACEABLE: Color = Color::rgba(1.0, 1.0, 1.0, 0.6);
+/// The tint of a foundation: see-through. Provisional, until foundations
+/// are drawn with the original's construction graphics.
+pub const FOUNDATION: Color = Color::rgba(1.0, 1.0, 1.0, 0.4);
+/// The tint of a building being placed where it may not go: red.
+/// Provisional, judged by eye against the original.
+pub const UNPLACEABLE: Color = Color::rgba(1.0, 0.2, 0.2, 0.6);
 
 /// Debug text height in screen pixels.
 const OVERLAY_PX: f32 = 16.0;
@@ -41,6 +51,8 @@ pub struct Hud<'a> {
     pub selection: &'a [UnitId],
     /// The building this player has selected, if any: then no units are.
     pub building: Option<BuildingId>,
+    /// Building kind being placed, if in placement mode.
+    pub placing_building: Option<sim::BuildingKind>,
     /// Corners of the selection rectangle being dragged, in world units.
     pub drag_box: Option<(Vec2, Vec2)>,
     /// Whether the simulation is being driven by a recording rather than input.
@@ -67,9 +79,11 @@ pub fn draw_world<R: Renderer>(
     renderer.begin_frame(camera);
     draw_terrain(renderer, camera, view, sprites);
     draw_sites(renderer, view, sprites);
+    draw_foundations(renderer, view, sprites);
     draw_buildings(renderer, view, hud, sprites);
     draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
+    draw_ghost(renderer, view, hud, sprites);
     draw_interface(renderer, camera, sprites);
     draw_command_panel(renderer, camera, view, hud, sprites);
     draw_info_panel(renderer, camera, view, hud, sprites);
@@ -149,9 +163,14 @@ fn draw_command_panel<R: Renderer>(
 ) {
     let layout = Layout::new(camera.viewport);
     let trains = trains_on_buttons(view, hud.building, hud.active_player);
-    for (kind, button) in trains.into_iter().zip(layout.buttons) {
+    let builds = builds_on_buttons(view, hud.selection, hud.active_player);
+    let icons = trains
+        .into_iter()
+        .map(|kind| sprites.unit_icon(kind))
+        .chain(builds.into_iter().map(|kind| sprites.building_icon(kind)));
+    for (icon, button) in icons.zip(layout.buttons) {
         let (at, size) = screen_rect(camera, button);
-        renderer.sprite(sprites.unit_icon(kind).texture, at, size);
+        renderer.sprite(icon.texture, at, size);
     }
 }
 
@@ -348,9 +367,15 @@ const TREE_REACH: i32 = 3;
 /// Draws `sprite` with its ground point on `ground`, at `scale` tiles per
 /// sprite pixel. Returns where the sprite was drawn and its size.
 fn stand<R: Renderer>(renderer: &mut R, sprite: &Sprite, ground: Vec2, scale: f32) -> (Vec2, Vec2) {
+    let (origin, size) = placed(sprite, ground, scale);
+    renderer.sprite(sprite.texture, origin, size);
+    (origin, size)
+}
+
+/// Where [`stand`] draws `sprite`: its top-left corner and drawn size.
+fn placed(sprite: &Sprite, ground: Vec2, scale: f32) -> (Vec2, Vec2) {
     let origin = ground - sprite.hotspot * scale;
     let size = Vec2::new(sprite.width, sprite.height) * scale;
-    renderer.sprite(sprite.texture, origin, size);
     (origin, size)
 }
 
@@ -504,4 +529,49 @@ fn visible_tiles(camera: &Camera, map_width: i32, map_height: i32) -> (TilePos, 
             clamp(bottom_right.y, map_height),
         ),
     )
+}
+
+/// Draws each foundation as its building, see-through. Provisional: the
+/// original draws a foundation with the building's construction graphic in
+/// stages, which Phase 3 step 5 reads from the `.dat`.
+fn draw_foundations<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
+    for (_, foundation) in view.foundations() {
+        let sprite = sprites.building(foundation.kind, foundation.owner);
+        let scale = building_scale(sprite, foundation.size);
+        let half = foundation.size as f32 * 0.5;
+        let centre = Vec2::new(
+            foundation.origin.x as f32 + half,
+            foundation.origin.y as f32 + half,
+        );
+        let (top_left, drawn) = placed(sprite, centre, scale);
+        renderer.sprite_tinted(sprite.texture, top_left, drawn, FOUNDATION);
+    }
+}
+
+/// Draws the building being placed under the cursor, see-through, where
+/// the order would put it: as it is where it may go, red where it may not.
+fn draw_ghost<R: Renderer>(
+    renderer: &mut R,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    let Some(kind) = hud.placing_building else {
+        return;
+    };
+    let size = view.content().building(kind).size;
+    let origin = pick::placement_origin(hud.cursor_world, size);
+    let tint = if view.can_place(kind, origin) {
+        PLACEABLE
+    } else {
+        UNPLACEABLE
+    };
+    let sprite = sprites.building(kind, hud.active_player);
+    let scale = building_scale(sprite, size);
+    let centre = Vec2::new(
+        origin.x as f32 + size as f32 * 0.5,
+        origin.y as f32 + size as f32 * 0.5,
+    );
+    let (top_left, drawn) = placed(sprite, centre, scale);
+    renderer.sprite_tinted(sprite.texture, top_left, drawn, tint);
 }

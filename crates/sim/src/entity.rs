@@ -16,6 +16,8 @@ new_key_type! {
     pub struct BuildingId;
     /// Addresses a gold mine.
     pub struct SiteId;
+    /// Addresses a foundation (building under construction).
+    pub struct FoundationId;
 }
 
 /// A player slot: Gaia, or one of up to eight players.
@@ -62,6 +64,7 @@ pub enum EntityId {
     Unit(UnitId),
     Building(BuildingId),
     Site(SiteId),
+    Foundation(FoundationId),
 }
 
 /// A unit type: an index into [`crate::Content::units`].
@@ -225,6 +228,14 @@ impl BuildingKind {
     pub const TOWN_CENTER: BuildingKind = BuildingKind(0);
     /// The barracks in the default content.
     pub const BARRACKS: BuildingKind = BuildingKind(1);
+    /// The mill in the default content.
+    pub const MILL: BuildingKind = BuildingKind(2);
+    /// The lumber camp in the default content.
+    pub const LUMBER_CAMP: BuildingKind = BuildingKind(3);
+    /// The mining camp in the default content.
+    pub const MINING_CAMP: BuildingKind = BuildingKind(4);
+    /// The house in the default content.
+    pub const HOUSE: BuildingKind = BuildingKind(5);
 
     pub const fn new(index: u16) -> BuildingKind {
         BuildingKind(index)
@@ -367,6 +378,68 @@ impl Site {
         FxVec2::new(
             Fx::from_frac(self.origin.x * 2 + self.size, 2),
             Fx::from_frac(self.origin.y * 2 + self.size, 2),
+        )
+    }
+}
+
+/// A building under construction.
+///
+/// HP starts at 0 and rises as builders work. When HP reaches max_hp (from
+/// the building type's content), the foundation becomes a building.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Foundation {
+    pub kind: BuildingKind,
+    pub owner: PlayerId,
+    /// Top-left tile of the footprint.
+    pub origin: TilePos,
+    /// Current HP, 0 to max_hp.
+    pub hp: i32,
+    /// Max HP from the building type's content.
+    pub max_hp: i32,
+    /// Footprint side in tiles, from the building type's content.
+    pub size: i32,
+    /// Villagers currently building this foundation.
+    pub builders: Vec<UnitId>,
+    /// Ticks of build progress (alternative to hp for progress tracking).
+    pub progress_ticks: u32,
+}
+
+impl Foundation {
+    /// Creates a new foundation at 0 HP.
+    pub fn new(
+        kind: BuildingKind,
+        owner: PlayerId,
+        origin: TilePos,
+        hp: i32,
+        size: i32,
+        max_hp: i32,
+    ) -> Foundation {
+        Foundation {
+            kind,
+            owner,
+            origin,
+            hp,
+            max_hp,
+            size,
+            builders: Vec::new(),
+            progress_ticks: 0,
+        }
+    }
+
+    /// The tiles this foundation covers.
+    pub fn footprint(&self) -> impl Iterator<Item = TilePos> + '_ {
+        let size = self.size;
+        let origin = self.origin;
+        (0..size)
+            .flat_map(move |dy| (0..size).map(move |dx| TilePos::new(origin.x + dx, origin.y + dy)))
+    }
+
+    /// Centre of the footprint in world space.
+    pub fn center(&self) -> FxVec2 {
+        let size = self.size;
+        FxVec2::new(
+            Fx::from_frac(self.origin.x * 2 + size, 2),
+            Fx::from_frac(self.origin.y * 2 + size, 2),
         )
     }
 }

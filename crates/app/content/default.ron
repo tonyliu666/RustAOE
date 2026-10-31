@@ -36,6 +36,7 @@
             radius: (13107, 65536), // 0.2 tiles
             cost: (food: 50),
             train_ticks: 500,       // 25 seconds
+            population_cost: Some(1),
         ),
         (
             name: "soldier",
@@ -51,9 +52,14 @@
             radius: (13107, 65536), // 0.2 tiles
             cost: (food: 60, gold: 20),
             train_ticks: 420,       // 21 seconds
+            population_cost: Some(1),
         ),
     ],
     buildings: [
+        // `build_time` is ticks for one villager (the .dat's train time);
+        // `population_provided` is the population headroom a building holds
+        // once standing (the .dat's resource 4, storage mode 4); `cost` is
+        // charged when its foundation is placed.
         (
             name: "town_center",
             // The Dark Age British town centre (unit 109): its graphic's
@@ -68,6 +74,9 @@
             max_hp: 2400,
             drop_off: [food, wood, gold, stone],  // what villagers may deposit here
             trains: ["villager"],
+            build_time: Some(2000),       // the .dat's train time, at 20 ticks a second
+            population_provided: Some(5),
+            cost: (wood: 275),
         ),
         (
             name: "barracks",
@@ -78,6 +87,9 @@
             max_hp: 1200,
             drop_off: [],
             trains: ["soldier"],
+            build_time: Some(1000),       // the .dat's train time, at 20 ticks a second
+            population_provided: Some(0),
+            cost: (wood: 175),
         ),
         // The drop-off camps, converted from the .dat (units 68, 562, 584).
         // Two tiles a side, 1000 hit points, each taking what its jobs bring.
@@ -90,6 +102,9 @@
             max_hp: 1000,
             drop_off: [food],
             trains: [],
+            build_time: Some(700),       // the .dat's train time, at 20 ticks a second
+            population_provided: Some(0),
+            cost: (wood: 100),
         ),
         (
             name: "lumber_camp",
@@ -100,6 +115,9 @@
             max_hp: 1000,
             drop_off: [wood],
             trains: [],
+            build_time: Some(700),       // the .dat's train time, at 20 ticks a second
+            population_provided: Some(0),
+            cost: (wood: 100),
         ),
         (
             name: "mining_camp",
@@ -110,6 +128,22 @@
             max_hp: 1000,
             drop_off: [gold, stone],
             trains: [],
+            build_time: Some(700),       // the .dat's train time, at 20 ticks a second
+            population_provided: Some(0),
+            cost: (wood: 100),
+        ),
+        (
+            name: "house",
+            sprite: 2223,           // the Dark Age British house (unit 70 HOUS)
+            parts: [],
+            icon: 34,
+            size: 2,
+            max_hp: 900,
+            drop_off: [],
+            trains: [],
+            build_time: Some(500),       // the .dat's train time, at 20 ticks a second
+            population_provided: Some(5),
+            cost: (wood: 30),
         ),
     ],
     // Per-resource gather numbers from datconv (British civ):

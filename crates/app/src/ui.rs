@@ -6,7 +6,7 @@
 //! of the window size, so it is tested without a window.
 
 use render::Vec2;
-use sim::{BuildingId, PlayerId, Resource, UnitKind, WorldView};
+use sim::{BuildingId, BuildingKind, PlayerId, Resource, UnitId, UnitKind, WorldView};
 
 /// The size of the image the rectangles below were measured on.
 const IMAGE: Vec2 = Vec2::new(800.0, 600.0);
@@ -198,6 +198,44 @@ impl Layout {
     pub fn blocks(&self, point: Vec2) -> bool {
         self.top_bar.contains(point) || self.bottom.contains(point)
     }
+}
+
+/// The buildings a villager's command panel offers, in button order.
+///
+/// Provisional: the original first offers "economic" and "military"
+/// buildings and opens one of two pages; until those pages are read from
+/// the original, the buildings sit directly on the buttons, the house first.
+const BUILD_ORDER: [BuildingKind; 5] = [
+    BuildingKind::HOUSE,
+    BuildingKind::BARRACKS,
+    BuildingKind::MILL,
+    BuildingKind::LUMBER_CAMP,
+    BuildingKind::MINING_CAMP,
+];
+
+/// What the command panel's buttons build, in button order, for `player`
+/// with `selection` selected: when every selected unit is one of
+/// `player`'s gatherers, the buildings of [`BUILD_ORDER`] the content has.
+/// Empty otherwise.
+pub fn builds_on_buttons(
+    view: WorldView<'_>,
+    selection: &[UnitId],
+    player: PlayerId,
+) -> Vec<BuildingKind> {
+    let content = view.content();
+    let builders = !selection.is_empty()
+        && selection.iter().all(|id| {
+            view.unit(*id)
+                .is_some_and(|u| u.owner == player && content.unit(u.kind).gathers)
+        });
+    if !builders {
+        return Vec::new();
+    }
+    BUILD_ORDER
+        .into_iter()
+        .filter(|kind| kind.index() < content.buildings.len())
+        .take(BUTTON_COLUMNS * BUTTON_ROWS)
+        .collect()
 }
 
 /// What the command panel's buttons train, in button order, for `player`

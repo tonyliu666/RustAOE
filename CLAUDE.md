@@ -8,8 +8,8 @@ the current phase's spec.
 
 - **Plan:** `docs/superpowers/plans/2026-10-24-exe-parity-plan.md`. Phases,
   gates, and the open questions list.
-- **Current spec:** `docs/superpowers/specs/2026-10-25-phase2-four-resources.md`
-  (Phase 2: four resources). Each step has a "Step N result" section.
+- **Current spec:** `docs/superpowers/specs/2026-10-26-phase3-construction-population.md`
+  (Phase 3: construction and population). Each step has a "Step N result" section.
 - **Progress log:** `.superpowers/sdd/2026-10-24-exe-parity-plan/progress.md`.
   Add one line per finished step.
 - **Player guide:** `QUICKSTART.md`, covering how to run, the controls, and a
@@ -80,7 +80,7 @@ the current phase's spec.
 
 ## Rules and gotchas learned
 
-- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 16).
+- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 17).
   - Bump it whenever playback or the layout changes.
   - Add a test in `crates/app/tests/replay_file.rs` that refuses the previous
     version.
@@ -141,16 +141,58 @@ the current phase's spec.
   - Sites are drawn back to front and picked by their drawn rectangle; farms
     are picked by their tiles.
 
-## Where we are (2026-10-26)
+### Buildings' numbers (Phase 3 step 1, 2026-10-31)
+
+- **The house is unit 70 HOUS** (sprite 2223, icon 34, 900 HP). Unit 94 is
+  a berserk; an earlier guess took it for the house.
+- **Cost** is `creatable.costs`, charged when the foundation is placed
+  (house 30 wood).
+- **`build_time`** is `creatable.train_time` in ticks: one villager's time
+  (house 500). `None` for a building no one builds, such as an annex. There
+  is no build rate.
+- **Population** is resource 4 (population headroom) in a unit's storages:
+  mode 4 once standing gives `population_provided` (house and town centre
+  +5); mode 2 while alive, negated, gives `population_cost` (villager 1).
+  `datconv::headroom` reads it.
+- `default.ron` and `Content::default` match the conversion; the
+  real-file gate checks it.
+
+### Placing a building (Phase 3 step 2, 2026-10-31)
+
+- **Panel:** with only your villagers selected, the command panel shows
+  building icons (`interfac.drs` 50705) from `ui::builds_on_buttons`:
+  house, barracks, mill, lumber camp, mining camp. Drawing and clicking use
+  that one list. A flat list is provisional; the original opens economic
+  and military pages.
+- **Placing:** a button or number key sets `PlayerUi::placing_building`.
+  A left click on the map sends `Command::PlaceBuilding`, footprint centred
+  on the cursor (`pick::placement_origin`), selection kept. A click on the
+  interface places nothing. A right click or `Esc` cancels; `Esc` quits the
+  game only when nothing is being placed (`main.rs`).
+- **Preview:** the building's sprite under the cursor, through
+  `Renderer::sprite_tinted`: `PLACEABLE` (see-through) or `UNPLACEABLE`
+  (red), both judged by eye. `RecordingRenderer::tinted_sprites()` records
+  them apart from `sprites()`.
+- **One rule:** `WorldView::can_place` (map edge, passable ground,
+  buildings, foundations, blocking sites) is what both the preview and the
+  order use. Never check placement a second way in `app`.
+- **Foundations** are drawn as their building, tinted `FOUNDATION`, until
+  step 5 reads the construction graphics.
+- **Mutation scripts:** restoring a file from a copy can leave it older
+  than the last build, so cargo runs the stale mutant. `touch` the restored
+  sources before trusting the next test run.
+
+## Where we are (2026-10-31)
 
 **Phase 2 (four resources) is complete.** The spec has a result for each
 step, the direction check's fixes, and a "Left for Phase 3" list. The gate
 test that holds `default.ron` to the conversion needs the install:
 `AOE_ASSETS=$PWD/aoe2-install cargo test -p datconv --test real_file -- --ignored`.
 
-**Next: Phase 3** in the plan. Read the plan's Phase 3 section and the
-"Left for Phase 3" list in the Phase 2 spec first, then write the Phase 3
-spec.
+**Phase 3** (construction and population) is under way; its spec is
+`docs/superpowers/specs/2026-10-26-phase3-construction-population.md`.
+Steps 1 (content and datconv) and 2 (placing a building) are done.
+**Next: step 3** (the foundation entity) and step 4 (villagers build it).
 
 Known provisional items:
 - Annex offsets are not added.

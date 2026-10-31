@@ -68,4 +68,8 @@ pub trait Renderer {
     /// `size`, both in world units. Upright: the image's first row is drawn
     /// at the top.
     fn sprite(&mut self, texture: TextureId, pos: Vec2, size: Vec2);
+
+    /// Draws a loaded image as [`Renderer::sprite`] does, with each pixel's
+    /// colour and alpha multiplied by `tint`: white leaves it as it is.
+    fn sprite_tinted(&mut self, texture: TextureId, pos: Vec2, size: Vec2, tint: Color);
 }

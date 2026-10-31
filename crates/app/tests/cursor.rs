@@ -77,6 +77,7 @@ fn last_sprite_seen_by(
         active_player: PlayerId::ONE,
         selection,
         building: None,
+        placing_building: None,
         drag_box: None,
         replaying: false,
         cursor_world: mouse,

@@ -1,8 +1,8 @@
 //! The simulation state and the single tick that advances it.
 
 use crate::entity::{
-    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Order, Player, PlayerId, Route,
-    Site, SiteId, Unit, UnitId, UnitKind,
+    Building, BuildingId, BuildingKind, EntityId, Foundation, FoundationId, GatherPhase, Order,
+    Player, PlayerId, Route, Site, SiteId, Unit, UnitId, UnitKind,
 };
 use crate::path::{astar, Dir8, FlowFieldCache, PathRequest};
 use crate::spatial::SpatialHash;
@@ -350,6 +350,13 @@ pub enum Command {
         units: SmallVec<[UnitId; 32]>,
         building: BuildingId,
     },
+    /// Place a new building foundation. Cost is paid immediately.
+    PlaceBuilding {
+        player: PlayerId,
+        building: BuildingId,
+        kind: BuildingKind,
+        origin: TilePos,
+    },
 }
 
 impl Command {
@@ -361,7 +368,8 @@ impl Command {
             | Command::Gather { player, .. }
             | Command::Train { player, .. }
             | Command::Stop { player, .. }
-            | Command::Deposit { player, .. } => *player,
+            | Command::Deposit { player, .. }
+            | Command::PlaceBuilding { player, .. } => *player,
         }
     }
 }
@@ -374,6 +382,7 @@ pub struct World {
     units: SlotMap<UnitId, Unit>,
     buildings: SlotMap<BuildingId, Building>,
     sites: SlotMap<SiteId, Site>,
+    foundations: SlotMap<FoundationId, Foundation>,
     /// Slot 0 is Gaia, then one per player.
     players: Vec<Player>,
     /// The numbers every system plays by. Fixed for the life of the world.
@@ -434,6 +443,7 @@ impl World {
             units: SlotMap::with_key(),
             buildings: SlotMap::with_key(),
             sites: SlotMap::with_key(),
+            foundations: SlotMap::with_key(),
             // Gaia starts with nothing; every player with the map's stock.
             players: (0..=map.players)
                 .map(|slot| Player {
@@ -626,6 +636,12 @@ impl World {
                     units,
                     building,
                 } => self.order_deposit(*player, units, *building),
+                Command::PlaceBuilding {
+                    player,
+                    building,
+                    kind,
+                    origin,
+                } => self.order_place_building(*player, *building, *kind, *origin),
             }
         }
     }
@@ -800,6 +816,104 @@ impl World {
         target.queue.push(unit);
     }
 
+    fn order_place_building(
+        &mut self,
+        player: PlayerId,
+        building: BuildingId,
+        kind: BuildingKind,
+        origin: TilePos,
+    ) {
+        // The building issuing the command must exist and belong to the player.
+        let Some(target) = self.buildings.get(building) else {
+            return;
+        };
+        if target.owner != player {
+            return;
+        }
+        // Only buildings that train villagers (town center) can place buildings.
+        if !self
+            .content
+            .building(target.kind)
+            .trains
+            .contains(&UnitKind::VILLAGER)
+        {
+            return;
+        }
+        if !self.can_place(kind, origin) {
+            return;
+        }
+        // Check cost.
+        let cost = self.content.building(kind).cost;
+        let stock = &mut self.players[player.index()].resources;
+        if !stock.covers(&cost) {
+            return;
+        }
+        // Charge cost immediately (refunded if cancelled before construction).
+        *stock = stock.saturating_sub(cost);
+        // Create foundation with 0 HP.
+        let max_hp = self.content.building(kind).max_hp;
+        let size = self.content.building(kind).size;
+        let foundation = Foundation::new(kind, player, origin, 0, size, max_hp);
+        self.foundations.insert(foundation);
+    }
+
+    /// Whether a `kind` building may go down with its footprint at
+    /// `origin`: inside the map, on passable ground, and over no building,
+    /// foundation, or blocking site.
+    fn can_place(&self, kind: BuildingKind, origin: TilePos) -> bool {
+        let size = self.content.building(kind).size;
+        self.bounds_check(origin, size) && self.footprint_clear(origin, size)
+    }
+
+    /// Checks if a footprint fits within map bounds.
+    fn bounds_check(&self, origin: TilePos, size: i32) -> bool {
+        origin.x >= 0
+            && origin.y >= 0
+            && origin.x + size <= self.terrain.width()
+            && origin.y + size <= self.terrain.height()
+    }
+
+    /// Checks if all tiles in a footprint are passable and unoccupied.
+    fn footprint_clear(&self, origin: TilePos, size: i32) -> bool {
+        for dy in 0..size {
+            for dx in 0..size {
+                let pos = TilePos::new(origin.x + dx, origin.y + dy);
+                // Check terrain passable
+                let Some(tile) = self.terrain.get(pos) else {
+                    return false;
+                };
+                if !tile.passable {
+                    return false;
+                }
+                // Check no building occupies this tile
+                if self
+                    .buildings
+                    .values()
+                    .any(|b| b.footprint().any(|p| p == pos))
+                {
+                    return false;
+                }
+                // Check no site blocks this tile
+                if self
+                    .sites
+                    .values()
+                    .any(|s| s.blocks && s.footprint().any(|p| p == pos))
+                {
+                    return false;
+                }
+                // Check no foundation occupies this tile
+                if self
+                    .foundations
+                    .values()
+                    .any(|f| f.footprint().any(|p| p == pos))
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// Chooses a route for a group heading to one tile.
     ///
     /// More than one unit shares a flow field; a lone unit is queued for A*.
@@ -847,6 +961,7 @@ impl World {
             EntityId::Unit(id) => self.units.get(id).map(|u| u.owner),
             EntityId::Building(id) => self.buildings.get(id).map(|b| b.owner),
             EntityId::Site(_) => None,
+            EntityId::Foundation(id) => self.foundations.get(id).map(|f| f.owner),
         }
     }
 
@@ -855,6 +970,7 @@ impl World {
             EntityId::Unit(id) => self.units.get(id).map(|u| u.pos),
             EntityId::Building(id) => self.buildings.get(id).map(Building::center),
             EntityId::Site(id) => self.sites.get(id).map(Site::center),
+            EntityId::Foundation(id) => self.foundations.get(id).map(Foundation::center),
         }
     }
 
@@ -897,6 +1013,10 @@ impl World {
             EntityId::Building(id) => {
                 let b = self.buildings.get(id)?;
                 Some(footprint(b.origin, b.size))
+            }
+            EntityId::Foundation(id) => {
+                let f = self.foundations.get(id)?;
+                Some(footprint(f.origin, f.size))
             }
             // Never a target: a mine belongs to no one, so an attack order on
             // one is refused (`order_attack`).
@@ -1461,6 +1581,11 @@ impl World {
                     building.hp = building.hp.saturating_sub(amount);
                 }
             }
+            EntityId::Foundation(id) => {
+                if let Some(foundation) = self.foundations.get_mut(id) {
+                    foundation.hp = foundation.hp.saturating_sub(amount);
+                }
+            }
             // Mines cannot be attacked; `order_attack` rejects them, and a
             // stray one here is a no-op rather than a panic.
             EntityId::Site(_) => {}
@@ -1699,6 +1824,21 @@ impl<'a> WorldView<'a> {
         self.world.sites.get(id)
     }
 
+    pub fn foundations(&self) -> impl Iterator<Item = (FoundationId, &'a Foundation)> {
+        self.world.foundations.iter()
+    }
+
+    pub fn foundation(&self, id: FoundationId) -> Option<&'a Foundation> {
+        self.world.foundations.get(id)
+    }
+
+    /// Whether a `kind` building may be placed at `origin`, judged as a
+    /// [`Command::PlaceBuilding`] judges it, cost aside: what the placement
+    /// preview shows.
+    pub fn can_place(&self, kind: BuildingKind, origin: TilePos) -> bool {
+        self.world.can_place(kind, origin)
+    }
+
     /// Total gold still in the ground plus gold in transit plus gold banked.
     ///
     /// Exposed for the conservation property test, which is the only cheap
@@ -1760,6 +1900,7 @@ fn entity_words(entity: EntityId) -> [u64; 2] {
         EntityId::Unit(id) => [0, id.data().as_ffi()],
         EntityId::Building(id) => [1, id.data().as_ffi()],
         EntityId::Site(id) => [2, id.data().as_ffi()],
+        EntityId::Foundation(id) => [3, id.data().as_ffi()],
     }
 }
 

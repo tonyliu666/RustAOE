@@ -122,3 +122,18 @@ fn a_loaded_texture_keeps_its_pixels_for_inspection() {
         Some([10, 20, 30, 255].as_slice())
     );
 }
+
+#[test]
+fn a_tinted_sprite_is_recorded_with_its_tint_apart_from_the_plain_ones() {
+    let mut recorder = RecordingRenderer::new();
+    let texture = recorder.load_texture(1, 1, &[255; 4]);
+    let red = Color::rgba(1.0, 0.0, 0.0, 0.5);
+
+    recorder.sprite_tinted(texture, Vec2::new(3.0, 4.0), Vec2::new(1.0, 2.0), red);
+
+    assert_eq!(
+        recorder.tinted_sprites().collect::<Vec<_>>(),
+        [(texture, Vec2::new(3.0, 4.0), Vec2::new(1.0, 2.0), red)]
+    );
+    assert_eq!(recorder.sprites().count(), 0);
+}

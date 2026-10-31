@@ -21,10 +21,13 @@ pub use content_file::{
     default_looks, game_looks, load_content, new_game_content, parse_content, parse_looks,
     ContentFileError, DEFAULT_CONTENT,
 };
-pub use draw::{draw_world, Hud, HEALTH, HEALTH_LOST, SELECTION};
+pub use draw::{
+    draw_world, Hud, FOUNDATION, HEALTH, HEALTH_LOST, PLACEABLE, SELECTION, UNPLACEABLE,
+};
 pub use looks::{Look, Looks, Part};
 pub use pick::{
-    building_at, entity_at, site_at, tile_at, to_screen_space, unit_at, units_in_box, Bodies, Body,
+    building_at, entity_at, placement_origin, site_at, tile_at, to_screen_space, unit_at,
+    units_in_box, Bodies, Body,
 };
 pub use replay_file::{load, save, ReplayError};
 pub use session::{PlayerUi, Session};
@@ -32,4 +35,4 @@ pub use sprites::{
     assets_dir, load_images, unskew_tile, AssetError, GameImages, Sprite, Sprites,
     UNIT_PIXELS_PER_TILE,
 };
-pub use ui::{Layout, Rect};
+pub use ui::{builds_on_buttons, Layout, Rect};

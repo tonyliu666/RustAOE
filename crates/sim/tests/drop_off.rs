@@ -2,8 +2,8 @@
 //! villager never delivers a load to one that does not take it.
 
 use sim::{
-    BuildingKind, BuildingStats, Command, Content, MapSpec, PlayerId, Resource, TilePos, UnitId,
-    UnitKind, World,
+    BuildingKind, BuildingStats, Command, Content, MapSpec, PlayerId, Resource, Resources, TilePos,
+    UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
 
@@ -16,6 +16,12 @@ fn with_lumber_camp() -> (Content, BuildingKind) {
         max_hp: 600,
         drop_off: vec![Resource::Wood],
         trains: Vec::new(),
+        build_time: Some(700),
+        population_provided: 0,
+        cost: Resources {
+            wood: 100,
+            ..Resources::default()
+        },
     });
     let camp = content.building_named("lumber_camp").expect("added");
     (content, camp)
