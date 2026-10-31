@@ -51,8 +51,13 @@ pub struct Hud<'a> {
     pub selection: &'a [UnitId],
     /// The building this player has selected, if any: then no units are.
     pub building: Option<BuildingId>,
+    /// The foundation this player has selected, if any: then no units are.
+    pub foundation: Option<sim::FoundationId>,
     /// Building kind being placed, if in placement mode.
     pub placing_building: Option<sim::BuildingKind>,
+    /// The message the active player is being shown, such as "Not enough
+    /// wood.".
+    pub notice: Option<&'a str>,
     /// Corners of the selection rectangle being dragged, in world units.
     pub drag_box: Option<(Vec2, Vec2)>,
     /// Whether the simulation is being driven by a recording rather than input.
@@ -79,7 +84,7 @@ pub fn draw_world<R: Renderer>(
     renderer.begin_frame(camera);
     draw_terrain(renderer, camera, view, sprites);
     draw_sites(renderer, view, sprites);
-    draw_foundations(renderer, view, sprites);
+    draw_foundations(renderer, view, hud, sprites);
     draw_buildings(renderer, view, hud, sprites);
     draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
@@ -185,7 +190,11 @@ fn draw_info_panel<R: Renderer>(
     sprites: &Sprites,
 ) {
     let Some(building) = hud.building.and_then(|id| view.building(id)) else {
-        draw_unit_info(renderer, camera, view, hud, sprites);
+        if let Some(foundation) = hud.foundation.and_then(|id| view.foundation(id)) {
+            draw_foundation_info(renderer, camera, view, foundation, sprites);
+        } else {
+            draw_unit_info(renderer, camera, view, hud, sprites);
+        }
         return;
     };
     let layout = Layout::new(camera.viewport);
@@ -234,6 +243,45 @@ fn draw_info_panel<R: Renderer>(
     }
 }
 
+/// Draws what the information panel says about the selected foundation:
+/// its building's icon and name, its hit points, and a progress bar of the
+/// work done, frame n being n percent, as for a unit in training.
+fn draw_foundation_info<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    foundation: &sim::Foundation,
+    sprites: &Sprites,
+) {
+    let layout = Layout::new(camera.viewport);
+    let stats = view.content().building(foundation.kind);
+    let mut icon = |texture, rect| {
+        let (at, size) = screen_rect(camera, rect);
+        renderer.sprite(texture, at, size);
+    };
+    icon(
+        sprites.building_icon(foundation.kind).texture,
+        layout.building_icon,
+    );
+    if let Some(build_time) = stats.build_time {
+        let whole = u64::from(build_time.max(1)) * 3;
+        let percent = (u64::from(foundation.progress) * 100 / whole) as usize;
+        let frame = percent.min(sprites.progress.len().saturating_sub(1));
+        if let Some(bar) = sprites.progress.get(frame) {
+            icon(bar.texture, layout.progress_bar);
+        }
+    }
+    for (text, at) in [
+        (stats.name.clone(), layout.name_at),
+        (
+            format!("{}/{}", foundation.hp.max(0), foundation.max_hp),
+            layout.hit_points_at,
+        ),
+    ] {
+        renderer.text(&text, camera.screen_to_world(at), layout.text_px, INK);
+    }
+}
+
 /// Draws what the information panel says about the first selected unit:
 /// its icon, name, and hit points, and the load a gatherer carries.
 fn draw_unit_info<R: Renderer>(
@@ -267,6 +315,12 @@ fn draw_unit_info<R: Renderer>(
         renderer.text(&text, camera.screen_to_world(at), layout.text_px, INK);
     }
 }
+
+/// A notice's box: dark red inside, bright red edge, judged by eye.
+const NOTICE_BOX: Color = Color::rgba(0.45, 0.02, 0.02, 0.9);
+const NOTICE_EDGE: Color = Color::rgb(0.95, 0.1, 0.1);
+/// Screen pixels between a notice's text and its box.
+const NOTICE_MARGIN: f32 = 6.0;
 
 /// The top bar's text: light on the dark slots.
 const BAR_TEXT: Color = Color::rgb(0.95, 0.93, 0.85);
@@ -308,6 +362,24 @@ fn draw_overlay<R: Renderer>(
     for (row, line) in lines.iter().enumerate() {
         let at = layout.debug_at + Vec2::new(0.0, OVERLAY_LINE * row as f32);
         renderer.text(line, camera.screen_to_world(at), OVERLAY_PX, Color::WHITE);
+    }
+
+    // A notice goes below the readout, in a red box, where the original
+    // writes its messages. Placed and coloured by eye: provisional.
+    if let Some(notice) = hud.notice {
+        let at = layout.debug_at + Vec2::new(0.0, OVERLAY_LINE * 2.0);
+        // The text's width is not measured: a character is about half its
+        // height wide, which the box's margin absorbs.
+        let width = notice.chars().count() as f32 * OVERLAY_PX * 0.55;
+        let from = at + Vec2::new(-NOTICE_MARGIN, -OVERLAY_PX - NOTICE_MARGIN * 0.5);
+        let to = at + Vec2::new(width + NOTICE_MARGIN, NOTICE_MARGIN);
+        let (from, to) = (camera.screen_to_world(from), camera.screen_to_world(to));
+        renderer.quad(from, to - from, NOTICE_BOX);
+        let corners = [from, Vec2::new(to.x, from.y), to, Vec2::new(from.x, to.y)];
+        for k in 0..4 {
+            renderer.line(corners[k], corners[(k + 1) % 4], NOTICE_EDGE);
+        }
+        renderer.text(notice, camera.screen_to_world(at), OVERLAY_PX, Color::WHITE);
     }
 }
 
@@ -534,8 +606,13 @@ fn visible_tiles(camera: &Camera, map_width: i32, map_height: i32) -> (TilePos, 
 /// Draws each foundation as its building, see-through. Provisional: the
 /// original draws a foundation with the building's construction graphic in
 /// stages, which Phase 3 step 5 reads from the `.dat`.
-fn draw_foundations<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites: &Sprites) {
-    for (_, foundation) in view.foundations() {
+fn draw_foundations<R: Renderer>(
+    renderer: &mut R,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    for (id, foundation) in view.foundations() {
         let sprite = sprites.building(foundation.kind, foundation.owner);
         let scale = building_scale(sprite, foundation.size);
         let half = foundation.size as f32 * 0.5;
@@ -545,6 +622,17 @@ fn draw_foundations<R: Renderer>(renderer: &mut R, view: WorldView<'_>, sprites:
         );
         let (top_left, drawn) = placed(sprite, centre, scale);
         renderer.sprite_tinted(sprite.texture, top_left, drawn, FOUNDATION);
+        if hud.foundation == Some(id) {
+            outline(renderer, top_left, top_left + drawn);
+        }
+        let origin = Vec2::new(foundation.origin.x as f32, foundation.origin.y as f32);
+        health_bar(
+            renderer,
+            origin,
+            foundation.size as f32,
+            foundation.hp,
+            foundation.max_hp,
+        );
     }
 }
 

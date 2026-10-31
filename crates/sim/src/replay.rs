@@ -49,8 +49,12 @@ impl Replay {
     /// rate, adds `farm` to the gather numbers, and sends villagers on from a
     /// used-up site to the nearest like it; version 17 gives buildings a
     /// cost, a build time, and the population they provide, units the
-    /// population they take, and adds `PlaceBuilding` and foundations.
-    pub const FORMAT_VERSION: u32 = 17;
+    /// population they take, and adds `PlaceBuilding` and foundations;
+    /// version 18 has builders work on foundations, which stand at one hit
+    /// point, keep the damage they take, and are destroyed at none; version
+    /// 19 has `PlaceBuilding` name the villagers that build, not a town
+    /// centre, and adds the `Build` command.
+    pub const FORMAT_VERSION: u32 = 19;
 
     /// How often the checksum is sampled during recording.
     ///

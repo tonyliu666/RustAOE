@@ -114,6 +114,11 @@ pub enum Order {
         building: BuildingId,
         route: Route,
     },
+    /// Walking to a foundation, and working on it once touching it.
+    Build {
+        foundation: FoundationId,
+        route: Route,
+    },
 }
 
 /// How a unit is finding its way to the current goal.
@@ -400,8 +405,10 @@ pub struct Foundation {
     pub size: i32,
     /// Villagers currently building this foundation.
     pub builders: Vec<UnitId>,
-    /// Ticks of build progress (alternative to hp for progress tracking).
-    pub progress_ticks: u32,
+    /// Work done, in thirds of a villager's tick: it is finished at three
+    /// times its build time. Thirds, because each builder past the first
+    /// adds a third of a villager's work. Its hit points follow from it.
+    pub progress: u32,
 }
 
 impl Foundation {
@@ -422,7 +429,7 @@ impl Foundation {
             max_hp,
             size,
             builders: Vec::new(),
-            progress_ticks: 0,
+            progress: 0,
         }
     }
 

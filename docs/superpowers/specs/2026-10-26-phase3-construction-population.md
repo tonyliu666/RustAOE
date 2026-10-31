@@ -154,3 +154,110 @@ from the `.dat`:
   see-through on open ground, red over the town centre.
 - Not done: the `PlaceBuilding` command still names the town centre rather
   than the builders, and no villager walks over to build (step 4).
+
+## Step 3 result: the foundation entity (2026-10-31)
+
+A first attempt existed but was not complete: it added `max_hp / build_time`
+hit points per builder per tick in whole numbers, so a house (900 HP, 500
+ticks) took 900 ticks; builders counted linearly; foundations were left out
+of the checksum; and the tests reached in through public `foundation_mut`,
+`unit_mut`, and `insert_unit`, which bypassed the world's invariants.
+
+- `Foundation::progress` is the work done, in thirds of a villager's tick;
+  a foundation is finished at three times its build time. Its hit points
+  follow from it: `max_hp * progress / (3 * build_time)`.
+- Each tick, `n` living builders add `n + 2` thirds, so one villager takes
+  the build time and `n` take `3t / (n + 2)`. **Provisional**: the rule as
+  players know it; `FUN_004a8470` and `FUN_004a8550` are not in the
+  decompile we hold.
+- A builder that has died stops counting at once; with none left the work
+  pauses, and resumes when another is set to it.
+- A finished foundation becomes its building at full hit points, at the
+  foundation's origin, and blocks its tiles. A unit standing on the
+  footprint then is step 4's question.
+- `World::assign_builder(foundation, unit)` sets a villager of the
+  foundation's owner to work on it, once. It is not a command: step 4's
+  build order calls it when a villager touches the foundation; until then
+  only tests do. The test-only `foundation_mut`, `unit_mut`, and
+  `insert_unit` are gone; the death test kills its builder with an enemy
+  soldier instead.
+- The checksum covers each foundation's kind, owner, hit points, progress,
+  and builder count.
+- No replay format change: no command sets builders yet, so playback is
+  unchanged.
+- Tests: construction (8 for step 3). Mutations caught: 11 of 11 (linear
+  stacking, dead builders counted, hit points not from the work, no
+  blocking, finishing late, no stepping, checksum without the work, checksum
+  without builders, and the three builder checks).
+
+### Step 3 review fixes (2026-10-31)
+
+- A mutant from the step 3 mutation run (`n + 0` thirds a tick) had been
+  left in `world.rs`; restored, with a stray `world.rs.bak` removed.
+- Damage to a foundation was undone the next tick, since its hit points
+  were set from the work. Now work adds the hit points it builds, so damage
+  stays: built hit points are `1 + (max_hp - 1) * progress / (3 *
+  build_time)`.
+- A new foundation stands at one hit point, not none. **Provisional**: as
+  players know the original, not found in the decompile.
+- A foundation brought to no hit points is destroyed (`run_cleanup`).
+- A finished building keeps the damage its foundation took.
+- Replay format 18; version 17 is refused.
+- Tests: construction 19 (3 new), replay_file 1 new. Mutations caught: 3 of
+  3 (hit points set from work, no destruction, full hit points on
+  finishing).
+
+### Not enough resources (2026-10-31, asked by the user)
+
+- A build button, a train button, or a placing click the player cannot pay
+  for orders nothing and shows the original's message, `language.dll`
+  strings 3001 to 3004: "Not enough food.", "Not enough wood.", "Not
+  enough stone.", "Not enough gold.".
+- `ui::shortfall` names the first resource short in the strings' order:
+  food, wood, stone, gold. Which one the original names when several are
+  short is **provisional**.
+- A notice belongs to the player it was shown to (`PlayerUi::notice`) and
+  goes after `NOTICE_SECONDS` (3 s). It is written white in a red box
+  below the debug readout, top left; the box's width is estimated from the
+  character count, not measured. Time, colour, and place are
+  judged by eye: **provisional**. The original's sound is not played.
+- A building picked up and then no longer affordable stays in hand.
+- The sim still refuses an unaffordable order on its own; the check in
+  `app` only gives the message.
+- Tests: session 6, ui 2, draw 4. Mutations caught: 7 of 7 (the box's
+  width is not covered).
+
+
+### Step 4 result: the build order (2026-11-01)
+
+- `Command::PlaceBuilding` now names the villagers that place the building
+  (`units`), not a town centre, and refuses unless one is the player's
+  villager. The placing villagers walk to the foundation and build it, as in
+  the original.
+- `Command::Build { player, units, foundation }` sends the player's
+  villagers to one of the player's own foundations. `Order::Build` walks to
+  the footprint as a gatherer walks to a mine and, on touching it
+  (`run_building`), `World::assign_builder` adds it as a builder.
+- `assign_builder` sets the unit's order to building; a builder whose order
+  changes (move, stop, gather, attack) drops out at once and the work
+  pauses. A destroyed foundation leaves its builders idle.
+- A finished building leaves its builders idle. Units standing on its
+  footprint are put on the first free tile beside it (`move_off`).
+  **Provisional**: the original's way is not yet found. A foundation does
+  not block tiles before it is finished.
+- The sim stays the judge: `app` only chooses the command.
+- Right click on your foundation with villagers selected sends `Build`;
+  with only other units selected they walk there; on an enemy foundation
+  they attack it. A left click selects a foundation (yours or another
+  player's), dropping selected units and buildings. It is drawn with an
+  outline and a health bar; the information panel shows its icon, name,
+  hit points, and a progress bar (frame n is n percent of the work done).
+  Picking is by footprint or the building's drawn body.
+- Not done: the mouse cursor over a foundation is still the arrow; the
+  original's build cursor frame is not looked up yet. A finished mill or
+  camp does not send its builders on to gather. The demo map now starts with
+  200 wood, the original's standard start, so a house can be placed at once.
+- Replay format 19; version 18 is refused.
+- Tests: construction 28 (10 new), session 6 new, draw_entities 4 new,
+  players 1 changed. Mutations caught: 9 of 9 in sim (the foundation in the
+  checksum needed its own test) and 8 of 8 in app.

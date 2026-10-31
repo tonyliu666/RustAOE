@@ -30,9 +30,9 @@ pub use pick::{
     units_in_box, Bodies, Body,
 };
 pub use replay_file::{load, save, ReplayError};
-pub use session::{PlayerUi, Session};
+pub use session::{Notice, PlayerUi, Session, NOTICE_SECONDS};
 pub use sprites::{
     assets_dir, load_images, unskew_tile, AssetError, GameImages, Sprite, Sprites,
     UNIT_PIXELS_PER_TILE,
 };
-pub use ui::{builds_on_buttons, Layout, Rect};
+pub use ui::{builds_on_buttons, not_enough, shortfall, Layout, Rect};

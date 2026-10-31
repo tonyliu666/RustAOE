@@ -80,7 +80,7 @@ the current phase's spec.
 
 ## Rules and gotchas learned
 
-- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 17).
+- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 19).
   - Bump it whenever playback or the layout changes.
   - Add a test in `crates/app/tests/replay_file.rs` that refuses the previous
     version.
@@ -157,6 +157,24 @@ the current phase's spec.
 - `default.ron` and `Content::default` match the conversion; the
   real-file gate checks it.
 
+### Foundations (Phase 3 step 3, 2026-10-31)
+
+- `Foundation::progress` counts work in thirds of a villager's tick and is
+  finished at `3 * build_time`; `hp` follows from it.
+- `n` builders add `n + 2` thirds a tick: `3t / (n + 2)` in all.
+  Provisional, the rule as players know it.
+- Dead builders drop out at once; the work pauses without builders.
+- A finished foundation becomes its building and blocks its tiles.
+- `World::assign_builder` is the only way to add a builder, and is not a
+  command: only the build order (`run_building`) calls it in play.
+- A new foundation stands at 1 HP (provisional). Work adds the hit points
+  it builds, so damage stays; at 0 HP a foundation is destroyed; a finished
+  building keeps the damage.
+- The checksum covers foundations.
+- Mutation scripts: decide by the `--- FAILED` lines of the one test
+  target you mean, not by any `test result: ok` line, since a crate's empty
+  lib-test run also prints one.
+
 ### Placing a building (Phase 3 step 2, 2026-10-31)
 
 - **Panel:** with only your villagers selected, the command panel shows
@@ -182,6 +200,31 @@ the current phase's spec.
   than the last build, so cargo runs the stale mutant. `touch` the restored
   sources before trusting the next test run.
 
+### The build order (Phase 3 step 4, 2026-11-01)
+
+- `PlaceBuilding { units, .. }` names the placing villagers, who then walk
+  over and build; `Build { units, foundation }` sends villagers to your
+  own foundation (right click). `Order::Build` works like a gather walk:
+  on touching the footprint, `assign_builder`. A changed order drops a
+  builder out of the work.
+- A finished building idles its builders and puts units standing on its
+  footprint on the first free tile beside it (provisional).
+- Foundations can be selected (`PlayerUi::foundation`, picked by
+  `pick::foundation_at`); the information panel shows hit points and a
+  progress bar; they get an outline and a health bar.
+- The demo map starts with 200 wood.
+- Not done: the build cursor, builders going on to gather after a mill or
+  camp, a foundation blocking tiles before it is finished.
+
+### Not enough resources (2026-10-31)
+
+- An unaffordable build button, train button, or placing click orders
+  nothing and sets `PlayerUi::notice` to the original's message
+  (`ui::not_enough`, `language.dll` 3001 to 3004), chosen by
+  `ui::shortfall`. It shows for `NOTICE_SECONDS` (3 s), in a red box top left (by eye).
+- The demo map starts with 200 food, 200 gold, and no wood, so the first
+  house needs wood chopped first.
+
 ## Where we are (2026-10-31)
 
 **Phase 2 (four resources) is complete.** The spec has a result for each
@@ -191,8 +234,9 @@ test that holds `default.ron` to the conversion needs the install:
 
 **Phase 3** (construction and population) is under way; its spec is
 `docs/superpowers/specs/2026-10-26-phase3-construction-population.md`.
-Steps 1 (content and datconv) and 2 (placing a building) are done.
-**Next: step 3** (the foundation entity) and step 4 (villagers build it).
+Steps 1 (content and datconv), 2 (placing a building), 3 (the foundation
+entity), and 4 (the build order) are done. **Next: step 5**, the
+construction graphics read from the `.dat`.
 
 Known provisional items:
 - Annex offsets are not added.

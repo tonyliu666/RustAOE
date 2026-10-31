@@ -372,7 +372,7 @@ fn a_replay_from_before_hand_drop_offs_stood_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 12,
-                expected: 17
+                expected: 19
             })
         ),
         "{error:?}"
@@ -392,7 +392,7 @@ fn a_replay_from_before_original_numbers_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 13,
-                expected: 17
+                expected: 19
             })
         ),
         "{error:?}"
@@ -410,7 +410,7 @@ fn a_replay_from_before_walled_in_drop_offs_were_passed_by_is_refused_by_version
             error,
             Err(app::ReplayError::Version {
                 found: 14,
-                expected: 17
+                expected: 19
             })
         ),
         "{error:?}"
@@ -428,7 +428,7 @@ fn a_replay_from_before_villagers_went_on_from_a_used_up_site_is_refused_by_vers
             error,
             Err(app::ReplayError::Version {
                 found: 15,
-                expected: 17
+                expected: 19
             })
         ),
         "{error:?}"
@@ -446,7 +446,43 @@ fn a_replay_from_before_buildings_were_placed_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 16,
-                expected: 17
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_foundations_were_built_is_refused_by_version() {
+    // Version 17's foundations stood at no hit points, could not be
+    // destroyed, and were never worked on.
+    let error = load_text("version-seventeen", "(version: 17, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 17,
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_the_build_order_is_refused_by_version() {
+    // Version 18 placed a building through a town centre and sent no one
+    // to build it.
+    let error = load_text("version-eighteen", "(version: 18, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 18,
+                expected: 19
             })
         ),
         "{error:?}"

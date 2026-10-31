@@ -252,11 +252,12 @@ impl MapSpec {
         let mining_camp = content
             .building_named("mining_camp")
             .ok_or_else(|| missing("mining_camp"))?;
-        // The original's standard 200 food, so villagers can be trained
-        // before food can be gathered (plan Phase 2), and 200 gold for the
-        // barracks.
+        // The original's standard 200 food and 200 wood, so villagers can be
+        // trained and a house put down before anything is gathered, and 200
+        // gold for the barracks.
         let mut map = MapSpec::new(SIZE, SIZE).with_starting_resources(Resources {
             food: 200,
+            wood: 200,
             gold: 200,
             ..Resources::default()
         });
@@ -351,11 +352,20 @@ pub enum Command {
         building: BuildingId,
     },
     /// Place a new building foundation. Cost is paid immediately.
+    /// Puts a foundation down and sends `units`, the villagers that placed
+    /// it, to build it, as in the original. Refused unless at least one of
+    /// them is the player's villager.
     PlaceBuilding {
         player: PlayerId,
-        building: BuildingId,
+        units: SmallVec<[UnitId; 32]>,
         kind: BuildingKind,
         origin: TilePos,
+    },
+    /// Sends the player's villagers to work on one of their foundations.
+    Build {
+        player: PlayerId,
+        units: SmallVec<[UnitId; 32]>,
+        foundation: FoundationId,
     },
 }
 
@@ -369,7 +379,8 @@ impl Command {
             | Command::Train { player, .. }
             | Command::Stop { player, .. }
             | Command::Deposit { player, .. }
-            | Command::PlaceBuilding { player, .. } => *player,
+            | Command::PlaceBuilding { player, .. }
+            | Command::Build { player, .. } => *player,
         }
     }
 }
@@ -502,6 +513,8 @@ impl World {
         self.drain_path_queue();
         self.run_movement();
         self.run_combat();
+        self.run_building();
+        self.step_foundations();
         self.run_cleanup();
         self.check_win();
         self.tick += 1;
@@ -520,6 +533,32 @@ impl World {
     /// command mapping.
     pub const fn view(&self) -> WorldView<'_> {
         WorldView { world: self }
+    }
+
+    /// Sets `unit` to work on `foundation`, if it is a villager of the
+    /// foundation's owner not already working on it. Whether it did.
+    ///
+    /// The build order calls this once a villager touches the foundation, and
+    /// the unit's order becomes building it. It is not a command, so the game
+    /// must not call it from input.
+    pub fn assign_builder(&mut self, id: FoundationId, unit: UnitId) -> bool {
+        let Some(builder) = self.units.get(unit) else {
+            return false;
+        };
+        let gathers = self.content.unit(builder.kind).gathers;
+        let owner = builder.owner;
+        let Some(foundation) = self.foundations.get_mut(id) else {
+            return false;
+        };
+        if !gathers || owner != foundation.owner || foundation.builders.contains(&unit) {
+            return false;
+        }
+        foundation.builders.push(unit);
+        self.units[unit].order = Order::Build {
+            foundation: id,
+            route: Route::Arrived,
+        };
+        true
     }
 
     /// FNV-1a over the state that a desync would show up in.
@@ -570,6 +609,13 @@ impl World {
             for kind in &building.queue {
                 eat(unit_kind_code(*kind));
             }
+        }
+        for (_, foundation) in &self.foundations {
+            eat(building_kind_code(foundation.kind));
+            eat(foundation.owner.index() as u64);
+            eat(foundation.hp as u32 as u64);
+            eat(u64::from(foundation.progress));
+            eat(foundation.builders.len() as u64);
         }
         for (_, site) in &self.sites {
             eat(resource_code(site.resource));
@@ -638,10 +684,15 @@ impl World {
                 } => self.order_deposit(*player, units, *building),
                 Command::PlaceBuilding {
                     player,
-                    building,
+                    units,
                     kind,
                     origin,
-                } => self.order_place_building(*player, *building, *kind, *origin),
+                } => self.order_place_building(*player, units, *kind, *origin),
+                Command::Build {
+                    player,
+                    units,
+                    foundation,
+                } => self.order_build(*player, units, *foundation),
             }
         }
     }
@@ -819,24 +870,13 @@ impl World {
     fn order_place_building(
         &mut self,
         player: PlayerId,
-        building: BuildingId,
+        units: &[UnitId],
         kind: BuildingKind,
         origin: TilePos,
     ) {
-        // The building issuing the command must exist and belong to the player.
-        let Some(target) = self.buildings.get(building) else {
-            return;
-        };
-        if target.owner != player {
-            return;
-        }
-        // Only buildings that train villagers (town center) can place buildings.
-        if !self
-            .content
-            .building(target.kind)
-            .trains
-            .contains(&UnitKind::VILLAGER)
-        {
+        // Villagers place buildings: at least one must be the player's.
+        let builders = self.builders_among(player, units);
+        if builders.is_empty() {
             return;
         }
         if !self.can_place(kind, origin) {
@@ -850,11 +890,52 @@ impl World {
         }
         // Charge cost immediately (refunded if cancelled before construction).
         *stock = stock.saturating_sub(cost);
-        // Create foundation with 0 HP.
+        // A new foundation stands with one hit point, so an attack can
+        // destroy it before any work is done. Provisional: by the original
+        // as players know it, not yet found in the decompile.
         let max_hp = self.content.building(kind).max_hp;
         let size = self.content.building(kind).size;
-        let foundation = Foundation::new(kind, player, origin, 0, size, max_hp);
-        self.foundations.insert(foundation);
+        let foundation = Foundation::new(kind, player, origin, 1, size, max_hp);
+        let foundation = self.foundations.insert(foundation);
+        self.send_to_build(&builders, foundation);
+    }
+
+    /// The units among `units` that are `player`'s and build.
+    fn builders_among(&self, player: PlayerId, units: &[UnitId]) -> Vec<UnitId> {
+        self.owned(player, units)
+            .into_iter()
+            .filter(|id| self.content.unit(self.units[*id].kind).gathers)
+            .collect()
+    }
+
+    fn order_build(&mut self, player: PlayerId, units: &[UnitId], foundation: FoundationId) {
+        if self
+            .foundations
+            .get(foundation)
+            .is_none_or(|f| f.owner != player)
+        {
+            return;
+        }
+        let builders = self.builders_among(player, units);
+        self.send_to_build(&builders, foundation);
+    }
+
+    /// Sends `builders` to walk to `foundation`; they work on it once they
+    /// touch it (`run_building`). With no tile beside it to stand on, they
+    /// stand.
+    fn send_to_build(&mut self, builders: &[UnitId], foundation: FoundationId) {
+        let (origin, size) = {
+            let f = &self.foundations[foundation];
+            (f.origin, f.size)
+        };
+        let route = self.plan_adjacent(builders, origin, size);
+        for &id in builders {
+            self.units[id].order = Order::Build {
+                foundation,
+                route: route.clone(),
+            };
+            self.units[id].stuck_ticks = 0;
+        }
     }
 
     /// Whether a `kind` building may go down with its footprint at
@@ -1260,6 +1341,9 @@ impl World {
             | Order::Deposit { building, .. } => {
                 self.buildings.get(building).map(|b| (b.origin, b.size))
             }
+            Order::Build { foundation, .. } => {
+                self.foundations.get(foundation).map(|f| (f.origin, f.size))
+            }
             _ => None,
         }
     }
@@ -1596,6 +1680,9 @@ impl World {
 
     fn run_cleanup(&mut self) {
         self.units.retain(|_, unit| unit.hp > 0);
+        // A foundation brought to no hit points is destroyed. It blocks no
+        // tiles, so nothing else changes.
+        self.foundations.retain(|_, foundation| foundation.hp > 0);
 
         // A site with nothing left disappears; a tree or mine frees its tile.
         let used_up: Vec<SiteId> = self
@@ -1634,6 +1721,113 @@ impl World {
         }
         for (id, site) in removed {
             self.go_on_from(id, &site);
+        }
+    }
+
+    // --- construction --------------------------------------------------------
+
+    /// Advances the work on every foundation with builders, and turns each
+    /// finished one into its building.
+    ///
+    /// One villager finishes a building in its build time; `n` builders
+    /// finish it in `3t / (n + 2)`, each past the first adding a third of a
+    /// villager's work. Provisional: the original's rule as players know it,
+    /// not yet found in the decompile. A builder that has died or gone
+    /// stops counting, so the work pauses until another is set to it.
+    fn step_foundations(&mut self) {
+        let mut finished = Vec::new();
+        for (id, foundation) in self.foundations.iter_mut() {
+            let units = &self.units;
+            foundation.builders.retain(|builder| {
+                units.get(*builder).is_some_and(|u| {
+                    u.hp > 0
+                        && matches!(u.order, Order::Build { foundation, .. } if foundation == id)
+                })
+            });
+            let Some(build_time) = self.content.building(foundation.kind).build_time else {
+                continue;
+            };
+            let builders = foundation.builders.len() as u32;
+            if builders == 0 {
+                continue;
+            }
+            let whole = build_time.saturating_mul(3);
+            // The hit points the work so far has built: one at the start, all
+            // of them when finished. Work adds to the hit points rather than
+            // setting them, so damage taken meanwhile stays.
+            let built = |progress: u32| {
+                1 + (i64::from(foundation.max_hp - 1) * i64::from(progress) / i64::from(whole))
+                    as i32
+            };
+            let before = built(foundation.progress);
+            foundation.progress = foundation
+                .progress
+                .saturating_add(builders.saturating_add(2))
+                .min(whole);
+            foundation.hp = foundation
+                .hp
+                .saturating_add(built(foundation.progress) - before);
+            if foundation.progress == whole {
+                finished.push(id);
+            }
+        }
+        for id in finished {
+            let foundation = self.foundations.remove(id).expect("listed above");
+            // Damage taken while it was built stays with the building.
+            let building = Building::new(
+                foundation.kind,
+                foundation.owner,
+                foundation.origin,
+                foundation.hp,
+                foundation.size,
+            );
+            for builder in &foundation.builders {
+                self.units[*builder].order = Order::Idle;
+            }
+            self.move_off(building.origin, building.size);
+            self.stamp(building.footprint(), Tile::BLOCKED);
+            self.buildings.insert(building);
+        }
+    }
+
+    /// Walks each villager to work: one that touches its foundation starts
+    /// building it; one whose foundation is gone stands.
+    fn run_building(&mut self) {
+        let ids: Vec<UnitId> = self.units.keys().collect();
+        for id in ids {
+            let Order::Build { foundation, .. } = self.units[id].order else {
+                continue;
+            };
+            let Some(target) = self.foundations.get(foundation) else {
+                self.units[id].order = Order::Idle;
+                continue;
+            };
+            let (origin, size) = (target.origin, target.size);
+            if self.touches(id, origin, size) {
+                self.assign_builder(foundation, id);
+            }
+        }
+    }
+
+    /// Sets every unit standing on the footprint on the nearest free tile
+    /// beside it, as a finished building would otherwise wall them in.
+    /// Provisional: the original's way is not yet found.
+    fn move_off(&mut self, origin: TilePos, size: i32) {
+        let inside = |tile: TilePos| {
+            (origin.x..origin.x + size).contains(&tile.x)
+                && (origin.y..origin.y + size).contains(&tile.y)
+        };
+        let Some(beside) = self.free_tile_beside(origin, size) else {
+            return;
+        };
+        let stuck: Vec<UnitId> = self
+            .units
+            .iter()
+            .filter(|(_, u)| inside(u.tile()))
+            .map(|(id, _)| id)
+            .collect();
+        for id in stuck {
+            self.units[id].pos = FxVec2::tile_center(beside);
         }
     }
 
@@ -1727,7 +1921,8 @@ impl Order {
             Order::Move { route, .. }
             | Order::Attack { route, .. }
             | Order::Gather { route, .. }
-            | Order::Deposit { route, .. } => Some(route),
+            | Order::Deposit { route, .. }
+            | Order::Build { route, .. } => Some(route),
         }
     }
 
@@ -1737,7 +1932,8 @@ impl Order {
             Order::Move { route, .. }
             | Order::Attack { route, .. }
             | Order::Gather { route, .. }
-            | Order::Deposit { route, .. } => {
+            | Order::Deposit { route, .. }
+            | Order::Build { route, .. } => {
                 *route = new_route;
             }
         }
@@ -1925,6 +2121,7 @@ fn order_words(order: &Order) -> [u64; 5] {
             [3, mine.data().as_ffi(), phase, building, 0]
         }
         Order::Deposit { building, .. } => [4, building.data().as_ffi(), 0, 0, 0],
+        Order::Build { foundation, .. } => [5, foundation.data().as_ffi(), 0, 0, 0],
     }
 }
 

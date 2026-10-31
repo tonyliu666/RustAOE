@@ -23,6 +23,8 @@ fn hud<'a>(selection: &'a [UnitId], drag_box: Option<(Vec2, Vec2)>) -> Hud<'a> {
         selection,
         building: None,
         placing_building: None,
+        notice: None,
+        foundation: None,
         drag_box,
         replaying: false,
         cursor_world: Vec2::ZERO,
@@ -450,6 +452,8 @@ fn another_players_villager_shows_no_build_buttons() {
 fn placing_at(cursor: Vec2) -> Hud<'static> {
     Hud {
         placing_building: Some(BuildingKind::HOUSE),
+        notice: None,
+        foundation: None,
         cursor_world: cursor,
         ..hud(&[], None)
     }
@@ -532,12 +536,13 @@ fn a_placed_foundation_is_drawn_see_through_as_its_building() {
             wood: 200,
             ..Resources::default()
         })
-        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1));
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6));
     let mut world = World::new(7, map);
-    let town_centre = barracks_of(&world, PlayerId::ONE);
+    let villager = world.view().units().next().expect("a villager").0;
     world.step(&[Command::PlaceBuilding {
         player: PlayerId::ONE,
-        building: town_centre,
+        units: smallvec![villager],
         kind: BuildingKind::HOUSE,
         origin: TilePos::new(8, 8),
     }]);
@@ -1096,4 +1101,161 @@ fn a_villager_carrying_stone_says_stone() {
         "{:?}",
         texts(&renderer)
     );
+}
+
+// --- a foundation: picked, shown on the panel, and with its hit points ------------------
+
+/// A house foundation at (8, 8) that one villager has built for `ticks`.
+fn foundation_after(ticks: u32) -> (World, sim::FoundationId) {
+    let map = MapSpec::new(16, 16)
+        .with_starting_resources(Resources {
+            wood: 200,
+            ..Resources::default()
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(7, 8));
+    let mut world = World::new(7, map);
+    let villager = world.view().units().next().expect("a villager").0;
+    world.step(&[Command::PlaceBuilding {
+        player: PlayerId::ONE,
+        units: smallvec![villager],
+        kind: BuildingKind::HOUSE,
+        origin: TilePos::new(8, 8),
+    }]);
+    for _ in 0..ticks {
+        world.step(&[]);
+    }
+    let foundation = world.view().foundations().next().expect("a foundation").0;
+    (world, foundation)
+}
+
+fn draw_with_foundation_selected(
+    renderer: &mut RecordingRenderer,
+    world: &World,
+    foundation: sim::FoundationId,
+) -> Sprites {
+    let hud = Hud {
+        foundation: Some(foundation),
+        ..hud(&[], None)
+    };
+    draw(renderer, world, &hud)
+}
+
+#[test]
+fn the_information_panel_shows_a_selected_foundations_icon_name_and_hit_points() {
+    let mut renderer = RecordingRenderer::new();
+    let (world, foundation) = foundation_after(100);
+
+    let sprites = draw_with_foundation_selected(&mut renderer, &world, foundation);
+
+    let layout = app::Layout::new(camera().viewport);
+    let icon = sprites.building_icon(BuildingKind::HOUSE).texture;
+    assert_eq!(
+        drawn_with(&renderer, icon),
+        [in_world(layout.building_icon)]
+    );
+    let stats = world.view().content().building(BuildingKind::HOUSE);
+    let hp = world.view().foundation(foundation).expect("there").hp;
+    let texts = texts(&renderer);
+    let camera = camera();
+    assert!(
+        texts.contains(&(stats.name.clone(), camera.screen_to_world(layout.name_at))),
+        "{texts:?}"
+    );
+    assert!(
+        texts.contains(&(
+            format!("{hp}/{}", stats.max_hp),
+            camera.screen_to_world(layout.hit_points_at)
+        )),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn a_selected_foundations_progress_bar_shows_the_work_done() {
+    // One villager for half the build time: frame 50 of the original's bar.
+    let ticks = sim::Content::default()
+        .building(BuildingKind::HOUSE)
+        .build_time
+        .expect("a house is built");
+    let (world, foundation) = foundation_after(0);
+    // Walk the villager over first, then count the work from there.
+    let mut world = world;
+    while world
+        .view()
+        .foundation(foundation)
+        .expect("there")
+        .builders
+        .is_empty()
+    {
+        world.step(&[]);
+    }
+    // The first tick of work was done on touching.
+    for _ in 0..ticks / 2 - 1 {
+        world.step(&[]);
+    }
+    let mut renderer = RecordingRenderer::new();
+
+    let sprites = draw_with_foundation_selected(&mut renderer, &world, foundation);
+
+    let layout = app::Layout::new(camera().viewport);
+    let drawn: Vec<usize> = sprites
+        .progress
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| !drawn_with(&renderer, s.texture).is_empty())
+        .map(|(frame, _)| frame)
+        .collect();
+    assert_eq!(drawn.len(), 1, "{drawn:?}");
+    assert!((49..=51).contains(&drawn[0]), "{drawn:?}");
+    assert_eq!(
+        drawn_with(&renderer, sprites.progress[drawn[0]].texture),
+        [in_world(layout.progress_bar)]
+    );
+}
+
+#[test]
+fn an_unselected_foundation_has_no_progress_bar_on_the_panel() {
+    let mut renderer = RecordingRenderer::new();
+    let (world, _) = foundation_after(50);
+
+    let sprites = draw(&mut renderer, &world, &hud(&[], None));
+
+    for frame in &sprites.progress {
+        assert_eq!(drawn_with(&renderer, frame.texture), []);
+    }
+}
+
+#[test]
+fn a_foundation_under_construction_has_a_health_bar_and_a_selected_one_an_outline() {
+    let (with, foundation) = foundation_after(10);
+    let without = {
+        let map = MapSpec::new(16, 16)
+            .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+            .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(7, 8));
+        World::new(7, map)
+    };
+    let count = |world: &World, hud: &Hud<'_>| {
+        let mut renderer = RecordingRenderer::new();
+        draw(&mut renderer, world, hud);
+        let lines = renderer
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, DrawCall::Line { .. }))
+            .count();
+        (renderer.quads().count(), lines)
+    };
+    let plain = hud(&[], None);
+    let selected = Hud {
+        foundation: Some(foundation),
+        ..hud(&[], None)
+    };
+
+    let (bare_quads, bare_lines) = count(&without, &plain);
+    let (quads, lines) = count(&with, &plain);
+    let (_, selected_lines) = count(&with, &selected);
+
+    assert_eq!(quads, bare_quads + 2, "a health bar's two quads");
+    assert_eq!(lines, bare_lines);
+    assert_eq!(selected_lines, lines + 4, "an outline's four lines");
 }

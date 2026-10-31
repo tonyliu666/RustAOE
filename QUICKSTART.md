@@ -102,8 +102,11 @@ the bottom-right, behind a band of forest.
 | Right click an enemy | Attack it |
 | Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 food; barracks: soldier, 60 gold) |
 | Left click a building button | With only your villagers selected, the command panel shows the buildings they can put down: house, barracks, mill, lumber camp, mining camp. A click picks one up to place |
-| Left click the map while placing | Put the building's foundation down there, centred on the cursor, and pay its cost. Where it may not go (off the map, on impassable ground, on a building, foundation, or resource) the building under the cursor is drawn red and nothing is placed |
+| Left click the map while placing | Put the building's foundation down there, centred on the cursor, pay its cost, and send the selected villagers to build it. Where it may not go (off the map, on impassable ground, on a building, foundation, or resource) the building under the cursor is drawn red and nothing is placed |
 | Right click or `Esc` while placing | Put the building back without placing it |
+| Right click your foundation (villagers selected) | The villagers walk to it and build it. A house takes one villager about 25 seconds; each further villager makes it quicker (provisional rule) |
+| Left click a foundation | Select it: the panel shows its hit points and a progress bar of the work done. A foundation is the see-through building, with a health bar |
+| Any button you cannot pay for | Nothing happens, and a message in a red box, such as "Not enough wood.", shows at the top left for 3 seconds |
 | `1` to `9` | Press a command panel button by position: `1` is the first button. With nothing selected, they do nothing |
 | `Tab` | Hand the keyboard to the next player |
 | `Esc` | Quit (while placing a building, cancels the placement instead) |

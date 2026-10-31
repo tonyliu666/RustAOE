@@ -348,9 +348,10 @@ fn two_players_losing_their_last_buildings_on_the_same_tick_is_a_draw() {
 }
 
 #[test]
-fn every_player_on_the_proof_of_concept_map_starts_with_food_and_gold() {
-    // 200 food, the original's standard start, so the town centre can train
-    // villagers before food can be gathered; 200 gold for the barracks.
+fn every_player_on_the_proof_of_concept_map_starts_with_food_wood_and_gold() {
+    // 200 food and 200 wood, the original's standard start, so the town
+    // centre can train villagers and villagers can put down a first house
+    // before anything is gathered; 200 gold for the barracks.
     let content = sim::Content::default();
     let world = World::new(
         1,
@@ -359,6 +360,10 @@ fn every_player_on_the_proof_of_concept_map_starts_with_food_and_gold() {
 
     for player in [PlayerId::ONE, PlayerId::TWO] {
         let stock = world.view().resources(player);
-        assert_eq!((stock.food, stock.gold), (200, 200), "{player:?}");
+        assert_eq!(
+            (stock.food, stock.wood, stock.gold),
+            (200, 200, 200),
+            "{player:?}"
+        );
     }
 }

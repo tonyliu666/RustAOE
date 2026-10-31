@@ -5,8 +5,8 @@
 
 use render::Vec2;
 use sim::{
-    Building, BuildingId, BuildingKind, EntityId, FxVec2, PlayerId, Resource, SiteId, TilePos,
-    UnitId, UnitKind, WorldView,
+    Building, BuildingId, BuildingKind, EntityId, FoundationId, FxVec2, PlayerId, Resource, SiteId,
+    TilePos, UnitId, UnitKind, WorldView,
 };
 
 /// Converts a fixed-point world position into the renderer's floats.
@@ -203,6 +203,26 @@ pub fn building_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies) -> Option<
         .map(|(id, _)| id)
 }
 
+/// The foundation under `world`: on its footprint or on the drawn body of
+/// the building it will be. Where they overlap, the one lower on screen wins.
+pub fn foundation_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies) -> Option<FoundationId> {
+    let tile = tile_at(world);
+    view.foundations()
+        .filter(|(_, f)| {
+            f.footprint().any(|t| t == tile)
+                || bodies.building(f.kind).is_some_and(|body| {
+                    let (lo, hi) = body.at(to_screen_space(f.center()));
+                    (lo.x..=hi.x).contains(&world.x) && (lo.y..=hi.y).contains(&world.y)
+                })
+        })
+        .max_by(|(_, a), (_, b)| {
+            to_screen_space(a.center())
+                .y
+                .total_cmp(&to_screen_space(b.center()).y)
+        })
+        .map(|(id, _)| id)
+}
+
 /// The centre of a building's footprint, where its sprite stands.
 pub fn footprint_centre(building: &Building) -> Vec2 {
     let half = building.size as f32 / 2.0;
@@ -242,6 +262,7 @@ pub fn entity_at(view: WorldView<'_>, world: Vec2, bodies: &Bodies, min: f32) ->
     unit_at(view, world, bodies, min)
         .map(EntityId::Unit)
         .or_else(|| building_at(view, world, bodies).map(EntityId::Building))
+        .or_else(|| foundation_at(view, world, bodies).map(EntityId::Foundation))
         .or_else(|| site_at(view, world, bodies).map(EntityId::Site))
 }
 

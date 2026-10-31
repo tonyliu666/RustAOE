@@ -6,7 +6,7 @@
 //! of the window size, so it is tested without a window.
 
 use render::Vec2;
-use sim::{BuildingId, BuildingKind, PlayerId, Resource, UnitId, UnitKind, WorldView};
+use sim::{BuildingId, BuildingKind, PlayerId, Resource, Resources, UnitId, UnitKind, WorldView};
 
 /// The size of the image the rectangles below were measured on.
 const IMAGE: Vec2 = Vec2::new(800.0, 600.0);
@@ -259,4 +259,29 @@ pub fn trains_on_buttons(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The first resource `stock` holds too little of to pay `cost`, in the
+/// order of the original's messages: food, wood, stone, gold. Which one the
+/// original names when several are short is provisional.
+pub fn shortfall(cost: Resources, stock: Resources) -> Option<Resource> {
+    [
+        Resource::Food,
+        Resource::Wood,
+        Resource::Stone,
+        Resource::Gold,
+    ]
+    .into_iter()
+    .find(|&resource| stock.get(resource) < cost.get(resource))
+}
+
+/// The original's message for too little of `resource` (`language.dll`
+/// strings 3001 to 3004).
+pub const fn not_enough(resource: Resource) -> &'static str {
+    match resource {
+        Resource::Food => "Not enough food.",
+        Resource::Wood => "Not enough wood.",
+        Resource::Stone => "Not enough stone.",
+        Resource::Gold => "Not enough gold.",
+    }
 }

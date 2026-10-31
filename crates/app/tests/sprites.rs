@@ -23,6 +23,8 @@ fn hud() -> Hud<'static> {
         selection: &[],
         building: None,
         placing_building: None,
+        notice: None,
+        foundation: None,
         drag_box: None,
         replaying: false,
         cursor_world: Vec2::ZERO,

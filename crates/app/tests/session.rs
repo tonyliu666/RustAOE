@@ -5,7 +5,9 @@
 
 use app::Session;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
-use sim::{BuildingKind, Command, EntityId, MapSpec, PlayerId, TilePos, UnitId, UnitKind, World};
+use sim::{
+    BuildingKind, Command, EntityId, MapSpec, PlayerId, Resources, TilePos, UnitId, UnitKind, World,
+};
 
 /// A camera showing the middle 8x8 tiles of the 16x16 map, with room to
 /// scroll either way.
@@ -25,7 +27,12 @@ fn session() -> Session {
 /// building each so that neither side has already lost.
 fn map() -> MapSpec {
     MapSpec::new(16, 16)
-        .with_starting_gold(200)
+        .with_starting_resources(Resources {
+            food: 200,
+            wood: 200,
+            gold: 200,
+            stone: 0,
+        })
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(0, 0))
         .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(0, 12))
         .with_building(
@@ -1232,12 +1239,12 @@ fn a_left_click_on_the_map_places_the_house_centred_on_the_cursor() {
         at(Vec2::new(9.2, 8.9)),
     );
 
-    let town_centre = building_of(&world, PlayerId::ONE, BuildingKind::TOWN_CENTER);
+    let villager = session.selection().to_vec();
     assert_eq!(
         commands,
         [Command::PlaceBuilding {
             player: PlayerId::ONE,
-            building: town_centre,
+            units: villager.into_iter().collect(),
             kind: BuildingKind::HOUSE,
             origin: TilePos::new(8, 8),
         }]
@@ -1312,4 +1319,301 @@ fn a_mixed_selection_offers_no_buildings() {
     click(&mut session, &world, MouseButton::Left, button(0));
 
     assert_eq!(placing(&session), None);
+}
+
+// --- not enough resources ---------------------------------------------------------
+
+/// The test map with player one's stockpile replaced by `stock`.
+fn world_with(stock: Resources) -> World {
+    World::new(3, map().with_starting_resources(stock))
+}
+
+#[test]
+fn a_build_button_you_cannot_afford_says_what_is_short_and_picks_up_nothing() {
+    // A house costs 30 wood.
+    let world = world_with(Resources {
+        wood: 29,
+        ..Resources::default()
+    });
+    let mut session = session();
+
+    start_placing_a_house(&mut session, &world);
+
+    assert_eq!(placing(&session), None);
+    assert_eq!(session.notice(), Some("Not enough wood."));
+}
+
+#[test]
+fn a_train_button_you_cannot_afford_says_what_is_short_and_orders_nothing() {
+    // A villager costs 50 food.
+    let world = world_with(Resources::default());
+    let mut session = session();
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(TOWN_CENTRE_MIDDLE),
+    );
+
+    let commands = click(&mut session, &world, MouseButton::Left, button(0));
+
+    assert_eq!(commands, []);
+    assert_eq!(session.notice(), Some("Not enough food."));
+}
+
+#[test]
+fn placing_a_house_no_longer_affordable_says_so_and_places_nothing() {
+    let rich = world();
+    let mut session = session();
+    start_placing_a_house(&mut session, &rich);
+    let poor = world_with(Resources::default());
+
+    let commands = click(
+        &mut session,
+        &poor,
+        MouseButton::Left,
+        at(Vec2::new(9.0, 9.0)),
+    );
+
+    assert_eq!(commands, []);
+    assert_eq!(session.notice(), Some("Not enough wood."));
+}
+
+#[test]
+fn an_affordable_button_says_nothing() {
+    let world = world();
+    let mut session = session();
+
+    start_placing_a_house(&mut session, &world);
+
+    assert_eq!(session.notice(), None);
+}
+
+#[test]
+fn a_notice_goes_once_its_time_is_up() {
+    let world = world_with(Resources::default());
+    let mut session = session();
+    start_placing_a_house(&mut session, &world);
+
+    session.update(
+        &at_cursor(at(Vec2::new(9.0, 9.0))),
+        app::NOTICE_SECONDS - 0.1,
+        world.view(),
+    );
+    assert!(session.notice().is_some(), "still showing");
+    session.update(&at_cursor(at(Vec2::new(9.0, 9.0))), 0.2, world.view());
+    assert_eq!(session.notice(), None);
+}
+
+#[test]
+fn a_notice_belongs_to_the_player_it_was_shown_to() {
+    let world = world_with(Resources::default());
+    let mut session = session();
+    start_placing_a_house(&mut session, &world);
+
+    session.update(&press(Key::Tab), 0.0, world.view());
+
+    assert_eq!(session.notice(), None);
+}
+
+// --- building: foundations picked and ordered on ----------------------------------
+
+/// A foundation of `player` for a house, put down by that player's villager.
+fn foundation_of(world: &mut World, player: PlayerId, origin: TilePos) -> sim::FoundationId {
+    let villager = units_of(world, player)
+        .into_iter()
+        .find(|id| {
+            world
+                .view()
+                .unit(*id)
+                .is_some_and(|u| u.kind == UnitKind::VILLAGER)
+        })
+        .expect("a villager");
+    world.step(&[Command::PlaceBuilding {
+        player,
+        units: [villager].into_iter().collect(),
+        kind: BuildingKind::HOUSE,
+        origin,
+    }]);
+    world
+        .view()
+        .foundations()
+        .find(|(_, f)| f.owner == player)
+        .expect("a foundation")
+        .0
+}
+
+/// The middle of player one's foundation at (8, 6): further than a click's
+/// reach from every unit on the map.
+const FOUNDATION_MIDDLE: Vec2 = Vec2::new(9.0, 7.0);
+
+fn world_with_foundation() -> (World, sim::FoundationId) {
+    let mut world = world_with(Resources {
+        wood: 200,
+        ..Resources::default()
+    });
+    let foundation = foundation_of(&mut world, PlayerId::ONE, TilePos::new(8, 6));
+    (world, foundation)
+}
+
+#[test]
+fn right_clicking_your_foundation_sends_the_selected_villagers_to_build() {
+    let (world, foundation) = world_with_foundation();
+    let mut session = session();
+    let villager = units_of(&world, PlayerId::ONE)
+        .into_iter()
+        .find(|id| {
+            world
+                .view()
+                .unit(*id)
+                .is_some_and(|u| u.kind == UnitKind::VILLAGER)
+        })
+        .expect("a villager");
+    let feet = app::to_screen_space(world.view().unit(villager).expect("alive").pos);
+    click(&mut session, &world, MouseButton::Left, at(feet));
+    assert_eq!(session.selection(), [villager]);
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(FOUNDATION_MIDDLE),
+    );
+
+    assert_eq!(
+        commands,
+        [Command::Build {
+            player: PlayerId::ONE,
+            units: [villager].into_iter().collect(),
+            foundation,
+        }]
+    );
+}
+
+#[test]
+fn soldiers_sent_to_your_foundation_only_walk_there() {
+    let (world, _) = world_with_foundation();
+    let mut session = session();
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(6.5, 5.5)),
+    );
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(FOUNDATION_MIDDLE),
+    );
+
+    assert!(
+        matches!(commands.as_slice(), [Command::Move { .. }]),
+        "{commands:?}"
+    );
+}
+
+#[test]
+fn an_enemys_foundation_is_attacked_not_built() {
+    let (mut world, _) = world_with_foundation();
+    let enemy = foundation_of(&mut world, PlayerId::TWO, TilePos::new(10, 5));
+    let mut session = session();
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(6.5, 5.5)),
+    );
+
+    let commands = click(
+        &mut session,
+        &world,
+        MouseButton::Right,
+        at(Vec2::new(11.0, 6.0)),
+    );
+
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [Command::Attack { target: EntityId::Foundation(f), .. }] if *f == enemy
+        ),
+        "{commands:?}"
+    );
+}
+
+#[test]
+fn clicking_a_foundation_selects_it_and_drops_the_selected_units() {
+    let (world, foundation) = world_with_foundation();
+    let mut session = session();
+    click(&mut session, &world, MouseButton::Left, at(VILLAGER_MIDDLE));
+    assert!(!session.selection().is_empty());
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(FOUNDATION_MIDDLE),
+    );
+
+    assert_eq!(session.selected_foundation(), Some(foundation));
+    assert_eq!(session.selection(), []);
+    assert_eq!(session.selected_building(), None);
+}
+
+#[test]
+fn clicking_something_else_drops_the_selected_foundation() {
+    let (world, _) = world_with_foundation();
+    for away in [
+        Vec2::new(5.5, 5.5),
+        Vec2::new(14.0, 14.0),
+        TOWN_CENTRE_MIDDLE,
+    ] {
+        let mut session = session();
+        click(
+            &mut session,
+            &world,
+            MouseButton::Left,
+            at(FOUNDATION_MIDDLE),
+        );
+        assert!(session.selected_foundation().is_some());
+
+        click(&mut session, &world, MouseButton::Left, at(away));
+
+        assert_eq!(session.selected_foundation(), None, "{away:?}");
+    }
+}
+
+#[test]
+fn a_foundation_that_is_gone_is_no_longer_selected() {
+    let (world, _) = world_with_foundation();
+    let mut session = session();
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(FOUNDATION_MIDDLE),
+    );
+    assert!(session.selected_foundation().is_some());
+    let without = self::world();
+
+    session.update(&at_cursor(at(Vec2::new(14.0, 14.0))), 0.0, without.view());
+
+    assert_eq!(session.selected_foundation(), None);
+}
+
+#[test]
+fn another_players_foundation_can_be_looked_at_too() {
+    let (mut world, _) = world_with_foundation();
+    let enemy = foundation_of(&mut world, PlayerId::TWO, TilePos::new(10, 5));
+    let mut session = session();
+
+    click(
+        &mut session,
+        &world,
+        MouseButton::Left,
+        at(Vec2::new(11.0, 6.0)),
+    );
+
+    assert_eq!(session.selected_foundation(), Some(enemy));
 }
