@@ -19,8 +19,8 @@ mod world;
 
 pub use content::{BuildingStats, Content, ContentError, GatherStats, Gathering, UnitStats};
 pub use entity::{
-    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Order, Player, PlayerId, Route,
-    Site, SiteId, Unit, UnitId, UnitKind,
+    Building, BuildingId, BuildingKind, EntityId, Foundation, FoundationId, GatherPhase, Order,
+    Player, PlayerId, Route, Site, SiteId, Unit, UnitId, UnitKind,
 };
 pub use fx::Fx;
 pub use grid::{Grid, TilePos};

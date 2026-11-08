@@ -60,6 +60,15 @@ const UNIT_ICONS: u32 = 50730;
 const BUILDING_ICONS: u32 = 50705;
 /// The progress bar, in `interfac.drs`: frame n is n percent full.
 const PROGRESS_BAR: u32 = 50764;
+/// The mouse cursors, in `interfac.drs`: the original's `mcursors`, one
+/// sprite of 19 frames that the exe loads as a whole.
+const CURSORS: u32 = 51000;
+/// Which frame of [`CURSORS`] each of `Sprites::cursors` is: the arrow, then
+/// the job cursor for food, wood, gold, and stone. Frame 8 is the axe; the
+/// sprite has no pickaxe or sickle, and which frame the original shows for
+/// the other jobs is not yet read from the exe, so they take frame 3, the
+/// hand, provisionally.
+const CURSOR_FRAMES: [usize; 5] = [0, 3, 8, 3, 3];
 
 /// An uploaded sprite and where its ground point is.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -91,10 +100,18 @@ pub struct Sprites {
     pub building_icons: Vec<Sprite>,
     /// The progress bar, one sprite per frame: frame n is n percent full.
     pub progress: Vec<Sprite>,
+    /// Job cursors, indexed by resource (default, food, wood, gold, stone).
+    pub cursors: [Sprite; 5],
     /// Indexed by unit type ID, then player slot.
     pub units: Vec<[Sprite; PLAYER_SLOTS]>,
     /// Indexed by building type ID, then player slot.
     pub buildings: Vec<[Sprite; PLAYER_SLOTS]>,
+    /// Generic construction graphics by building size (2x2, 3x3, 4x4, ...).
+    /// Indexed by size - 2 (so size 2 is index 0).
+    pub construction_generic: Vec<Sprite>,
+    /// Building-specific construction graphics, indexed by building type ID,
+    /// then player slot (Gaia colours for construction scaffolding).
+    pub construction_specific: Vec<[Sprite; PLAYER_SLOTS]>,
 }
 
 impl Sprites {
@@ -164,6 +181,18 @@ impl Sprites {
     pub fn farm_at(&self, x: i32, y: i32) -> TextureId {
         self.farm[variation(x, y, self.farm.len())]
     }
+
+    /// The cursor for a resource: 0=default, 1=food, 2=wood, 3=gold, 4=stone.
+    pub fn cursor(&self, resource: Option<Resource>) -> &Sprite {
+        let idx = match resource {
+            None => 0,
+            Some(Resource::Food) => 1,
+            Some(Resource::Wood) => 2,
+            Some(Resource::Gold) => 3,
+            Some(Resource::Stone) => 4,
+        };
+        &self.cursors[idx]
+    }
 }
 
 /// Which of `count` variations of a ground texture tile (x, y) gets.
@@ -203,9 +232,16 @@ pub struct GameImages {
     unit_icons: Vec<Frame>,
     building_icons: Vec<Frame>,
     progress: Vec<Frame>,
+    cursors: [Frame; 5],
     /// Per unit type ID, one frame per player slot.
     units: Vec<Vec<Frame>>,
     buildings: Vec<Vec<Frame>>,
+    /// Generic construction graphics by building size (2x2, 3x3, 4x4, ...).
+    /// Indexed by size - 2 (so size 2 is index 0).
+    construction_generic: Vec<Frame>,
+    /// Building-specific construction graphics, indexed by building type ID,
+    /// one frame per player slot (Gaia colours for construction scaffolding).
+    construction_specific: Vec<Vec<Frame>>,
 }
 
 impl GameImages {
@@ -225,29 +261,60 @@ impl GameImages {
         let stone_mine = upload_one(renderer, &self.stone_mine);
         let bush = upload_one(renderer, &self.bush);
         let interface = upload_one(renderer, &self.interface);
-        let mut upload_all = |frames: &[Frame]| -> Vec<Sprite> {
-            frames.iter().map(|f| upload_one(renderer, f)).collect()
-        };
-        let unit_icons = upload_all(&self.unit_icons);
-        let building_icons = upload_all(&self.building_icons);
-        let progress = upload_all(&self.progress);
-        let mut upload_set = |frames: &[Frame]| -> [Sprite; PLAYER_SLOTS] {
-            std::array::from_fn(|i| upload_one(renderer, &frames[i]))
-        };
-        let units = self.units.iter().map(|frames| upload_set(frames)).collect();
-        let buildings = self
+
+        let unit_icons: Vec<Sprite> = self
+            .unit_icons
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+        let building_icons: Vec<Sprite> = self
+            .building_icons
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+        let progress: Vec<Sprite> = self
+            .progress
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+
+        let cursors = std::array::from_fn(|i| upload_one(renderer, &self.cursors[i]));
+
+        let units: Vec<[Sprite; PLAYER_SLOTS]> = self
+            .units
+            .iter()
+            .map(|frames| std::array::from_fn(|i| upload_one(renderer, &frames[i])))
+            .collect();
+
+        let buildings: Vec<[Sprite; PLAYER_SLOTS]> = self
             .buildings
             .iter()
-            .map(|frames| upload_set(frames))
+            .map(|frames| std::array::from_fn(|i| upload_one(renderer, &frames[i])))
             .collect();
-        let mut ground = |images: &[Image]| -> Vec<TextureId> {
-            images
-                .iter()
-                .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
-                .collect()
-        };
-        let grass = ground(&self.grass);
-        let farm = ground(&self.farm);
+
+        let grass: Vec<TextureId> = self
+            .grass
+            .iter()
+            .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
+            .collect();
+        let farm: Vec<TextureId> = self
+            .farm
+            .iter()
+            .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
+            .collect();
+
+        let construction_generic: Vec<Sprite> = self
+            .construction_generic
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+
+        let construction_specific: Vec<[Sprite; PLAYER_SLOTS]> = self
+            .construction_specific
+            .iter()
+            .map(|frames| std::array::from_fn(|i| upload_one(renderer, &frames[i])))
+            .collect();
+
         Sprites {
             grass,
             farm,
@@ -259,8 +326,11 @@ impl GameImages {
             unit_icons,
             building_icons,
             progress,
+            cursors,
             units,
             buildings,
+            construction_generic,
+            construction_specific,
         }
     }
 }
@@ -539,6 +609,24 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
     if progress.is_empty() {
         return Err(AssetError::EmptySprite { id: PROGRESS_BAR });
     }
+    // The cursors keep their hotspots: the point of each is what is on the
+    // mouse.
+    let cursor_sprite = archives.sprite(CURSORS)?;
+    let mut cursors = Vec::with_capacity(CURSOR_FRAMES.len());
+    for index in CURSOR_FRAMES {
+        let header = cursor_sprite
+            .frames()
+            .nth(index)
+            .ok_or(AssetError::EmptySprite { id: CURSORS })?;
+        let mut frame = interface_frame(&cursor_sprite, CURSORS, index)?
+            .ok_or(AssetError::EmptySprite { id: CURSORS })?;
+        // interface_frame sets hotspot to ZERO (for UI elements), but cursors
+        // need the SLP's actual hotspot so the game cursor is drawn with its
+        // hotspot on the mouse. Overwrite with the SLP header's hotspot.
+        frame.hotspot = Vec2::new(header.hotspot_x as f32, header.hotspot_y as f32);
+        cursors.push(frame);
+    }
+    let cursors: [Frame; 5] = cursors.try_into().expect("one frame per cursor");
     // Neutral objects belong to Gaia: player slot 0's colours, each drawn
     // from its pieces.
     let neutral = |name: &str, ids: &[u32]| -> Result<Frame, AssetError> {
@@ -594,6 +682,60 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Load generic construction graphics by building size.
+    // Collect unique sizes and their construction_generic SLPs.
+    let mut generic_by_size: std::collections::BTreeMap<i32, u32> =
+        std::collections::BTreeMap::new();
+    for (name, look) in &building_looks {
+        if let Some(slp) = look.construction_generic {
+            if let Some(stats) = content.buildings.iter().find(|b| b.name == *name) {
+                generic_by_size.insert(stats.size, slp);
+            }
+        }
+    }
+    // Load in order of size (2, 3, 4, ...)
+    let max_size = generic_by_size.keys().max().copied().unwrap_or(2);
+    let mut construction_generic = Vec::with_capacity((max_size - 1) as usize);
+    for size in 2..=max_size {
+        if let Some(slp) = generic_by_size.get(&size) {
+            construction_generic.push(neutral(
+                &format!("construction generic {size}x{size}"),
+                &[*slp],
+            )?);
+        } else {
+            construction_generic.push(Frame {
+                image: Image {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0; 4],
+                },
+                hotspot: Vec2::ZERO,
+            });
+        }
+    }
+
+    // Load building-specific construction graphics
+    let construction_specific = building_looks
+        .iter()
+        .map(|(name, look)| {
+            if let Some((sprite, parts)) = &look.construction_specific {
+                per_player(name, *sprite, parts)
+            } else {
+                Ok(vec![
+                    Frame {
+                        image: Image {
+                            width: 1,
+                            height: 1,
+                            rgba: vec![0; 4]
+                        },
+                        hotspot: Vec2::ZERO,
+                    };
+                    PLAYER_SLOTS
+                ])
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(GameImages {
         grass,
         farm,
@@ -611,6 +753,7 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
             .map(|(name, look)| icon(&building_icons, BUILDING_ICONS, name, look.icon))
             .collect::<Result<_, _>>()?,
         progress,
+        cursors,
         units: unit_looks
             .iter()
             .map(|(name, look)| per_player(name, look.sprite, &look.parts))
@@ -619,6 +762,8 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
             .iter()
             .map(|(name, look)| per_player(name, look.sprite, &look.parts))
             .collect::<Result<_, _>>()?,
+        construction_generic,
+        construction_specific,
     })
 }
 

@@ -10,7 +10,7 @@ use crate::pick;
 use crate::ui::{self, Layout};
 use crate::CameraController;
 use render::{Camera, InputState, Key, MouseButton, Vec2};
-use sim::{BuildingId, Command, EntityId, PlayerId, UnitId, WorldView};
+use sim::{BuildingId, BuildingKind, Command, EntityId, FoundationId, PlayerId, UnitId, WorldView};
 use smallvec::SmallVec;
 
 /// One side's view of the game.
@@ -23,8 +23,38 @@ pub struct PlayerUi {
     /// always standing. While one is selected no units are, and the other
     /// way round.
     pub building: Option<BuildingId>,
+    /// The foundation this player has selected, theirs or another player's,
+    /// while it is unfinished. Like a building, it excludes selected units.
+    pub foundation: Option<FoundationId>,
     /// Where the current left-drag started, in world units.
     pub drag_from: Option<Vec2>,
+    /// Building kind being placed, if in placement mode. The origin tile
+    /// under the cursor is the preview position.
+    pub placing_building: Option<BuildingKind>,
+    /// A message on the screen, such as "Not enough wood.", until its time
+    /// is up.
+    pub notice: Option<Notice>,
+}
+
+/// How long a notice stays on the screen, in seconds. Judged by eye:
+/// provisional.
+pub const NOTICE_SECONDS: f32 = 3.0;
+
+/// A message shown to one player for a while.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Notice {
+    pub text: &'static str,
+    /// Seconds before it goes.
+    pub left: f32,
+}
+
+impl Notice {
+    pub const fn new(text: &'static str) -> Notice {
+        Notice {
+            text,
+            left: NOTICE_SECONDS,
+        }
+    }
 }
 
 impl PlayerUi {
@@ -33,7 +63,10 @@ impl PlayerUi {
             camera,
             selection: Vec::new(),
             building: None,
+            foundation: None,
             drag_from: None,
+            placing_building: None,
+            notice: None,
         }
     }
 }
@@ -111,6 +144,16 @@ impl Session {
         &self.active().selection
     }
 
+    /// The message the active player is being shown, if any.
+    pub fn notice(&self) -> Option<&'static str> {
+        self.active().notice.map(|notice| notice.text)
+    }
+
+    /// The foundation the active player has selected, if any.
+    pub fn selected_foundation(&self) -> Option<FoundationId> {
+        self.active().foundation
+    }
+
     pub fn selected_building(&self) -> Option<BuildingId> {
         self.active().building
     }
@@ -173,6 +216,13 @@ impl Session {
         }
 
         self.active_mut().camera.update(input, dt);
+        let ui = self.active_mut();
+        if let Some(notice) = &mut ui.notice {
+            notice.left -= dt;
+            if notice.left <= 0.0 {
+                ui.notice = None;
+            }
+        }
         self.prune_selection(view);
 
         let camera = self.camera();
@@ -182,11 +232,43 @@ impl Session {
         // starts a drag nor orders anything on the map underneath.
         let layout = Layout::new(camera.viewport);
         let on_interface = layout.blocks(input.cursor);
-        self.update_selection(input, cursor, on_interface, view);
 
+        // Handle placement mode FIRST: left-click release places, right-click/ESC cancels.
+        // Don't run update_selection in placement mode.
         let mut commands = Vec::new();
-        if input.is_pressed(MouseButton::Right) && !on_interface {
-            commands.extend(self.order(cursor, view));
+        let player = self.active;
+        let ui = self.active_mut();
+        let in_placement = ui.placing_building.is_some();
+
+        if in_placement {
+            ui.drag_from = None;
+            if input.is_released(MouseButton::Left) && !on_interface {
+                if let Some(kind) = ui.placing_building {
+                    let cost = view.content().building(kind).cost;
+                    if let Some(short) = ui::shortfall(cost, view.resources(player)) {
+                        // Spent since it was picked up: it stays in hand.
+                        ui.notice = Some(Notice::new(ui::not_enough(short)));
+                    } else {
+                        let size = view.content().building(kind).size;
+                        let origin = pick::placement_origin(cursor, size);
+                        commands.push(Command::PlaceBuilding {
+                            player,
+                            units: ui.selection.iter().copied().collect(),
+                            kind,
+                            origin,
+                        });
+                        ui.placing_building = None;
+                    }
+                }
+            } else if input.is_pressed(MouseButton::Right) || input.key_pressed(Key::Escape) {
+                ui.placing_building = None;
+            }
+        } else {
+            // Normal mode: selection and right-click orders.
+            self.update_selection(input, cursor, on_interface, view);
+            if input.is_pressed(MouseButton::Right) && !on_interface {
+                commands.extend(self.order(cursor, view));
+            }
         }
         commands.extend(self.command_panel(input, &layout, view));
         commands
@@ -204,6 +286,7 @@ impl Session {
         ui.selection
             .retain(|id| view.unit(*id).is_some_and(|u| u.owner == owner));
         ui.building = ui.building.filter(|id| view.building(*id).is_some());
+        ui.foundation = ui.foundation.filter(|id| view.foundation(*id).is_some());
     }
 
     fn update_selection(
@@ -232,7 +315,7 @@ impl Session {
         let slop = Session::CLICK_SLOP_PIXELS / zoom;
         let dragged = travel.x.abs() > slop || travel.y.abs() > slop;
         let min = self.min_pick();
-        let (selection, building) = if dragged {
+        let (selection, building, foundation) = if dragged {
             // A box selects units only, as in the original, and only what
             // shows: a box dragged onto the panels stops at their edge rather
             // than reaching the units hidden under them.
@@ -242,22 +325,30 @@ impl Session {
             end.y = end.y.clamp(layout.top_bar.max().y, layout.bottom.min.y);
             let end = camera.screen_to_world(end);
             let units = pick::units_in_box(view, owner, from, end, &self.bodies.at_least(min));
-            (units, None)
+            (units, None, None)
         } else if let Some(unit) = pick::unit_at(view, cursor, &self.bodies, min) {
             // A unit in front of a building is what the player sees, so it
             // is picked first. Only your own units can be selected.
             let yours = view.unit(unit).is_some_and(|u| u.owner == owner);
-            (yours.then_some(unit).into_iter().collect(), None)
-        } else {
+            (yours.then_some(unit).into_iter().collect(), None, None)
+        } else if let Some(building) = pick::building_at(view, cursor, &self.bodies) {
             // Any building can be selected, to look at; only your own will
-            // offer its commands. A click on empty ground clears the
-            // selection, which is how every RTS behaves and what makes a
-            // misclick recoverable.
-            (Vec::new(), pick::building_at(view, cursor, &self.bodies))
+            // offer its commands.
+            (Vec::new(), Some(building), None)
+        } else {
+            // A foundation too, to see how far its work has got. A click on
+            // empty ground clears the selection, which is how every RTS
+            // behaves and what makes a misclick recoverable.
+            (
+                Vec::new(),
+                None,
+                pick::foundation_at(view, cursor, &self.bodies),
+            )
         };
         let ui = self.active_mut();
         ui.selection = selection;
         ui.building = building;
+        ui.foundation = foundation;
     }
 
     /// The command a right-click means, given what is under the cursor.
@@ -294,9 +385,37 @@ impl Session {
                     site: mine,
                 })
             }
+            // Your own foundation: villagers go and build it. Others have
+            // nothing to do there, so they walk to it.
+            Some(EntityId::Foundation(foundation))
+                if view
+                    .foundation(foundation)
+                    .is_some_and(|f| f.owner == player) =>
+            {
+                let villagers: SmallVec<[UnitId; 32]> = units
+                    .iter()
+                    .copied()
+                    .filter(|id| {
+                        view.unit(*id)
+                            .is_some_and(|u| view.content().unit(u.kind).gathers)
+                    })
+                    .collect();
+                if villagers.is_empty() {
+                    return Some(Command::Move {
+                        player,
+                        units,
+                        target: pick::tile_at(cursor),
+                    });
+                }
+                Some(Command::Build {
+                    player,
+                    units: villagers,
+                    foundation,
+                })
+            }
             // Your own drop-off with loaded villagers selected: they drop
-            // their loads off there, early, then go back to work. Units
-            // carrying nothing are left as they are.
+            // their loads off there, early, then stand, as in the original.
+            // Units carrying nothing are left as they are.
             Some(EntityId::Building(building))
                 if units
                     .iter()
@@ -340,25 +459,67 @@ impl Session {
         match target {
             EntityId::Unit(id) => view.unit(id).is_some_and(|u| u.owner != self.active),
             EntityId::Building(id) => view.building(id).is_some_and(|b| b.owner != self.active),
+            EntityId::Foundation(id) => view.foundation(id).is_some_and(|f| f.owner != self.active),
             EntityId::Site(_) => false,
         }
     }
 
     /// The command panel: a click on one of its buttons, or the button's
-    /// number key, trains that button's unit type at the selected building.
-    /// With no building of yours selected there are no buttons, so the keys
-    /// do nothing.
+    /// number key, trains that button's unit type at the selected building,
+    /// or enters placement mode for that building kind when villagers are
+    /// selected.
     fn command_panel(
-        &self,
+        &mut self,
         input: &InputState,
         layout: &Layout,
         view: WorldView<'_>,
     ) -> Vec<Command> {
         let player = self.active;
-        let Some(building) = self.active().building else {
+        let ui = self.active_mut();
+
+        // If in placement mode, Escape or right-click on interface cancels it.
+        if ui.placing_building.is_some() {
+            if input.key_pressed(Key::Escape)
+                || (input.is_pressed(MouseButton::Right) && layout.blocks(input.cursor))
+            {
+                ui.placing_building = None;
+            }
             return Vec::new();
-        };
-        let trains = ui::trains_on_buttons(view, Some(building), player);
+        }
+
+        // Building selected: show train buttons.
+        if let Some(building) = ui.building {
+            let trains = ui::trains_on_buttons(view, Some(building), player);
+            let clicked = input
+                .is_pressed(MouseButton::Left)
+                .then(|| layout.buttons.iter().position(|b| b.contains(input.cursor)))
+                .flatten();
+            let keyed = BUTTON_KEYS
+                .iter()
+                .enumerate()
+                .filter(|(_, key)| input.key_pressed(**key))
+                .map(|(index, _)| index);
+            let stock = view.resources(player);
+            let mut commands = Vec::new();
+            for unit in clicked
+                .into_iter()
+                .chain(keyed)
+                .filter_map(|index| trains.get(index).copied())
+            {
+                match ui::shortfall(view.content().unit(unit).cost, stock) {
+                    Some(short) => ui.notice = Some(Notice::new(ui::not_enough(short))),
+                    None => commands.push(Command::Train {
+                        player,
+                        building,
+                        unit,
+                    }),
+                }
+            }
+            return commands;
+        }
+
+        // Your villagers selected: a button picks up its building to place.
+        let builds = ui::builds_on_buttons(view, &ui.selection, player);
         let clicked = input
             .is_pressed(MouseButton::Left)
             .then(|| layout.buttons.iter().position(|b| b.contains(input.cursor)))
@@ -368,16 +529,19 @@ impl Session {
             .enumerate()
             .filter(|(_, key)| input.key_pressed(**key))
             .map(|(index, _)| index);
-        clicked
+        if let Some(kind) = clicked
             .into_iter()
             .chain(keyed)
-            .filter_map(|index| trains.get(index).copied())
-            .map(|unit| Command::Train {
-                player,
-                building,
-                unit,
-            })
-            .collect()
+            .find_map(|index| builds.get(index).copied())
+        {
+            let cost = view.content().building(kind).cost;
+            match ui::shortfall(cost, view.resources(player)) {
+                Some(short) => ui.notice = Some(Notice::new(ui::not_enough(short))),
+                None => ui.placing_building = Some(kind),
+            }
+        }
+
+        Vec::new()
     }
 }
 

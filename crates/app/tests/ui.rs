@@ -169,3 +169,51 @@ fn a_units_load_is_written_on_the_information_panel_below_its_hit_points() {
     assert!(layout.info_panel.contains(layout.carrying_at));
     assert!(layout.carrying_at.y > layout.hit_points_at.y);
 }
+
+// --- not enough resources ---------------------------------------------------------
+
+#[test]
+fn the_shortfall_is_the_first_resource_short_in_the_originals_order() {
+    use sim::{Resource, Resources};
+    let stock = Resources {
+        food: 10,
+        wood: 10,
+        gold: 10,
+        stone: 10,
+    };
+    let cost = |food, wood, gold, stone| Resources {
+        food,
+        wood,
+        gold,
+        stone,
+    };
+
+    assert_eq!(app::shortfall(cost(10, 10, 10, 10), stock), None);
+    assert_eq!(
+        app::shortfall(cost(11, 11, 11, 11), stock),
+        Some(Resource::Food)
+    );
+    assert_eq!(
+        app::shortfall(cost(0, 11, 11, 11), stock),
+        Some(Resource::Wood)
+    );
+    // The original's messages run food, wood, stone, gold.
+    assert_eq!(
+        app::shortfall(cost(0, 0, 11, 11), stock),
+        Some(Resource::Stone)
+    );
+    assert_eq!(
+        app::shortfall(cost(0, 0, 11, 0), stock),
+        Some(Resource::Gold)
+    );
+}
+
+#[test]
+fn each_resource_has_the_originals_message() {
+    use sim::Resource;
+    // language.dll strings 3001 to 3004.
+    assert_eq!(app::not_enough(Resource::Food), "Not enough food.");
+    assert_eq!(app::not_enough(Resource::Wood), "Not enough wood.");
+    assert_eq!(app::not_enough(Resource::Stone), "Not enough stone.");
+    assert_eq!(app::not_enough(Resource::Gold), "Not enough gold.");
+}

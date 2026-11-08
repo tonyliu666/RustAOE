@@ -104,15 +104,15 @@ fn a_number_the_game_cannot_run_with_names_its_field() {
 
     assert_eq!(
         invalid(result),
-        ("villager.max_hp".to_string(), "must be positive")
+        ("soldier.max_hp".to_string(), "must be positive")
     );
 }
 
 #[test]
 fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n            cost: (food: 50)",
-        "radius: (1, 0),\n            cost: (food: 50)",
+        "radius: (13107, 65536), // 0.2 tiles\n            cost: (food: 50),",
+        "radius: (13107, 0), // 0.2 tiles\n            cost: (food: 50),",
     ));
 
     assert_eq!(
@@ -127,8 +127,8 @@ fn a_fraction_over_zero_is_an_error_rather_than_a_division_panic() {
 #[test]
 fn a_fraction_too_large_for_fixed_point_is_an_error_rather_than_wrapping() {
     let result = parse_content(&default_with(
-        "radius: (1, 4),\n            cost: (food: 50)",
-        "radius: (100000, 1),\n            cost: (food: 50)",
+        "radius: (13107, 65536), // 0.2 tiles\n            cost: (food: 50),",
+        "radius: (100000, 1), // 0.2 tiles\n            cost: (food: 50),",
     ));
 
     // Wrapped, this would come out negative and be reported as "must be
@@ -248,8 +248,8 @@ fn a_type_without_an_icon_is_an_error() {
 #[test]
 fn a_types_parts_are_read_from_the_file() {
     let looks = app::parse_looks(&default_with(
-        "sprite: 1473,\n            parts: [],",
-        "sprite: 1473,\n            parts: [(7, 0, 0), (1473, 0, 0), (8, 3, -2)],",
+        "sprite: 1479,\n            parts: [],",
+        "sprite: 1479,\n            parts: [(7, 0, 0), (1479, 0, 0), (8, 3, -2)],",
     ))
     .expect("parses");
 
@@ -257,7 +257,7 @@ fn a_types_parts_are_read_from_the_file() {
         looks.unit("villager").expect("the villager's look").parts,
         [
             app::Part::new(7, 0, 0),
-            app::Part::new(1473, 0, 0),
+            app::Part::new(1479, 0, 0),
             app::Part::new(8, 3, -2),
         ]
     );
@@ -266,8 +266,8 @@ fn a_types_parts_are_read_from_the_file() {
 #[test]
 fn a_type_without_parts_is_an_error() {
     let result = parse_content(&default_with(
-        "sprite: 1473,\n            parts: [],",
-        "sprite: 1473,",
+        "sprite: 1479,\n            parts: [],",
+        "sprite: 1479,",
     ));
 
     assert!(
@@ -283,7 +283,7 @@ fn a_types_look_is_read_from_the_file_by_its_name() {
     let looks = app::parse_looks(DEFAULT_CONTENT).expect("default.ron should parse");
 
     let villager = looks.unit("villager").expect("the villager's look");
-    assert_eq!((villager.sprite, villager.icon), (1473, 15));
+    assert_eq!((villager.sprite, villager.icon), (1479, 15));
     let town_centre = looks
         .building("town_center")
         .expect("the town centre's look");
@@ -295,7 +295,7 @@ fn a_types_look_is_read_from_the_file_by_its_name() {
 #[test]
 fn changing_how_a_type_looks_leaves_the_rules_unchanged() {
     // So a replay recorded before the change still plays the same game.
-    let restyled = default_with("sprite: 1473,", "sprite: 9999,");
+    let restyled = default_with("sprite: 1479,", "sprite: 9999,");
     let restyled = restyled.replace("icon: 15,", "icon: 3,");
 
     assert_eq!(
@@ -318,6 +318,8 @@ fn the_default_types_look_like_the_originals() {
     // (unit 12) is SLP 2683, one piece; the town centre (unit 109) is its
     // graphic's pieces (889, 3596, 4612; 890 is in no archive) and its three
     // annexes' (891; 3595, 4611; 3594, 4610), at one point in that order.
+    // Villager standing graphic from .dat is 1479 (VMBAS_AN attack anim),
+    // but the converter uses the standing graphic which is 1479.
     let looks = app::default_looks();
     let unit = |name| looks.unit(name).expect("a look");
     let building = |name| looks.building(name).expect("a look");
@@ -328,6 +330,7 @@ fn the_default_types_look_like_the_originals() {
         (28, 2)
     );
     assert_eq!(unit("soldier").sprite, 993);
+    assert_eq!(unit("villager").sprite, 1479);
     assert!(unit("villager").parts.is_empty() && unit("soldier").parts.is_empty());
     assert_eq!(
         (
@@ -370,7 +373,7 @@ fn the_game_draws_with_the_looks_of_the_file_it_was_started_with() {
     // In a new game and in playback alike: a replay carries no pictures.
     let mut path = std::env::temp_dir();
     path.push(format!("aoe-looks-test-{}.ron", std::process::id()));
-    std::fs::write(&path, default_with("sprite: 1473,", "sprite: 9999,"))
+    std::fs::write(&path, default_with("sprite: 1479,", "sprite: 9999,"))
         .expect("the scratch file should write");
 
     let from_file = app::game_looks(Some(&path)).expect("loads");

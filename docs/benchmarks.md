@@ -76,3 +76,19 @@ nine times (one per player colour). Lookups stay a direct index:
 **Per-lookup cost** (`content lookup` in `crates/sim/benches/step.rs`): 1000
 lookups of a unit type's numbers in a 201-type table take 1.17 µs (1.16–1.17),
 about 1.2 ns each: a direct index, whatever the table's size.
+
+## 2026-10-26: end of Phase 2
+
+Same machine and toolchain. Four resources, per-resource gather numbers, the
+original's unit speeds and sizes.
+
+| Benchmark | Median | Range |
+| --- | --- | --- |
+| `step 200 units moving` | 43.09 µs | 42.41–43.99 µs |
+| `flow field 128x128` | 295.81 µs | 291.91–300.29 µs |
+| `content lookup, 201 unit types (1000 lookups)` | 1.164 µs | 1.163–1.166 µs |
+
+About 9% faster per step than the end of Phase 1.6, still over 100x under the
+5 ms budget. Why it got faster is not measured; the units now walk at the
+original's speeds and have the original's sizes, which changes how the march
+runs. The flow field and lookups are unchanged within noise.

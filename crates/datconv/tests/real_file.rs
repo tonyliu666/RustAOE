@@ -98,3 +98,16 @@ fn every_unit_and_building_of_a_civilisation_converts_to_content_the_game_loads(
     let looks = app::parse_looks(&converted.ron).expect("its looks load");
     app::load_images(std::path::Path::new(&dir), &content, &looks).expect("the install draws it");
 }
+
+#[test]
+#[ignore = "needs the game's data: set AOE_ASSETS and run with --ignored"]
+fn the_shipped_content_plays_by_the_numbers_converted_from_the_original() {
+    // The Phase 2 gate: every rule in default.ron (hit points, speeds,
+    // damage, costs, training times, drop-offs, gather rates and carry
+    // capacities) is what datconv reads from the real file.
+    let converted = convert(&real_dat(), 1, Selection::Default, &install()).expect("converts");
+
+    let converted = app::parse_content(&converted.ron).expect("loads and validates");
+    let shipped = app::parse_content(app::DEFAULT_CONTENT).expect("default.ron loads");
+    assert_eq!(shipped, converted);
+}

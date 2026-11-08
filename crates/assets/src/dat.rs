@@ -202,6 +202,12 @@ pub struct Unit {
     /// A building's annexes: further units drawn as parts of it, such as
     /// the town centre's sections. Empty for every other unit.
     pub annexes: Vec<Annex>,
+    /// Construction generic graphic (by building size): CNST2_NN (119), CNST3_NN (120), CNST4_NN (121).
+    pub construction_generic: Option<i16>,
+    /// Construction specific graphic (building-specific): HOUSS (6392), BRKSS (6380), etc.
+    pub construction_specific: Option<i16>,
+    /// Number of construction stages (0 for most buildings).
+    pub construction_count: u8,
 }
 
 /// A resource a unit holds: what it is, how much, and how it is held.
@@ -620,6 +626,9 @@ fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
         combat: None,
         creatable: None,
         annexes: Vec::new(),
+        construction_generic: None,
+        construction_specific: None,
+        construction_count: 0,
     };
     if kind < 20 || kind == 90 {
         return Ok(unit);
@@ -696,7 +705,28 @@ fn read_unit(r: &mut Reader<'_>) -> Result<Unit, DatError> {
     if kind == 80 {
         // Construction and snow graphics, adjacent mode, graphics angle,
         // disappears, stack unit, foundation, overlay, tech, can burn.
-        r.skip(2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 2 + 1)?;
+        // Construction graphics: cg1 (generic by size), cg2 (building-specific), count, snow, adj, angle, disp, foundation, overlay, tech/burn.
+        let construction_graphic_1 = r.i16()?;
+        let construction_graphic_2 = r.i16()?;
+        let construction_graphic_count = r.u8()?;
+        let _snow_graphic = r.i16()?;
+        let _adjacent_mode = r.u8()?;
+        let _graphics_angle = r.i16()?;
+        let _disappears = r.i16()?;
+        let _foundation = r.i16()?;
+        let _overlay = r.i16()?;
+        let _tech_can_burn = r.u8()?;
+        unit.construction_generic = if construction_graphic_1 >= 0 {
+            Some(construction_graphic_1)
+        } else {
+            None
+        };
+        unit.construction_specific = if construction_graphic_2 >= 0 {
+            Some(construction_graphic_2)
+        } else {
+            None
+        };
+        unit.construction_count = construction_graphic_count;
         for _ in 0..4 {
             let annex = r.i16()?;
             let offset = [r.f32()?, r.f32()?];

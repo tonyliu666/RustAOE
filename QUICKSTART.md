@@ -101,9 +101,15 @@ the bottom-right, behind a band of forest.
 | Right click your town centre, mill, lumber camp, or mining camp | Selected villagers carrying a load that building takes drop it off there now, before they are full, then stand idle |
 | Right click an enemy | Attack it |
 | Left click a button on the command panel | With one of your buildings selected, train the unit on that button there (town centre: villager, 50 food; barracks: soldier, 60 gold) |
-| `1` to `9` | With one of your buildings selected, press its command panel button by position: `1` is the first button. With nothing selected, they do nothing |
+| Left click a building button | With only your villagers selected, the command panel shows the buildings they can put down: house, barracks, mill, lumber camp, mining camp. A click picks one up to place |
+| Left click the map while placing | Put the building's foundation down there, centred on the cursor, pay its cost, and send the selected villagers to build it. Where it may not go (off the map, on impassable ground, on a building, foundation, or resource) the building under the cursor is drawn red and nothing is placed |
+| Right click or `Esc` while placing | Put the building back without placing it |
+| Right click your foundation (villagers selected) | The villagers walk to it and build it. A house takes one villager about 25 seconds; each further villager makes it quicker (provisional rule) |
+| Left click a foundation | Select it: the panel shows its hit points and a progress bar of the work done. A foundation is the see-through building, with a health bar |
+| Any button you cannot pay for | Nothing happens, and a message in a red box, such as "Not enough wood.", shows at the top left for 3 seconds |
+| `1` to `9` | Press a command panel button by position: `1` is the first button. With nothing selected, they do nothing |
 | `Tab` | Hand the keyboard to the next player |
-| `Esc` | Quit |
+| `Esc` | Quit (while placing a building, cancels the placement instead) |
 
 The mouse alone moves the view: the screen edge scrolls and the wheel zooms.
 No key moves or zooms the camera; the keyboard is for game shortcuts, as in
@@ -168,22 +174,26 @@ handover: your view and your selected units are still there when you come back.
 
 The town centre takes every resource. The amounts are the original's: a gold
 mine holds 800, a stone mine 350, a forage bush 125, a farm 175, a tree 100.
-A tree or mine that runs out disappears. There are **no soldiers on the map at
+A tree or mine that runs out disappears, and the villagers working it go on
+to the nearest one like it; a farm that runs out leaves its farmer standing. There are **no soldiers on the map at
 the start**: you train them (step 3). Player 1 starts in the top-left of the
 map, player 2 in the bottom-right, with a band of forest between them three
 trees deep, with two gaps to walk through (or cut your own). The top bar shows
 your resources; the line under it says whose turn it is.
 
 1. **Gather.** Box-select your three villagers. Right click a gold mine near
-   your base. They walk over, mine a load of ten gold (one gold every 2
-   seconds, so about 20 seconds a load), carry it to the nearest building
+   your base; with them selected the cursor turns into the original's job
+   cursor over it (the axe over trees). They walk over, mine a load of ten
+   gold (one gold about every 2.7 seconds, so about 27 seconds a load, at
+   the original's rate), carry it to the nearest building
    that takes gold (the mining camp) on their own, deposit it, and go again:
    one order, no micromanagement. The gold in the top bar goes up when a load
    is deposited, not while it is mined. A villager mines and deposits only
    once it touches the mine or the building, as in the original. Trees,
    stone, bushes, and farms work the same way, each load going to the nearest
    building that takes it: wood to the lumber camp, food to the mill. A
-   villager on a farm stands on it to work. Click anywhere on a tree's
+   villager on a farm stands on it to work, and farms faster than one at a
+   bush, as the original's farmer does. Click anywhere on a tree's
    picture, crown included; a tree inside the woodline that nobody can stand
    beside sends the villagers to the nearest tree on its edge, as in the
    original. To bank a part load early, select
@@ -340,9 +350,12 @@ its phases), `crates/sim/src/path.rs` (flow fields and A*), then
 
 These are planned, each in its own phase of the plan; they are not bugs:
 
-no AI opponent, no fog of war, no building construction in game, no networking,
-no sound, two unit types by default (more can be added in content), only gold
-can be gathered, no tech tree, no save/load, no map editor, no minimap, no
-population count. Gathering has no pickaxe cursor yet; it comes with Phase 2. Units show one still frame facing south, buildings are the British
+no AI opponent, no fog of war, no networking,
+no sound, two unit types by default (more can be added in content), no tech tree, no save/load, no map editor, no minimap, no
+population count. Over a site with villagers selected the cursor turns into the
+original's axe over trees and, provisionally, its hand over food, gold, and
+stone. Units show one still frame facing south, buildings are the British
 Dark Age ones for every player, and the view is top-down rather than the
-original's isometric one.
+original's isometric one. A placed foundation is drawn as its building,
+see-through, and stays a foundation: villagers do not walk over to build
+it yet, and the house does not raise the population yet.

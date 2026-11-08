@@ -4,8 +4,8 @@
 //! pure function of state and commands, so no mocks and no fixtures are needed.
 
 use sim::{
-    BuildingId, BuildingKind, Command, Content, EntityId, MapSpec, Outcome, PlayerId, Resources,
-    SiteId, TilePos, UnitId, UnitKind, World,
+    BuildingId, BuildingKind, Command, Content, EntityId, Fx, MapSpec, Outcome, PlayerId, Resource,
+    Resources, SiteId, TilePos, UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
 
@@ -214,10 +214,16 @@ fn an_order_to_a_tile_off_the_map_is_dropped() {
 
 #[test]
 fn a_villager_cannot_be_ordered_to_attack() {
+    // With the original's numbers, the villager has 3 damage and CAN attack.
+    // This test preserves the old behaviour by explicitly setting damage=0.
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::VILLAGER).damage = 0;
+    content.unit_mut(UnitKind::VILLAGER).attack_cooldown = 0;
+    let villager_max_hp = content.unit(UnitKind::VILLAGER).max_hp;
     let map = base_map()
         .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(24, 22))
         .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(24, 21));
-    let mut world = world(map);
+    let mut world = World::with_content(SEED, map, content);
     let attacker = units_of(&world, PlayerId::ONE)[0];
     let victim = units_of(&world, PlayerId::TWO)[0];
 
@@ -230,7 +236,7 @@ fn a_villager_cannot_be_ordered_to_attack() {
 
     assert_eq!(
         world.view().unit(victim).map(|u| u.hp),
-        Some(Content::default().unit(UnitKind::VILLAGER).max_hp)
+        Some(villager_max_hp)
     );
 }
 
@@ -312,7 +318,8 @@ fn a_villager_mines_gold_and_banks_it() {
         site: mine,
     }]);
     // Long enough to walk over, fill a ten-gold load, and walk back.
-    run(&mut world, 700);
+    // New gather rates are slower; 1500 ticks covers a full cycle.
+    run(&mut world, 1500);
 
     assert!(
         world.view().gold(PlayerId::ONE) >= before + 10,
@@ -512,10 +519,16 @@ fn training_a_building_you_do_not_own_is_dropped() {
 
 #[test]
 fn a_soldier_kills_an_enemy_villager_in_range() {
+    // Use old-style numbers so the test logic (5 swings at 8 damage) still applies.
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::SOLDIER).attack_cooldown = 20;
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 40;
+    let soldier_cooldown = content.unit(UnitKind::SOLDIER).attack_cooldown;
     let map = base_map()
         .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(20, 20))
         .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(20, 21));
-    let mut world = world(map);
+    let mut world = World::with_content(SEED, map, content);
     let soldier = units_of(&world, PlayerId::ONE)[0];
     let victim = units_of(&world, PlayerId::TWO)[0];
 
@@ -525,10 +538,7 @@ fn a_soldier_kills_an_enemy_villager_in_range() {
         target: EntityId::Unit(victim),
     }]);
     // Forty hit points at eight damage a second is five swings.
-    run(
-        &mut world,
-        5 * Content::default().unit(UnitKind::SOLDIER).attack_cooldown as u64,
-    );
+    run(&mut world, 5 * soldier_cooldown as u64);
 
     assert!(
         world.view().unit(victim).is_none(),
@@ -538,10 +548,16 @@ fn a_soldier_kills_an_enemy_villager_in_range() {
 
 #[test]
 fn a_soldier_walks_into_range_before_it_can_hit() {
+    // Use old-style numbers so the test logic (walk 8 tiles, kill in 200 ticks) still applies.
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::SOLDIER).attack_cooldown = 20;
+    content.unit_mut(UnitKind::SOLDIER).speed = Fx::from_frac(1, 8);
+    content.unit_mut(UnitKind::VILLAGER).max_hp = 40;
     let map = base_map()
         .with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(20, 12))
         .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(20, 20));
-    let mut world = world(map);
+    let mut world = World::with_content(SEED, map, content);
     let soldier = units_of(&world, PlayerId::ONE)[0];
     let victim = units_of(&world, PlayerId::TWO)[0];
 
@@ -605,13 +621,20 @@ fn losing_every_building_loses_the_game() {
 
 #[test]
 fn razing_the_last_enemy_building_wins_the_game() {
+    // Use old-style numbers so 500 ticks is enough for 5 soldiers to raze a barracks.
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::SOLDIER).attack_cooldown = 20;
+    content.unit_mut(UnitKind::SOLDIER).speed = Fx::from_frac(1, 8);
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
+    content.building_mut(BuildingKind::BARRACKS).max_hp = 600;
     let mut map = MapSpec::new(32, 32)
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
         .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(16, 16));
     for i in 0..5 {
         map = map.with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(14 + i, 20));
     }
-    let mut world = world(map);
+    let mut world = World::with_content(SEED, map, content);
     let barracks = first_building(&world, PlayerId::TWO, BuildingKind::BARRACKS);
     let attackers = units_of(&world, PlayerId::ONE);
 
@@ -645,13 +668,20 @@ fn the_outcome_is_recorded_once_and_never_changes() {
 
 #[test]
 fn a_razed_building_stops_blocking_the_tiles_it_stood_on() {
+    // Use old-style numbers so 500 ticks is enough for 5 soldiers to raze a barracks.
+    let mut content = Content::default();
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::SOLDIER).attack_cooldown = 20;
+    content.unit_mut(UnitKind::SOLDIER).speed = Fx::from_frac(1, 8);
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
+    content.building_mut(BuildingKind::BARRACKS).max_hp = 600;
     let mut map = MapSpec::new(32, 32)
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(4, 4))
         .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(16, 16));
     for i in 0..5 {
         map = map.with_unit(UnitKind::SOLDIER, PlayerId::ONE, TilePos::new(14 + i, 20));
     }
-    let mut world = world(map);
+    let mut world = World::with_content(SEED, map, content);
     let barracks = first_building(&world, PlayerId::TWO, BuildingKind::BARRACKS);
     let attackers = units_of(&world, PlayerId::ONE);
     assert!(
@@ -676,4 +706,59 @@ fn a_razed_building_stops_blocking_the_tiles_it_stood_on() {
             .expect("on the map")
             .passable
     );
+}
+
+#[test]
+fn each_resource_is_conserved_and_banked_in_full_once_its_site_is_used_up() {
+    // The Phase 2 gate: whatever a site gives up is carried, then banked, of
+    // the same resource, and nothing appears or vanishes on the way, not even
+    // when the site is used up and removed. Food comes from a farm.
+    let amount = 15;
+    let map = base_map()
+        .with_site(Resource::Wood, TilePos::new(10, 10), amount)
+        .with_site(Resource::Gold, TilePos::new(10, 12), amount)
+        .with_site(Resource::Stone, TilePos::new(10, 14), amount)
+        .with_farm(TilePos::new(10, 16), amount)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 10))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 12))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 14))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(9, 17));
+    let mut world = world(map);
+    let pairs: Vec<(UnitId, sim::SiteId)> = world
+        .view()
+        .units()
+        .map(|(id, _)| id)
+        .zip(world.view().sites().map(|(id, _)| id))
+        .collect();
+    for (villager, site) in &pairs {
+        world.step(&[Command::Gather {
+            player: PlayerId::ONE,
+            units: smallvec![*villager],
+            site: *site,
+        }]);
+    }
+    let before = world.view().resources(PlayerId::ONE);
+    let totals = Resource::ALL.map(|r| world.view().total(r));
+
+    for _ in 0..6000 {
+        world.step(&[]);
+        for (resource, total) in Resource::ALL.into_iter().zip(totals) {
+            assert_eq!(
+                world.view().total(resource),
+                total,
+                "{resource:?} appeared or vanished at tick {}",
+                world.tick()
+            );
+        }
+    }
+
+    assert_eq!(world.view().sites().count(), 0, "every site used up");
+    let after = world.view().resources(PlayerId::ONE);
+    for resource in Resource::ALL {
+        assert_eq!(
+            after.get(resource) - before.get(resource),
+            amount,
+            "{resource:?} banked"
+        );
+    }
 }

@@ -1,8 +1,8 @@
 //! The simulation state and the single tick that advances it.
 
 use crate::entity::{
-    Building, BuildingId, BuildingKind, EntityId, GatherPhase, Order, Player, PlayerId, Route,
-    Site, SiteId, Unit, UnitId, UnitKind,
+    Building, BuildingId, BuildingKind, EntityId, Foundation, FoundationId, GatherPhase, Order,
+    Player, PlayerId, Route, Site, SiteId, Unit, UnitId, UnitKind,
 };
 use crate::path::{astar, Dir8, FlowFieldCache, PathRequest};
 use crate::spatial::SpatialHash;
@@ -252,11 +252,12 @@ impl MapSpec {
         let mining_camp = content
             .building_named("mining_camp")
             .ok_or_else(|| missing("mining_camp"))?;
-        // The original's standard 200 food, so villagers can be trained
-        // before food can be gathered (plan Phase 2), and 200 gold for the
-        // barracks.
+        // The original's standard 200 food and 200 wood, so villagers can be
+        // trained and a house put down before anything is gathered, and 200
+        // gold for the barracks.
         let mut map = MapSpec::new(SIZE, SIZE).with_starting_resources(Resources {
             food: 200,
+            wood: 200,
             gold: 200,
             ..Resources::default()
         });
@@ -350,6 +351,22 @@ pub enum Command {
         units: SmallVec<[UnitId; 32]>,
         building: BuildingId,
     },
+    /// Place a new building foundation. Cost is paid immediately.
+    /// Puts a foundation down and sends `units`, the villagers that placed
+    /// it, to build it, as in the original. Refused unless at least one of
+    /// them is the player's villager.
+    PlaceBuilding {
+        player: PlayerId,
+        units: SmallVec<[UnitId; 32]>,
+        kind: BuildingKind,
+        origin: TilePos,
+    },
+    /// Sends the player's villagers to work on one of their foundations.
+    Build {
+        player: PlayerId,
+        units: SmallVec<[UnitId; 32]>,
+        foundation: FoundationId,
+    },
 }
 
 impl Command {
@@ -361,7 +378,9 @@ impl Command {
             | Command::Gather { player, .. }
             | Command::Train { player, .. }
             | Command::Stop { player, .. }
-            | Command::Deposit { player, .. } => *player,
+            | Command::Deposit { player, .. }
+            | Command::PlaceBuilding { player, .. }
+            | Command::Build { player, .. } => *player,
         }
     }
 }
@@ -374,6 +393,7 @@ pub struct World {
     units: SlotMap<UnitId, Unit>,
     buildings: SlotMap<BuildingId, Building>,
     sites: SlotMap<SiteId, Site>,
+    foundations: SlotMap<FoundationId, Foundation>,
     /// Slot 0 is Gaia, then one per player.
     players: Vec<Player>,
     /// The numbers every system plays by. Fixed for the life of the world.
@@ -434,6 +454,7 @@ impl World {
             units: SlotMap::with_key(),
             buildings: SlotMap::with_key(),
             sites: SlotMap::with_key(),
+            foundations: SlotMap::with_key(),
             // Gaia starts with nothing; every player with the map's stock.
             players: (0..=map.players)
                 .map(|slot| Player {
@@ -492,6 +513,8 @@ impl World {
         self.drain_path_queue();
         self.run_movement();
         self.run_combat();
+        self.run_building();
+        self.step_foundations();
         self.run_cleanup();
         self.check_win();
         self.tick += 1;
@@ -510,6 +533,32 @@ impl World {
     /// command mapping.
     pub const fn view(&self) -> WorldView<'_> {
         WorldView { world: self }
+    }
+
+    /// Sets `unit` to work on `foundation`, if it is a villager of the
+    /// foundation's owner not already working on it. Whether it did.
+    ///
+    /// The build order calls this once a villager touches the foundation, and
+    /// the unit's order becomes building it. It is not a command, so the game
+    /// must not call it from input.
+    pub fn assign_builder(&mut self, id: FoundationId, unit: UnitId) -> bool {
+        let Some(builder) = self.units.get(unit) else {
+            return false;
+        };
+        let gathers = self.content.unit(builder.kind).gathers;
+        let owner = builder.owner;
+        let Some(foundation) = self.foundations.get_mut(id) else {
+            return false;
+        };
+        if !gathers || owner != foundation.owner || foundation.builders.contains(&unit) {
+            return false;
+        }
+        foundation.builders.push(unit);
+        self.units[unit].order = Order::Build {
+            foundation: id,
+            route: Route::Arrived,
+        };
+        true
     }
 
     /// FNV-1a over the state that a desync would show up in.
@@ -560,6 +609,13 @@ impl World {
             for kind in &building.queue {
                 eat(unit_kind_code(*kind));
             }
+        }
+        for (_, foundation) in &self.foundations {
+            eat(building_kind_code(foundation.kind));
+            eat(foundation.owner.index() as u64);
+            eat(foundation.hp as u32 as u64);
+            eat(u64::from(foundation.progress));
+            eat(foundation.builders.len() as u64);
         }
         for (_, site) in &self.sites {
             eat(resource_code(site.resource));
@@ -626,6 +682,17 @@ impl World {
                     units,
                     building,
                 } => self.order_deposit(*player, units, *building),
+                Command::PlaceBuilding {
+                    player,
+                    units,
+                    kind,
+                    origin,
+                } => self.order_place_building(*player, units, *kind, *origin),
+                Command::Build {
+                    player,
+                    units,
+                    foundation,
+                } => self.order_build(*player, units, *foundation),
             }
         }
     }
@@ -800,6 +867,134 @@ impl World {
         target.queue.push(unit);
     }
 
+    fn order_place_building(
+        &mut self,
+        player: PlayerId,
+        units: &[UnitId],
+        kind: BuildingKind,
+        origin: TilePos,
+    ) {
+        // Villagers place buildings: at least one must be the player's.
+        let builders = self.builders_among(player, units);
+        if builders.is_empty() {
+            return;
+        }
+        if !self.can_place(kind, origin) {
+            return;
+        }
+        // Check cost.
+        let cost = self.content.building(kind).cost;
+        let stock = &mut self.players[player.index()].resources;
+        if !stock.covers(&cost) {
+            return;
+        }
+        // Charge cost immediately (refunded if cancelled before construction).
+        *stock = stock.saturating_sub(cost);
+        // A new foundation stands with one hit point, so an attack can
+        // destroy it before any work is done. Provisional: by the original
+        // as players know it, not yet found in the decompile.
+        let max_hp = self.content.building(kind).max_hp;
+        let size = self.content.building(kind).size;
+        let foundation = Foundation::new(kind, player, origin, 1, size, max_hp);
+        let foundation = self.foundations.insert(foundation);
+        self.send_to_build(&builders, foundation);
+    }
+
+    /// The units among `units` that are `player`'s and build.
+    fn builders_among(&self, player: PlayerId, units: &[UnitId]) -> Vec<UnitId> {
+        self.owned(player, units)
+            .into_iter()
+            .filter(|id| self.content.unit(self.units[*id].kind).gathers)
+            .collect()
+    }
+
+    fn order_build(&mut self, player: PlayerId, units: &[UnitId], foundation: FoundationId) {
+        if self
+            .foundations
+            .get(foundation)
+            .is_none_or(|f| f.owner != player)
+        {
+            return;
+        }
+        let builders = self.builders_among(player, units);
+        self.send_to_build(&builders, foundation);
+    }
+
+    /// Sends `builders` to walk to `foundation`; they work on it once they
+    /// touch it (`run_building`). With no tile beside it to stand on, they
+    /// stand.
+    fn send_to_build(&mut self, builders: &[UnitId], foundation: FoundationId) {
+        let (origin, size) = {
+            let f = &self.foundations[foundation];
+            (f.origin, f.size)
+        };
+        let route = self.plan_adjacent(builders, origin, size);
+        for &id in builders {
+            self.units[id].order = Order::Build {
+                foundation,
+                route: route.clone(),
+            };
+            self.units[id].stuck_ticks = 0;
+        }
+    }
+
+    /// Whether a `kind` building may go down with its footprint at
+    /// `origin`: inside the map, on passable ground, and over no building,
+    /// foundation, or blocking site.
+    fn can_place(&self, kind: BuildingKind, origin: TilePos) -> bool {
+        let size = self.content.building(kind).size;
+        self.bounds_check(origin, size) && self.footprint_clear(origin, size)
+    }
+
+    /// Checks if a footprint fits within map bounds.
+    fn bounds_check(&self, origin: TilePos, size: i32) -> bool {
+        origin.x >= 0
+            && origin.y >= 0
+            && origin.x + size <= self.terrain.width()
+            && origin.y + size <= self.terrain.height()
+    }
+
+    /// Checks if all tiles in a footprint are passable and unoccupied.
+    fn footprint_clear(&self, origin: TilePos, size: i32) -> bool {
+        for dy in 0..size {
+            for dx in 0..size {
+                let pos = TilePos::new(origin.x + dx, origin.y + dy);
+                // Check terrain passable
+                let Some(tile) = self.terrain.get(pos) else {
+                    return false;
+                };
+                if !tile.passable {
+                    return false;
+                }
+                // Check no building occupies this tile
+                if self
+                    .buildings
+                    .values()
+                    .any(|b| b.footprint().any(|p| p == pos))
+                {
+                    return false;
+                }
+                // Check no site blocks this tile
+                if self
+                    .sites
+                    .values()
+                    .any(|s| s.blocks && s.footprint().any(|p| p == pos))
+                {
+                    return false;
+                }
+                // Check no foundation occupies this tile
+                if self
+                    .foundations
+                    .values()
+                    .any(|f| f.footprint().any(|p| p == pos))
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// Chooses a route for a group heading to one tile.
     ///
     /// More than one unit shares a flow field; a lone unit is queued for A*.
@@ -847,6 +1042,7 @@ impl World {
             EntityId::Unit(id) => self.units.get(id).map(|u| u.owner),
             EntityId::Building(id) => self.buildings.get(id).map(|b| b.owner),
             EntityId::Site(_) => None,
+            EntityId::Foundation(id) => self.foundations.get(id).map(|f| f.owner),
         }
     }
 
@@ -855,6 +1051,7 @@ impl World {
             EntityId::Unit(id) => self.units.get(id).map(|u| u.pos),
             EntityId::Building(id) => self.buildings.get(id).map(Building::center),
             EntityId::Site(id) => self.sites.get(id).map(Site::center),
+            EntityId::Foundation(id) => self.foundations.get(id).map(Foundation::center),
         }
     }
 
@@ -897,6 +1094,10 @@ impl World {
             EntityId::Building(id) => {
                 let b = self.buildings.get(id)?;
                 Some(footprint(b.origin, b.size))
+            }
+            EntityId::Foundation(id) => {
+                let f = self.foundations.get(id)?;
+                Some(footprint(f.origin, f.size))
             }
             // Never a target: a mine belongs to no one, so an attack order on
             // one is refused (`order_attack`).
@@ -986,11 +1187,18 @@ impl World {
     }
 
     fn gather_extract(&mut self, id: UnitId, mine: SiteId) {
-        let Some(resource) = self.sites.get(mine).map(|s| s.resource) else {
-            self.units[id].order = Order::Idle;
+        let Some((resource, farm)) = self.sites.get(mine).map(|s| (s.resource, !s.blocks)) else {
+            // Used up and removed: bank whatever is in hand.
+            self.send_to_drop_off(id, mine);
             return;
         };
-        let gather = *self.content.gather.get(resource);
+        // A farm is worked at the farmer's rate, any other site at its
+        // resource's.
+        let gather = if farm {
+            self.content.gather.farm
+        } else {
+            *self.content.gather.get(resource)
+        };
         let unit = &mut self.units[id];
         unit.mine_ticks += 1;
         if unit.mine_ticks < gather.ticks_per_unit {
@@ -1005,8 +1213,9 @@ impl World {
             unit.carried = resource;
             unit.carrying += 1;
         }
-        let exhausted = self.sites[mine].remaining <= 0;
-        if self.units[id].carrying >= gather.carry_capacity || exhausted {
+        // A site used up is removed at the end of the tick, which sends its
+        // villagers on (`go_on_from`).
+        if self.units[id].carrying >= gather.carry_capacity {
             self.send_to_drop_off(id, mine);
         }
     }
@@ -1066,7 +1275,7 @@ impl World {
     }
 
     /// Sends a loaded villager to the nearest of its owner's buildings that
-    /// takes its load.
+    /// takes its load and has a free adjacent tile.
     fn send_to_drop_off(&mut self, id: UnitId, mine: SiteId) {
         let unit = &self.units[id];
         if unit.carrying == 0 {
@@ -1077,7 +1286,11 @@ impl World {
         let nearest = self
             .buildings
             .iter()
-            .filter(|(_, b)| b.owner == owner && self.content.building(b.kind).takes(load))
+            .filter(|(_, b)| {
+                b.owner == owner
+                    && self.content.building(b.kind).takes(load)
+                    && self.free_tile_beside(b.origin, b.size).is_some()
+            })
             .min_by_key(|(_, b)| (b.center() - pos).length_squared())
             .map(|(id, b)| (id, b.origin, b.size));
 
@@ -1127,6 +1340,9 @@ impl World {
             }
             | Order::Deposit { building, .. } => {
                 self.buildings.get(building).map(|b| (b.origin, b.size))
+            }
+            Order::Build { foundation, .. } => {
+                self.foundations.get(foundation).map(|f| (f.origin, f.size))
             }
             _ => None,
         }
@@ -1449,6 +1665,11 @@ impl World {
                     building.hp = building.hp.saturating_sub(amount);
                 }
             }
+            EntityId::Foundation(id) => {
+                if let Some(foundation) = self.foundations.get_mut(id) {
+                    foundation.hp = foundation.hp.saturating_sub(amount);
+                }
+            }
             // Mines cannot be attacked; `order_attack` rejects them, and a
             // stray one here is a no-op rather than a panic.
             EntityId::Site(_) => {}
@@ -1459,6 +1680,9 @@ impl World {
 
     fn run_cleanup(&mut self) {
         self.units.retain(|_, unit| unit.hp > 0);
+        // A foundation brought to no hit points is destroyed. It blocks no
+        // tiles, so nothing else changes.
+        self.foundations.retain(|_, foundation| foundation.hp > 0);
 
         // A site with nothing left disappears; a tree or mine frees its tile.
         let used_up: Vec<SiteId> = self
@@ -1468,12 +1692,14 @@ impl World {
             .map(|(id, _)| id)
             .collect();
         let mut terrain_changed = false;
+        let mut removed = Vec::with_capacity(used_up.len());
         for id in used_up {
             let site = self.sites.remove(id).expect("listed above");
             if site.blocks {
                 self.stamp(site.footprint(), Tile::OPEN);
                 terrain_changed = true;
             }
+            removed.push((id, site));
         }
 
         let dead: Vec<BuildingId> = self
@@ -1492,6 +1718,170 @@ impl World {
         // that is no longer there.
         if terrain_changed {
             self.flow_fields.clear();
+        }
+        for (id, site) in removed {
+            self.go_on_from(id, &site);
+        }
+    }
+
+    // --- construction --------------------------------------------------------
+
+    /// Advances the work on every foundation with builders, and turns each
+    /// finished one into its building.
+    ///
+    /// One villager finishes a building in its build time; `n` builders
+    /// finish it in `3t / (n + 2)`, each past the first adding a third of a
+    /// villager's work. Provisional: the original's rule as players know it,
+    /// not yet found in the decompile. A builder that has died or gone
+    /// stops counting, so the work pauses until another is set to it.
+    fn step_foundations(&mut self) {
+        let mut finished = Vec::new();
+        for (id, foundation) in self.foundations.iter_mut() {
+            let units = &self.units;
+            foundation.builders.retain(|builder| {
+                units.get(*builder).is_some_and(|u| {
+                    u.hp > 0
+                        && matches!(u.order, Order::Build { foundation, .. } if foundation == id)
+                })
+            });
+            let Some(build_time) = self.content.building(foundation.kind).build_time else {
+                continue;
+            };
+            let builders = foundation.builders.len() as u32;
+            if builders == 0 {
+                continue;
+            }
+            let whole = build_time.saturating_mul(3);
+            // The hit points the work so far has built: one at the start, all
+            // of them when finished. Work adds to the hit points rather than
+            // setting them, so damage taken meanwhile stays.
+            let built = |progress: u32| {
+                1 + (i64::from(foundation.max_hp - 1) * i64::from(progress) / i64::from(whole))
+                    as i32
+            };
+            let before = built(foundation.progress);
+            foundation.progress = foundation
+                .progress
+                .saturating_add(builders.saturating_add(2))
+                .min(whole);
+            foundation.hp = foundation
+                .hp
+                .saturating_add(built(foundation.progress) - before);
+            if foundation.progress == whole {
+                finished.push(id);
+            }
+        }
+        for id in finished {
+            let foundation = self.foundations.remove(id).expect("listed above");
+            // Damage taken while it was built stays with the building.
+            let building = Building::new(
+                foundation.kind,
+                foundation.owner,
+                foundation.origin,
+                foundation.hp,
+                foundation.size,
+            );
+            for builder in &foundation.builders {
+                self.units[*builder].order = Order::Idle;
+            }
+            self.move_off(building.origin, building.size);
+            self.stamp(building.footprint(), Tile::BLOCKED);
+            self.buildings.insert(building);
+        }
+    }
+
+    /// Walks each villager to work: one that touches its foundation starts
+    /// building it; one whose foundation is gone stands.
+    fn run_building(&mut self) {
+        let ids: Vec<UnitId> = self.units.keys().collect();
+        for id in ids {
+            let Order::Build { foundation, .. } = self.units[id].order else {
+                continue;
+            };
+            let Some(target) = self.foundations.get(foundation) else {
+                self.units[id].order = Order::Idle;
+                continue;
+            };
+            let (origin, size) = (target.origin, target.size);
+            if self.touches(id, origin, size) {
+                self.assign_builder(foundation, id);
+            }
+        }
+    }
+
+    /// Sets every unit standing on the footprint on the nearest free tile
+    /// beside it, as a finished building would otherwise wall them in.
+    /// Provisional: the original's way is not yet found.
+    fn move_off(&mut self, origin: TilePos, size: i32) {
+        let inside = |tile: TilePos| {
+            (origin.x..origin.x + size).contains(&tile.x)
+                && (origin.y..origin.y + size).contains(&tile.y)
+        };
+        let Some(beside) = self.free_tile_beside(origin, size) else {
+            return;
+        };
+        let stuck: Vec<UnitId> = self
+            .units
+            .iter()
+            .filter(|(_, u)| inside(u.tile()))
+            .map(|(id, _)| id)
+            .collect();
+        for id in stuck {
+            self.units[id].pos = FxVec2::tile_center(beside);
+        }
+    }
+
+    /// Sends the villagers working a site that is used up on to the nearest
+    /// site of the same resource they can reach, as in the original, where a
+    /// lumberjack moves on to the next tree with whatever it holds. With none,
+    /// or from a farm, which the original reseeds rather than leaves, a
+    /// villager holding a load takes it to a drop-off and one holding nothing
+    /// stands. Provisional: the original searches within some distance of the
+    /// used-up site; here any distance will do.
+    fn go_on_from(&mut self, used_up: SiteId, site: &Site) {
+        let next = if site.blocks {
+            let centre = site.center();
+            self.sites
+                .iter()
+                .filter(|(_, s)| {
+                    s.resource == site.resource
+                        && s.blocks
+                        && s.remaining > 0
+                        && self.free_tile_beside(s.origin, s.size).is_some()
+                })
+                .min_by_key(|(_, s)| (s.center() - centre).length_squared())
+                .map(|(id, s)| (id, s.origin, s.size))
+        } else {
+            None
+        };
+        let workers: Vec<(UnitId, GatherPhase)> = self
+            .units
+            .iter()
+            .filter_map(|(id, unit)| match &unit.order {
+                Order::Gather { site, phase, .. } if *site == used_up => Some((id, *phase)),
+                _ => None,
+            })
+            .collect();
+        for (id, phase) in workers {
+            match (phase, next) {
+                // On the way to bank a load: come back to the next site.
+                (GatherPhase::ToDropOff { .. }, Some((next, ..))) => {
+                    if let Order::Gather { site, .. } = &mut self.units[id].order {
+                        *site = next;
+                    }
+                }
+                // Banks, then stands at the drop-off.
+                (GatherPhase::ToDropOff { .. }, None) => {}
+                (_, Some((next, origin, size))) => {
+                    let route = self.plan_adjacent(&[id], origin, size);
+                    self.units[id].order = Order::Gather {
+                        site: next,
+                        phase: GatherPhase::ToSite,
+                        route,
+                    };
+                }
+                (_, None) => self.send_to_drop_off(id, used_up),
+            }
         }
     }
 
@@ -1531,7 +1921,8 @@ impl Order {
             Order::Move { route, .. }
             | Order::Attack { route, .. }
             | Order::Gather { route, .. }
-            | Order::Deposit { route, .. } => Some(route),
+            | Order::Deposit { route, .. }
+            | Order::Build { route, .. } => Some(route),
         }
     }
 
@@ -1541,7 +1932,8 @@ impl Order {
             Order::Move { route, .. }
             | Order::Attack { route, .. }
             | Order::Gather { route, .. }
-            | Order::Deposit { route, .. } => {
+            | Order::Deposit { route, .. }
+            | Order::Build { route, .. } => {
                 *route = new_route;
             }
         }
@@ -1628,6 +2020,21 @@ impl<'a> WorldView<'a> {
         self.world.sites.get(id)
     }
 
+    pub fn foundations(&self) -> impl Iterator<Item = (FoundationId, &'a Foundation)> {
+        self.world.foundations.iter()
+    }
+
+    pub fn foundation(&self, id: FoundationId) -> Option<&'a Foundation> {
+        self.world.foundations.get(id)
+    }
+
+    /// Whether a `kind` building may be placed at `origin`, judged as a
+    /// [`Command::PlaceBuilding`] judges it, cost aside: what the placement
+    /// preview shows.
+    pub fn can_place(&self, kind: BuildingKind, origin: TilePos) -> bool {
+        self.world.can_place(kind, origin)
+    }
+
     /// Total gold still in the ground plus gold in transit plus gold banked.
     ///
     /// Exposed for the conservation property test, which is the only cheap
@@ -1689,6 +2096,7 @@ fn entity_words(entity: EntityId) -> [u64; 2] {
         EntityId::Unit(id) => [0, id.data().as_ffi()],
         EntityId::Building(id) => [1, id.data().as_ffi()],
         EntityId::Site(id) => [2, id.data().as_ffi()],
+        EntityId::Foundation(id) => [3, id.data().as_ffi()],
     }
 }
 
@@ -1713,6 +2121,7 @@ fn order_words(order: &Order) -> [u64; 5] {
             [3, mine.data().as_ffi(), phase, building, 0]
         }
         Order::Deposit { building, .. } => [4, building.data().as_ffi(), 0, 0, 0],
+        Order::Build { foundation, .. } => [5, foundation.data().as_ffi(), 0, 0, 0],
     }
 }
 

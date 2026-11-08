@@ -7,10 +7,12 @@
 //! filled rectangles are health bars, and the only lines are the selection
 //! outline and the drag box, as in the original.
 
+use crate::pick;
 use crate::pick::footprint_centre;
 use crate::pick::to_screen_space;
+use crate::session::Session;
 use crate::sprites::{building_scale, Sprite, Sprites, UNIT_PIXELS_PER_TILE};
-use crate::ui::{trains_on_buttons, Layout, Rect};
+use crate::ui::{builds_on_buttons, trains_on_buttons, Layout, Rect};
 use render::{Camera, Color, Renderer, Vec2};
 use sim::{BuildingId, FxVec2, Outcome, PlayerId, Resource, Site, TilePos, UnitId, WorldView};
 use std::collections::{HashMap, HashSet};
@@ -21,6 +23,18 @@ pub const SELECTION: Color = Color::rgb(0.95, 0.95, 0.95);
 pub const HEALTH: Color = Color::rgb(0.25, 0.85, 0.35);
 /// The empty part of a health bar.
 pub const HEALTH_LOST: Color = Color::rgba(0.1, 0.1, 0.1, 0.7);
+
+/// The tint of a building being placed where it may go: see-through.
+/// Provisional, judged by eye against the original.
+pub const PLACEABLE: Color = Color::rgba(1.0, 1.0, 1.0, 0.6);
+/// The tint of a foundation: see-through. Provisional, until foundations
+/// are drawn with the original's construction graphics.
+pub const FOUNDATION: Color = Color::rgba(1.0, 1.0, 1.0, 0.4);
+/// The tint of a building being placed where it may not go: red.
+/// Provisional, judged by eye against the original.
+pub const UNPLACEABLE: Color = Color::rgba(1.0, 0.2, 0.2, 0.6);
+/// No tint (full opacity).
+const WHITE: Color = Color::rgb(1.0, 1.0, 1.0);
 
 /// Debug text height in screen pixels.
 const OVERLAY_PX: f32 = 16.0;
@@ -39,10 +53,19 @@ pub struct Hud<'a> {
     pub selection: &'a [UnitId],
     /// The building this player has selected, if any: then no units are.
     pub building: Option<BuildingId>,
+    /// The foundation this player has selected, if any: then no units are.
+    pub foundation: Option<sim::FoundationId>,
+    /// Building kind being placed, if in placement mode.
+    pub placing_building: Option<sim::BuildingKind>,
+    /// The message the active player is being shown, such as "Not enough
+    /// wood.".
+    pub notice: Option<&'a str>,
     /// Corners of the selection rectangle being dragged, in world units.
     pub drag_box: Option<(Vec2, Vec2)>,
     /// Whether the simulation is being driven by a recording rather than input.
     pub replaying: bool,
+    /// Mouse cursor position in world coordinates, for drawing the job cursor.
+    pub cursor_world: Vec2,
 }
 
 /// Draws one complete frame.
@@ -63,13 +86,16 @@ pub fn draw_world<R: Renderer>(
     renderer.begin_frame(camera);
     draw_terrain(renderer, camera, view, sprites);
     draw_sites(renderer, view, sprites);
+    draw_foundations(renderer, view, hud, sprites);
     draw_buildings(renderer, view, hud, sprites);
     draw_units(renderer, view, previous, alpha, hud, sprites);
     draw_drag_box(renderer, hud);
+    draw_ghost(renderer, view, hud, sprites);
     draw_interface(renderer, camera, sprites);
     draw_command_panel(renderer, camera, view, hud, sprites);
     draw_info_panel(renderer, camera, view, hud, sprites);
     draw_overlay(renderer, camera, view, hud);
+    draw_cursor(renderer, camera, view, hud, sprites);
     renderer.end_frame();
 }
 
@@ -82,6 +108,46 @@ fn draw_interface<R: Renderer>(renderer: &mut R, camera: &Camera, sprites: &Spri
         sprites.interface.texture,
         camera.screen_to_world(Vec2::ZERO),
         camera.viewport * (1.0 / camera.zoom),
+    );
+}
+
+/// Draws the mouse cursor over everything, as the original draws its own:
+/// the plain arrow, or the job's cursor when the selection includes a unit
+/// that gathers and the mouse is over a site it would gather from. It keeps
+/// its own pixel size at any zoom, its hotspot on the mouse.
+fn draw_cursor<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    // On the interface a right-click orders nothing on the map beneath.
+    let on_interface =
+        Layout::new(camera.viewport).blocks(camera.world_to_screen(hud.cursor_world));
+    let gatherer_selected = !on_interface
+        && hud.building.is_none()
+        && hud.selection.iter().any(|id| {
+            view.unit(*id)
+                .is_some_and(|unit| view.content().unit(unit.kind).gathers)
+        });
+    let resource = if gatherer_selected {
+        // Picked as a right-click picks, so the cursor shows what the click
+        // would order.
+        let min = Session::MIN_PICK_PIXELS / camera.zoom;
+        match pick::entity_at(view, hud.cursor_world, &sprites.bodies(view.content()), min) {
+            Some(sim::EntityId::Site(site)) => view.site(site).map(|site| site.resource),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let cursor = sprites.cursor(resource);
+    let scale = 1.0 / camera.zoom;
+    renderer.sprite(
+        cursor.texture,
+        hud.cursor_world - cursor.hotspot * scale,
+        Vec2::new(cursor.width, cursor.height) * scale,
     );
 }
 
@@ -104,9 +170,14 @@ fn draw_command_panel<R: Renderer>(
 ) {
     let layout = Layout::new(camera.viewport);
     let trains = trains_on_buttons(view, hud.building, hud.active_player);
-    for (kind, button) in trains.into_iter().zip(layout.buttons) {
+    let builds = builds_on_buttons(view, hud.selection, hud.active_player);
+    let icons = trains
+        .into_iter()
+        .map(|kind| sprites.unit_icon(kind))
+        .chain(builds.into_iter().map(|kind| sprites.building_icon(kind)));
+    for (icon, button) in icons.zip(layout.buttons) {
         let (at, size) = screen_rect(camera, button);
-        renderer.sprite(sprites.unit_icon(kind).texture, at, size);
+        renderer.sprite(icon.texture, at, size);
     }
 }
 
@@ -121,7 +192,11 @@ fn draw_info_panel<R: Renderer>(
     sprites: &Sprites,
 ) {
     let Some(building) = hud.building.and_then(|id| view.building(id)) else {
-        draw_unit_info(renderer, camera, view, hud, sprites);
+        if let Some(foundation) = hud.foundation.and_then(|id| view.foundation(id)) {
+            draw_foundation_info(renderer, camera, view, foundation, sprites);
+        } else {
+            draw_unit_info(renderer, camera, view, hud, sprites);
+        }
         return;
     };
     let layout = Layout::new(camera.viewport);
@@ -170,6 +245,45 @@ fn draw_info_panel<R: Renderer>(
     }
 }
 
+/// Draws what the information panel says about the selected foundation:
+/// its building's icon and name, its hit points, and a progress bar of the
+/// work done, frame n being n percent, as for a unit in training.
+fn draw_foundation_info<R: Renderer>(
+    renderer: &mut R,
+    camera: &Camera,
+    view: WorldView<'_>,
+    foundation: &sim::Foundation,
+    sprites: &Sprites,
+) {
+    let layout = Layout::new(camera.viewport);
+    let stats = view.content().building(foundation.kind);
+    let mut icon = |texture, rect| {
+        let (at, size) = screen_rect(camera, rect);
+        renderer.sprite(texture, at, size);
+    };
+    icon(
+        sprites.building_icon(foundation.kind).texture,
+        layout.building_icon,
+    );
+    if let Some(build_time) = stats.build_time {
+        let whole = u64::from(build_time.max(1)) * 3;
+        let percent = (u64::from(foundation.progress) * 100 / whole) as usize;
+        let frame = percent.min(sprites.progress.len().saturating_sub(1));
+        if let Some(bar) = sprites.progress.get(frame) {
+            icon(bar.texture, layout.progress_bar);
+        }
+    }
+    for (text, at) in [
+        (stats.name.clone(), layout.name_at),
+        (
+            format!("{}/{}", foundation.hp.max(0), foundation.max_hp),
+            layout.hit_points_at,
+        ),
+    ] {
+        renderer.text(&text, camera.screen_to_world(at), layout.text_px, INK);
+    }
+}
+
 /// Draws what the information panel says about the first selected unit:
 /// its icon, name, and hit points, and the load a gatherer carries.
 fn draw_unit_info<R: Renderer>(
@@ -203,6 +317,12 @@ fn draw_unit_info<R: Renderer>(
         renderer.text(&text, camera.screen_to_world(at), layout.text_px, INK);
     }
 }
+
+/// A notice's box: dark red inside, bright red edge, judged by eye.
+const NOTICE_BOX: Color = Color::rgba(0.45, 0.02, 0.02, 0.9);
+const NOTICE_EDGE: Color = Color::rgb(0.95, 0.1, 0.1);
+/// Screen pixels between a notice's text and its box.
+const NOTICE_MARGIN: f32 = 6.0;
 
 /// The top bar's text: light on the dark slots.
 const BAR_TEXT: Color = Color::rgb(0.95, 0.93, 0.85);
@@ -244,6 +364,24 @@ fn draw_overlay<R: Renderer>(
     for (row, line) in lines.iter().enumerate() {
         let at = layout.debug_at + Vec2::new(0.0, OVERLAY_LINE * row as f32);
         renderer.text(line, camera.screen_to_world(at), OVERLAY_PX, Color::WHITE);
+    }
+
+    // A notice goes below the readout, in a red box, where the original
+    // writes its messages. Placed and coloured by eye: provisional.
+    if let Some(notice) = hud.notice {
+        let at = layout.debug_at + Vec2::new(0.0, OVERLAY_LINE * 2.0);
+        // The text's width is not measured: a character is about half its
+        // height wide, which the box's margin absorbs.
+        let width = notice.chars().count() as f32 * OVERLAY_PX * 0.55;
+        let from = at + Vec2::new(-NOTICE_MARGIN, -OVERLAY_PX - NOTICE_MARGIN * 0.5);
+        let to = at + Vec2::new(width + NOTICE_MARGIN, NOTICE_MARGIN);
+        let (from, to) = (camera.screen_to_world(from), camera.screen_to_world(to));
+        renderer.quad(from, to - from, NOTICE_BOX);
+        let corners = [from, Vec2::new(to.x, from.y), to, Vec2::new(from.x, to.y)];
+        for k in 0..4 {
+            renderer.line(corners[k], corners[(k + 1) % 4], NOTICE_EDGE);
+        }
+        renderer.text(notice, camera.screen_to_world(at), OVERLAY_PX, Color::WHITE);
     }
 }
 
@@ -303,9 +441,15 @@ const TREE_REACH: i32 = 3;
 /// Draws `sprite` with its ground point on `ground`, at `scale` tiles per
 /// sprite pixel. Returns where the sprite was drawn and its size.
 fn stand<R: Renderer>(renderer: &mut R, sprite: &Sprite, ground: Vec2, scale: f32) -> (Vec2, Vec2) {
+    let (origin, size) = placed(sprite, ground, scale);
+    renderer.sprite(sprite.texture, origin, size);
+    (origin, size)
+}
+
+/// Where [`stand`] draws `sprite`: its top-left corner and drawn size.
+fn placed(sprite: &Sprite, ground: Vec2, scale: f32) -> (Vec2, Vec2) {
     let origin = ground - sprite.hotspot * scale;
     let size = Vec2::new(sprite.width, sprite.height) * scale;
-    renderer.sprite(sprite.texture, origin, size);
     (origin, size)
 }
 
@@ -459,4 +603,99 @@ fn visible_tiles(camera: &Camera, map_width: i32, map_height: i32) -> (TilePos, 
             clamp(bottom_right.y, map_height),
         ),
     )
+}
+
+/// Draws each foundation with construction graphics based on progress.
+fn draw_foundations<R: Renderer>(
+    renderer: &mut R,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    for (id, foundation) in view.foundations() {
+        let stats = view.content().building(foundation.kind);
+        let build_time = stats.build_time.unwrap_or(1);
+        let progress = foundation.progress;
+
+        // Choose sprite based on progress:
+        // 0-33%: generic construction graphic (CNST2/3/4_NN)
+        // 33-66%: building-specific construction graphic (HOUSS, BRKSS, etc.)
+        // 66-100%: standing graphic with foundation tint
+        let sprite = if progress < build_time {
+            // Generic construction graphic by size (index = size - 2)
+            let size_idx = foundation.size.saturating_sub(2) as usize;
+            if size_idx < sprites.construction_generic.len() {
+                &sprites.construction_generic[size_idx]
+            } else {
+                sprites.building(foundation.kind, foundation.owner)
+            }
+        } else if progress < 2 * build_time {
+            // Building-specific construction graphic
+            let kind_idx = foundation.kind.index();
+            if kind_idx < sprites.construction_specific.len() {
+                &sprites.construction_specific[kind_idx][1] // Gaia colours (slot 1 is player 1, but we use neutral)
+            } else {
+                sprites.building(foundation.kind, foundation.owner)
+            }
+        } else {
+            // Standing graphic with foundation tint
+            sprites.building(foundation.kind, foundation.owner)
+        };
+
+        let scale = building_scale(sprite, foundation.size);
+        let half = foundation.size as f32 * 0.5;
+        let centre = Vec2::new(
+            foundation.origin.x as f32 + half,
+            foundation.origin.y as f32 + half,
+        );
+        let (top_left, drawn) = placed(sprite, centre, scale);
+
+        // Apply foundation tint for stages that use standing graphic
+        let tint = if progress >= 2 * build_time {
+            FOUNDATION
+        } else {
+            WHITE
+        };
+        renderer.sprite_tinted(sprite.texture, top_left, drawn, tint);
+
+        if hud.foundation == Some(id) {
+            outline(renderer, top_left, top_left + drawn);
+        }
+        let origin = Vec2::new(foundation.origin.x as f32, foundation.origin.y as f32);
+        health_bar(
+            renderer,
+            origin,
+            foundation.size as f32,
+            foundation.hp,
+            foundation.max_hp,
+        );
+    }
+}
+
+/// Draws the building being placed under the cursor, see-through, where
+/// the order would put it: as it is where it may go, red where it may not.
+fn draw_ghost<R: Renderer>(
+    renderer: &mut R,
+    view: WorldView<'_>,
+    hud: &Hud<'_>,
+    sprites: &Sprites,
+) {
+    let Some(kind) = hud.placing_building else {
+        return;
+    };
+    let size = view.content().building(kind).size;
+    let origin = pick::placement_origin(hud.cursor_world, size);
+    let tint = if view.can_place(kind, origin) {
+        PLACEABLE
+    } else {
+        UNPLACEABLE
+    };
+    let sprite = sprites.building(kind, hud.active_player);
+    let scale = building_scale(sprite, size);
+    let centre = Vec2::new(
+        origin.x as f32 + size as f32 * 0.5,
+        origin.y as f32 + size as f32 * 0.5,
+    );
+    let (top_left, drawn) = placed(sprite, centre, scale);
+    renderer.sprite_tinted(sprite.texture, top_left, drawn, tint);
 }

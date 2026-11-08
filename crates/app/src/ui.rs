@@ -6,7 +6,7 @@
 //! of the window size, so it is tested without a window.
 
 use render::Vec2;
-use sim::{BuildingId, PlayerId, Resource, UnitKind, WorldView};
+use sim::{BuildingId, BuildingKind, PlayerId, Resource, Resources, UnitId, UnitKind, WorldView};
 
 /// The size of the image the rectangles below were measured on.
 const IMAGE: Vec2 = Vec2::new(800.0, 600.0);
@@ -200,6 +200,44 @@ impl Layout {
     }
 }
 
+/// The buildings a villager's command panel offers, in button order.
+///
+/// Provisional: the original first offers "economic" and "military"
+/// buildings and opens one of two pages; until those pages are read from
+/// the original, the buildings sit directly on the buttons, the house first.
+const BUILD_ORDER: [BuildingKind; 5] = [
+    BuildingKind::HOUSE,
+    BuildingKind::BARRACKS,
+    BuildingKind::MILL,
+    BuildingKind::LUMBER_CAMP,
+    BuildingKind::MINING_CAMP,
+];
+
+/// What the command panel's buttons build, in button order, for `player`
+/// with `selection` selected: when every selected unit is one of
+/// `player`'s gatherers, the buildings of [`BUILD_ORDER`] the content has.
+/// Empty otherwise.
+pub fn builds_on_buttons(
+    view: WorldView<'_>,
+    selection: &[UnitId],
+    player: PlayerId,
+) -> Vec<BuildingKind> {
+    let content = view.content();
+    let builders = !selection.is_empty()
+        && selection.iter().all(|id| {
+            view.unit(*id)
+                .is_some_and(|u| u.owner == player && content.unit(u.kind).gathers)
+        });
+    if !builders {
+        return Vec::new();
+    }
+    BUILD_ORDER
+        .into_iter()
+        .filter(|kind| kind.index() < content.buildings.len())
+        .take(BUTTON_COLUMNS * BUTTON_ROWS)
+        .collect()
+}
+
 /// What the command panel's buttons train, in button order, for `player`
 /// with `building` selected: the building's `trains` list, as many as there
 /// are buttons. Empty for no building or another player's: only your own
@@ -221,4 +259,29 @@ pub fn trains_on_buttons(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The first resource `stock` holds too little of to pay `cost`, in the
+/// order of the original's messages: food, wood, stone, gold. Which one the
+/// original names when several are short is provisional.
+pub fn shortfall(cost: Resources, stock: Resources) -> Option<Resource> {
+    [
+        Resource::Food,
+        Resource::Wood,
+        Resource::Stone,
+        Resource::Gold,
+    ]
+    .into_iter()
+    .find(|&resource| stock.get(resource) < cost.get(resource))
+}
+
+/// The original's message for too little of `resource` (`language.dll`
+/// strings 3001 to 3004).
+pub const fn not_enough(resource: Resource) -> &'static str {
+    match resource {
+        Resource::Food => "Not enough food.",
+        Resource::Wood => "Not enough wood.",
+        Resource::Stone => "Not enough stone.",
+        Resource::Gold => "Not enough gold.",
+    }
 }

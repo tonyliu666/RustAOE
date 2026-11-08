@@ -166,6 +166,7 @@ struct UnitFile {
     radius: Fraction,
     cost: ResourcesFile,
     train_ticks: u32,
+    population_cost: Option<i32>,
 }
 
 /// `(food: 50)`: a resource left out is zero.
@@ -191,6 +192,25 @@ struct BuildingFile {
     drop_off: Vec<ResourceFile>,
     /// Unit types by name; turned into IDs when loaded.
     trains: Vec<String>,
+    /// Ticks one villager takes to build it; left out for a building no
+    /// one builds.
+    build_time: Option<u32>,
+    /// Places of population it adds once standing; left out, none.
+    population_provided: Option<i32>,
+    /// What placing its foundation costs.
+    cost: ResourcesFile,
+    /// Generic construction graphic by building size (CNST2/3/4_NN).
+    construction_generic: Option<u32>,
+    /// Building-specific construction graphic with parts (HOUSS, BRKSS, etc.).
+    construction_specific: Option<ConstructionSpecificFile>,
+}
+
+/// Building-specific construction graphic: `(sprite, parts)`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConstructionSpecificFile {
+    sprite: u32,
+    parts: Vec<PartFile>,
 }
 
 #[derive(Deserialize)]
@@ -200,6 +220,7 @@ struct GatherFile {
     wood: GatherStatsFile,
     gold: GatherStatsFile,
     stone: GatherStatsFile,
+    farm: GatherStatsFile,
 }
 
 #[derive(Deserialize)]
@@ -224,6 +245,18 @@ impl ContentFile {
             sprite,
             parts: parts(file.to_vec()),
             icon,
+            construction_generic: None,
+            construction_specific: None,
+        };
+        let building_look = |b: &BuildingFile| Look {
+            sprite: b.sprite,
+            parts: parts(b.parts.clone()),
+            icon: b.icon,
+            construction_generic: b.construction_generic,
+            construction_specific: b
+                .construction_specific
+                .as_ref()
+                .map(|cs| (cs.sprite, parts(cs.parts.clone()))),
         };
         Looks {
             units: self
@@ -234,7 +267,7 @@ impl ContentFile {
             buildings: self
                 .buildings
                 .iter()
-                .map(|b| (b.name.clone(), look(b.sprite, &b.parts, b.icon)))
+                .map(|b| (b.name.clone(), building_look(b)))
                 .collect(),
         }
     }
@@ -267,6 +300,7 @@ impl ContentFile {
                 wood: self.gather.wood.stats(),
                 gold: self.gather.gold.stats(),
                 stone: self.gather.stone.stats(),
+                farm: self.gather.farm.stats(),
             },
         })
     }
@@ -291,6 +325,7 @@ impl UnitFile {
             train_ticks: self.train_ticks,
             gathers: self.gathers,
             name: self.name,
+            population_cost: self.population_cost.unwrap_or(1),
         })
     }
 }
@@ -316,6 +351,14 @@ impl BuildingFile {
             max_hp: self.max_hp,
             drop_off: self.drop_off.iter().map(|r| r.resource()).collect(),
             trains,
+            build_time: self.build_time,
+            population_provided: self.population_provided.unwrap_or(0),
+            cost: Resources {
+                food: self.cost.food,
+                wood: self.cost.wood,
+                gold: self.cost.gold,
+                stone: self.cost.stone,
+            },
         })
     }
 }

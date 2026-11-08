@@ -18,18 +18,27 @@ pub fn sprite(renderer: &mut RecordingRenderer, size: (u32, u32), hotspot: (f32,
     }
 }
 
+/// Creates an array of sprites, one per player slot (Gaia + 8 players).
+fn per_player(
+    renderer: &mut RecordingRenderer,
+    size: (u32, u32),
+    hotspot: (f32, f32),
+) -> [Sprite; 9] {
+    std::array::from_fn(|_| sprite(renderer, size, hotspot))
+}
+
 /// One fake sprite per type of the default content and per player, two grass
 /// variations, two of farm ground, a picture per kind of site, and the
 /// interface.
 pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
-    let mut per_player = |size, hotspot| std::array::from_fn(|_| sprite(renderer, size, hotspot));
-    let villager = per_player((21, 42), (10.0, 40.0));
-    let soldier = per_player((28, 47), (14.0, 44.0));
-    let town_center = per_player((200, 240), (100.0, 150.0));
-    let barracks = per_player((300, 260), (150.0, 160.0));
-    let mill = per_player((200, 150), (100.0, 100.0));
-    let lumber_camp = per_player((200, 150), (100.0, 100.0));
-    let mining_camp = per_player((200, 150), (100.0, 100.0));
+    let villager = per_player(renderer, (21, 42), (10.0, 40.0));
+    let soldier = per_player(renderer, (28, 47), (14.0, 44.0));
+    let town_center = per_player(renderer, (200, 240), (100.0, 150.0));
+    let barracks = per_player(renderer, (300, 260), (150.0, 160.0));
+    let mill = per_player(renderer, (200, 150), (100.0, 100.0));
+    let lumber_camp = per_player(renderer, (200, 150), (100.0, 100.0));
+    let mining_camp = per_player(renderer, (200, 150), (100.0, 100.0));
+    let house = per_player(renderer, (120, 100), (60.0, 70.0));
     let grass = vec![
         renderer.load_texture(4, 4, &[0; 64]),
         renderer.load_texture(4, 4, &[0; 64]),
@@ -48,12 +57,25 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         sprite(renderer, (36, 36), (0.0, 0.0)),
     ];
     // One per building type of the default content.
-    let building_icons = (0..5)
+    let building_icons = (0..6)
         .map(|_| sprite(renderer, (36, 36), (0.0, 0.0)))
         .collect();
     let progress = (0..100)
         .map(|_| sprite(renderer, (100, 12), (0.0, 0.0)))
         .collect();
+    let construction_generic = vec![
+        sprite(renderer, (120, 100), (60.0, 70.0)), // CNST2_NN (size 2)
+        sprite(renderer, (200, 150), (100.0, 100.0)), // CNST3_NN (size 3)
+        sprite(renderer, (300, 260), (150.0, 160.0)), // CNST4_NN (size 4)
+    ];
+    let construction_specific = vec![
+        per_player(renderer, (120, 100), (60.0, 70.0)), // HOUSS
+        per_player(renderer, (300, 260), (150.0, 160.0)), // BRKSS
+        per_player(renderer, (200, 240), (100.0, 150.0)), // RTWCS
+        per_player(renderer, (200, 150), (100.0, 100.0)), // MILLS
+        per_player(renderer, (200, 150), (100.0, 100.0)), // LUMCS
+        per_player(renderer, (200, 150), (100.0, 100.0)), // MINCS
+    ];
     Sprites {
         unit_icons,
         building_icons,
@@ -65,8 +87,11 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         bush,
         farm,
         interface,
+        cursors: std::array::from_fn(|_| sprite(renderer, (32, 32), (4.0, 2.0))),
         units: vec![villager, soldier],
-        buildings: vec![town_center, barracks, mill, lumber_camp, mining_camp],
+        buildings: vec![town_center, barracks, mill, lumber_camp, mining_camp, house],
+        construction_generic,
+        construction_specific,
     }
 }
 
@@ -164,8 +189,9 @@ pub const TWO_PIXELS: [u8; 5] = [(1 << 4) | 0x06, 3, 1 << 2, 200, 0x0F];
 /// an override for an ID not among them is added as well.
 pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
     let defaults = [
-        1473u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 3482, 3483, 3507, 3495,
-        2296, 4652, 4479, 2561, 4482, 1034, 2560, 51101, 50730, 50705, 50764,
+        1479u32, 993, 3596, 889, 4612, 891, 3595, 4611, 3594, 4610, 2683, 3482, 3483, 3507, 3495,
+        3500, 36, 2223, 2296, 4652, 4479, 2561, 4482, 1034, 2560, 51101, 50730, 50705, 50764,
+        51000,
     ];
     let extra = overrides
         .iter()
@@ -183,6 +209,8 @@ pub fn graphics(overrides: &[(u32, Vec<u8>)]) -> Vec<([u8; 4], u32, Vec<u8>)> {
                         icons_in(52, 7)
                     } else if id == 50764 {
                         icons(100)
+                    } else if id == 51000 {
+                        icons(19)
                     } else {
                         slp(1, 2, &TWO_PIXELS)
                     }

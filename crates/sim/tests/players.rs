@@ -1,7 +1,7 @@
 //! More than two players, Gaia, and per-player defeat.
 
 use sim::{
-    BuildingKind, Command, Content, EntityId, MapSpec, Outcome, PlayerId, TilePos, UnitId,
+    BuildingKind, Command, Content, EntityId, Fx, MapSpec, Outcome, PlayerId, TilePos, UnitId,
     UnitKind, World,
 };
 use smallvec::smallvec;
@@ -24,10 +24,14 @@ fn run(world: &mut World, ticks: u64) {
 }
 
 /// Content whose town centre falls to one soldier hit, so that a test can
-/// knock a player out in a few ticks.
+/// knock a player out in a few ticks. Uses old-style soldier stats (damage 8,
+/// cooldown 20) so 5 ticks is enough for the hit to land.
 fn fragile_town_centres() -> Content {
     let mut content = Content::default();
     content.building_mut(BuildingKind::TOWN_CENTER).max_hp = 8;
+    content.unit_mut(UnitKind::SOLDIER).damage = 8;
+    content.unit_mut(UnitKind::SOLDIER).attack_cooldown = 20;
+    content.unit_mut(UnitKind::SOLDIER).range = Fx::ONE;
     content
 }
 
@@ -344,9 +348,10 @@ fn two_players_losing_their_last_buildings_on_the_same_tick_is_a_draw() {
 }
 
 #[test]
-fn every_player_on_the_proof_of_concept_map_starts_with_food_and_gold() {
-    // 200 food, the original's standard start, so the town centre can train
-    // villagers before food can be gathered; 200 gold for the barracks.
+fn every_player_on_the_proof_of_concept_map_starts_with_food_wood_and_gold() {
+    // 200 food and 200 wood, the original's standard start, so the town
+    // centre can train villagers and villagers can put down a first house
+    // before anything is gathered; 200 gold for the barracks.
     let content = sim::Content::default();
     let world = World::new(
         1,
@@ -355,6 +360,10 @@ fn every_player_on_the_proof_of_concept_map_starts_with_food_and_gold() {
 
     for player in [PlayerId::ONE, PlayerId::TWO] {
         let stock = world.view().resources(player);
-        assert_eq!((stock.food, stock.gold), (200, 200), "{player:?}");
+        assert_eq!(
+            (stock.food, stock.wood, stock.gold),
+            (200, 200, 200),
+            "{player:?}"
+        );
     }
 }

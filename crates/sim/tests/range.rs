@@ -19,10 +19,11 @@ fn map() -> MapSpec {
         )
 }
 
-/// Soldiers with `range` tiles of reach and the default quarter-tile radius.
+/// Soldiers with `range` tiles of reach and quarter-tile radius.
 fn content(range: Fx) -> Content {
     let mut content = Content::default();
     content.unit_mut(UnitKind::SOLDIER).range = range;
+    content.unit_mut(UnitKind::SOLDIER).radius = Fx::from_frac(1, 4);
     content
 }
 

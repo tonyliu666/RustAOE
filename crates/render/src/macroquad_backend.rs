@@ -109,6 +109,10 @@ impl Renderer for MacroquadRenderer {
     }
 
     fn sprite(&mut self, texture: TextureId, pos: Vec2, size: Vec2) {
+        self.sprite_tinted(texture, pos, size, Color::WHITE);
+    }
+
+    fn sprite_tinted(&mut self, texture: TextureId, pos: Vec2, size: Vec2, tint: Color) {
         // An ID this renderer never issued is skipped rather than panicking
         // mid-frame; the recording renderer is where that bug is caught.
         let Some(texture) = self.textures.get(texture.0 as usize) else {
@@ -118,7 +122,7 @@ impl Renderer for MacroquadRenderer {
             texture,
             pos.x,
             pos.y,
-            mq::WHITE,
+            mq::Color::new(tint.r, tint.g, tint.b, tint.a),
             mq::DrawTextureParams {
                 dest_size: Some(mq::vec2(size.x, size.y)),
                 ..Default::default()

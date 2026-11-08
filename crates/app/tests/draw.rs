@@ -40,8 +40,12 @@ fn plain_hud() -> Hud<'static> {
         active_player: PlayerId::ONE,
         selection: &[],
         building: None,
+        placing_building: None,
+        notice: None,
+        foundation: None,
         drag_box: None,
         replaying: false,
+        cursor_world: Vec2::ZERO,
     }
 }
 
@@ -252,7 +256,12 @@ fn the_interface_is_drawn_last_over_the_whole_window() {
             camera.viewport * (1.0 / camera.zoom)
         )]
     );
-    let (last, _, _) = renderer.sprites().last().expect("sprites drawn");
+    // Over everything but the mouse cursor, which is drawn over it.
+    let (last, _, _) = renderer
+        .sprites()
+        .filter(|(texture, _, _)| *texture != sprites.cursor(None).texture)
+        .last()
+        .expect("sprites drawn");
     assert_eq!(last, sprites.interface.texture);
 }
 
@@ -287,4 +296,98 @@ fn the_drag_box_goes_under_the_interface_as_in_the_original() {
         .position(|c| matches!(c, DrawCall::Sprite { texture, .. } if *texture == sprites.interface.texture))
         .expect("the interface is drawn");
     assert!(last_line < interface);
+}
+
+#[test]
+fn a_notice_is_written_on_the_screen() {
+    let world = world(MapSpec::new(8, 8));
+    let camera = wide_camera();
+    let mut renderer = RecordingRenderer::new();
+    let sprites = common::sprites(&mut renderer);
+    let hud = Hud {
+        notice: Some("Not enough wood."),
+        ..plain_hud()
+    };
+
+    draw_world(
+        &mut renderer,
+        &camera,
+        world.view(),
+        &HashMap::new(),
+        0.0,
+        &hud,
+        &sprites,
+    );
+
+    assert!(
+        renderer.texts().any(|(text, _)| text == "Not enough wood."),
+        "{:?}",
+        renderer.texts().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn without_a_notice_none_is_written() {
+    let world = world(MapSpec::new(8, 8));
+    let camera = wide_camera();
+    let mut renderer = RecordingRenderer::new();
+
+    draw(&mut renderer, &camera, &world);
+
+    assert!(!renderer
+        .texts()
+        .any(|(text, _)| text.starts_with("Not enough")));
+}
+
+#[test]
+fn a_notice_sits_in_a_red_box_that_holds_its_text() {
+    let world = world(MapSpec::new(8, 8));
+    let camera = wide_camera();
+    let mut renderer = RecordingRenderer::new();
+    let sprites = common::sprites(&mut renderer);
+    let hud = Hud {
+        notice: Some("Not enough wood."),
+        ..plain_hud()
+    };
+
+    draw_world(
+        &mut renderer,
+        &camera,
+        world.view(),
+        &HashMap::new(),
+        0.0,
+        &hud,
+        &sprites,
+    );
+
+    let (_, text_at) = renderer
+        .texts()
+        .find(|(text, _)| *text == "Not enough wood.")
+        .expect("the notice");
+    let red_boxes: Vec<_> = renderer
+        .quads()
+        .filter(|(_, _, color)| color.r > 0.4 && color.g < 0.2 && color.b < 0.2)
+        .collect();
+    assert!(!red_boxes.is_empty(), "no red box");
+    assert!(
+        red_boxes.iter().any(|(pos, size, _)| {
+            text_at.x >= pos.x
+                && text_at.x <= pos.x + size.x
+                && text_at.y >= pos.y
+                && text_at.y <= pos.y + size.y
+        }),
+        "the text is outside the box: {red_boxes:?} {text_at:?}"
+    );
+}
+
+#[test]
+fn without_a_notice_there_is_no_red_box() {
+    let world = world(MapSpec::new(8, 8));
+    let mut renderer = RecordingRenderer::new();
+
+    draw(&mut renderer, &wide_camera(), &world);
+
+    assert!(!renderer
+        .quads()
+        .any(|(_, _, color)| color.r > 0.4 && color.g < 0.2 && color.b < 0.2));
 }

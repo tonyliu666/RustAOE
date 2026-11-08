@@ -357,13 +357,7 @@ fn a_replay_from_before_farms_is_refused_by_version() {
     let error = load_text("version-eleven", "(version: 11, seed: 1)");
 
     assert!(
-        matches!(
-            error,
-            Err(app::ReplayError::Version {
-                found: 11,
-                ..
-            })
-        ),
+        matches!(error, Err(app::ReplayError::Version { found: 11, .. })),
         "{error:?}"
     );
 }
@@ -378,7 +372,117 @@ fn a_replay_from_before_hand_drop_offs_stood_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 12,
-                expected: 13
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_original_numbers_is_refused_by_version() {
+    // Version 13 had uniform gather numbers and wrong villager/soldier stats.
+    let error = load_text(
+        "version-thirteen",
+        "(version: 13, seed: 1, map: (width: 8, height: 8, blocked: [], buildings: [], mines: [], units: [], starting_gold: 0))",
+    );
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 13,
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_walled_in_drop_offs_were_passed_by_is_refused_by_version() {
+    // Version 14 sent a load to the nearest drop-off even when no villager
+    // could stand beside it.
+    let error = load_text("version-fourteen", "(version: 14, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 14,
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_villagers_went_on_from_a_used_up_site_is_refused_by_version() {
+    // Version 15 worked farms at the forager's rate and had villagers stand
+    // when their site was used up.
+    let error = load_text("version-fifteen", "(version: 15, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 15,
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_buildings_were_placed_is_refused_by_version() {
+    // Version 16 had no building costs, construction times, population, or
+    // placement command.
+    let error = load_text("version-sixteen", "(version: 16, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 16,
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_foundations_were_built_is_refused_by_version() {
+    // Version 17's foundations stood at no hit points, could not be
+    // destroyed, and were never worked on.
+    let error = load_text("version-seventeen", "(version: 17, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 17,
+                expected: 19
+            })
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_replay_from_before_the_build_order_is_refused_by_version() {
+    // Version 18 placed a building through a town centre and sent no one
+    // to build it.
+    let error = load_text("version-eighteen", "(version: 18, seed: 1)");
+
+    assert!(
+        matches!(
+            error,
+            Err(app::ReplayError::Version {
+                found: 18,
+                expected: 19
             })
         ),
         "{error:?}"

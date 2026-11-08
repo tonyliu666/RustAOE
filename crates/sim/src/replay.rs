@@ -42,8 +42,19 @@ impl Replay {
     /// set per resource; version 11 lets a building take only some
     /// resources; version 12 gives each site a size and whether it blocks,
     /// for farms, and removes a site once it is used up; version 13 has a
-    /// villager stand after a drop-off by hand.
-    pub const FORMAT_VERSION: u32 = 13;
+    /// villager stand after a drop-off by hand; version 14 adopts the
+    /// original's gather rates, carry capacities, villager damage, and militia
+    /// cost from datconv; version 15 sends a load past a drop-off no
+    /// villager can stand beside; version 16 works farms at the farmer's
+    /// rate, adds `farm` to the gather numbers, and sends villagers on from a
+    /// used-up site to the nearest like it; version 17 gives buildings a
+    /// cost, a build time, and the population they provide, units the
+    /// population they take, and adds `PlaceBuilding` and foundations;
+    /// version 18 has builders work on foundations, which stand at one hit
+    /// point, keep the damage they take, and are destroyed at none; version
+    /// 19 has `PlaceBuilding` name the villagers that build, not a town
+    /// centre, and adds the `Build` command.
+    pub const FORMAT_VERSION: u32 = 19;
 
     /// How often the checksum is sampled during recording.
     ///

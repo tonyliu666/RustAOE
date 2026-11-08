@@ -44,6 +44,9 @@ pub struct UnitStats {
     pub cost: Resources,
     /// Ticks of training time.
     pub train_ticks: u32,
+    /// Places of population it takes while it lives: the original's
+    /// population headroom (resource 4) it holds, negated.
+    pub population_cost: i32,
 }
 
 /// Numbers for a building type.
@@ -60,6 +63,14 @@ pub struct BuildingStats {
     pub drop_off: Vec<Resource>,
     /// Unit types this building can train.
     pub trains: Vec<UnitKind>,
+    /// Ticks one villager takes to build it: the original's train time.
+    /// `None` for a building no one builds, such as a town centre's annex.
+    pub build_time: Option<u32>,
+    /// Places of population it adds once standing: the original's
+    /// population headroom (resource 4) it holds.
+    pub population_provided: i32,
+    /// Charged when its foundation is placed.
+    pub cost: Resources,
 }
 
 impl BuildingStats {
@@ -83,13 +94,15 @@ pub struct GatherStats {
     pub ticks_per_unit: u32,
 }
 
-/// The gather numbers for each resource.
+/// The gather numbers for each resource, and for food from a farm, which
+/// the original works with its own job unit (the farmer) at its own rate.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Gathering {
     pub food: GatherStats,
     pub wood: GatherStats,
     pub gold: GatherStats,
     pub stone: GatherStats,
+    pub farm: GatherStats,
 }
 
 impl Gathering {
@@ -100,6 +113,7 @@ impl Gathering {
             wood: stats,
             gold: stats,
             stone: stats,
+            farm: stats,
         }
     }
 
@@ -126,7 +140,7 @@ impl Gathering {
             self.get(resource)
                 .validate(&format!("gather.{}", resource.name()))?;
         }
-        Ok(())
+        self.farm.validate("gather.farm")
     }
 }
 
@@ -213,7 +227,13 @@ impl UnitStats {
             let name = format!("cost.{}", resource.name());
             check(self.cost.get(resource) >= 0, owner, &name, NOT_NEGATIVE)?;
         }
-        check(self.train_ticks > 0, owner, "train_ticks", POSITIVE)
+        check(self.train_ticks > 0, owner, "train_ticks", POSITIVE)?;
+        check(
+            self.population_cost >= 0,
+            owner,
+            "population_cost",
+            NOT_NEGATIVE,
+        )
     }
 }
 
@@ -235,6 +255,18 @@ impl BuildingStats {
             owner,
             "trains",
             "must name unit types in this content",
+        )?;
+        check(self.build_time != Some(0), owner, "build_time", POSITIVE)?;
+        // A negative cost would pay the player for placing a foundation.
+        for resource in Resource::ALL {
+            let name = format!("cost.{}", resource.name());
+            check(self.cost.get(resource) >= 0, owner, &name, NOT_NEGATIVE)?;
+        }
+        check(
+            self.population_provided >= 0,
+            owner,
+            "population_provided",
+            NOT_NEGATIVE,
         )
     }
 }
@@ -353,70 +385,89 @@ impl Content {
 ///
 /// Every replay recorded before content became data was played with these, so
 /// changing them changes the outcome of those replays.
+///
+/// These are the values converted by `datconv` from the original's .dat
+/// (British civ). The `default.ron` file in `app/content` matches this.
 impl Default for Content {
     fn default() -> Content {
         // The order is the IDs: `UnitKind::VILLAGER` is 0, `SOLDIER` is 1,
-        // `BuildingKind::TOWN_CENTER` is 0, `BARRACKS` is 1.
+        // `BuildingKind::TOWN_CENTER` is 0, `BARRACKS` is 1,
+        // `MILL` is 2, `LUMBER_CAMP` is 3, `MINING_CAMP` is 4.
         Content {
             units: vec![
-                // 2.5 tiles per second at 20 Hz.
                 UnitStats {
                     name: "villager".to_string(),
                     gathers: true,
-                    max_hp: 40,
-                    speed: Fx::from_frac(1, 8),
-                    damage: 0,
+                    max_hp: 25,
+                    speed: Fx::from_bits(2621),
+                    damage: 3,
                     range: Fx::ZERO,
-                    attack_cooldown: 0,
-                    radius: Fx::from_frac(1, 4),
-                    // 50 food, as the original's .dat has it.
+                    attack_cooldown: 40,
+                    radius: Fx::from_bits(13107),
                     cost: Resources {
                         food: 50,
                         ..Resources::default()
                     },
-                    train_ticks: 100,
+                    train_ticks: 500,
+                    population_cost: 1,
                 },
                 UnitStats {
                     name: "soldier".to_string(),
                     gathers: false,
-                    max_hp: 60,
-                    speed: Fx::from_frac(1, 8),
-                    damage: 8,
-                    // The militia's: melee.
+                    max_hp: 40,
+                    speed: Fx::from_bits(2949),
+                    damage: 4,
                     range: Fx::ZERO,
-                    attack_cooldown: 20,
-                    radius: Fx::from_frac(1, 4),
+                    attack_cooldown: 40,
+                    radius: Fx::from_bits(13107),
                     cost: Resources {
-                        gold: 60,
+                        food: 60,
+                        gold: 20,
                         ..Resources::default()
                     },
-                    train_ticks: 120,
+                    train_ticks: 420,
+                    population_cost: 1,
                 },
             ],
             buildings: vec![
                 BuildingStats {
                     name: "town_center".to_string(),
                     size: 4,
-                    max_hp: 1000,
+                    max_hp: 2400,
                     drop_off: Resource::ALL.to_vec(),
                     trains: vec![UnitKind::VILLAGER],
+                    build_time: Some(2000),
+                    population_provided: 5,
+                    cost: Resources {
+                        wood: 275,
+                        ..Resources::default()
+                    },
                 },
                 BuildingStats {
                     name: "barracks".to_string(),
                     size: 3,
-                    max_hp: 600,
+                    max_hp: 1200,
                     drop_off: Vec::new(),
                     trains: vec![UnitKind::SOLDIER],
+                    build_time: Some(1000),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 175,
+                        ..Resources::default()
+                    },
                 },
-                // The drop-off camps, from the .dat (units 68, 562, 584):
-                // two tiles a side, 1000 hit points, each taking what its
-                // jobs bring.
                 BuildingStats {
                     name: "mill".to_string(),
                     size: 2,
                     max_hp: 1000,
                     drop_off: vec![Resource::Food],
                     trains: Vec::new(),
+                    build_time: Some(700),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 100,
+                        ..Resources::default()
+                    },
                 },
                 BuildingStats {
                     name: "lumber_camp".to_string(),
@@ -424,6 +475,12 @@ impl Default for Content {
                     max_hp: 1000,
                     drop_off: vec![Resource::Wood],
                     trains: Vec::new(),
+                    build_time: Some(700),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 100,
+                        ..Resources::default()
+                    },
                 },
                 BuildingStats {
                     name: "mining_camp".to_string(),
@@ -431,14 +488,49 @@ impl Default for Content {
                     max_hp: 1000,
                     drop_off: vec![Resource::Gold, Resource::Stone],
                     trains: Vec::new(),
+                    build_time: Some(700),
+                    population_provided: 0,
+                    cost: Resources {
+                        wood: 100,
+                        ..Resources::default()
+                    },
+                },
+                BuildingStats {
+                    name: "house".to_string(),
+                    size: 2,
+                    max_hp: 900,
+                    drop_off: Vec::new(),
+                    trains: Vec::new(),
+                    build_time: Some(500),
+                    population_provided: 5,
+                    cost: Resources {
+                        wood: 30,
+                        ..Resources::default()
+                    },
                 },
             ],
-            // One unit every two seconds at 20 Hz, ten to a load, for every
-            // resource until Phase 2 step 5 adopts the original's numbers.
-            gather: Gathering::uniform(GatherStats {
-                carry_capacity: 10,
-                ticks_per_unit: 40,
-            }),
+            gather: Gathering {
+                food: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 65,
+                },
+                wood: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 51,
+                },
+                gold: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 53,
+                },
+                stone: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 56,
+                },
+                farm: GatherStats {
+                    carry_capacity: 10,
+                    ticks_per_unit: 38,
+                },
+            },
         }
     }
 }

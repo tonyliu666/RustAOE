@@ -8,8 +8,8 @@ the current phase's spec.
 
 - **Plan:** `docs/superpowers/plans/2026-10-24-exe-parity-plan.md`. Phases,
   gates, and the open questions list.
-- **Current spec:** `docs/superpowers/specs/2026-10-25-phase2-four-resources.md`
-  (Phase 2: four resources). Each step has a "Step N result" section.
+- **Current spec:** `docs/superpowers/specs/2026-10-26-phase3-construction-population.md`
+  (Phase 3: construction and population). Each step has a "Step N result" section.
 - **Progress log:** `.superpowers/sdd/2026-10-24-exe-parity-plan/progress.md`.
   Add one line per finished step.
 - **Player guide:** `QUICKSTART.md`, covering how to run, the controls, and a
@@ -63,8 +63,7 @@ the current phase's spec.
   - Then restore `main.rs` from a backup and check with
     `grep -c PROBE crates/app/src/main.rs`.
 - **Commit or push only when asked.**
-  - Branch: `feat/rts-poc-milestone-1`. Last push: 4b9c616. Everything since
-    is unpushed.
+  - Branch: `feat/rts-poc-milestone-1`.
   - Commit messages are plain English prose and end with the
     `Co-Authored-By` line.
 - **Language:**
@@ -81,7 +80,7 @@ the current phase's spec.
 
 ## Rules and gotchas learned
 
-- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 13).
+- **Replay format:** `sim::Replay::FORMAT_VERSION` (now 19).
   - Bump it whenever playback or the layout changes.
   - Add a test in `crates/app/tests/replay_file.rs` that refuses the previous
     version.
@@ -118,6 +117,12 @@ the current phase's spec.
     that takes it (`BuildingStats::drop_off`), then goes back.
   - A drop-off by hand (`Command::Deposit`) banks the load, then the
     villager stands idle, as the original does.
+  - A load goes past a drop-off no villager can stand beside.
+  - Each resource has its own gather numbers, and a farm has the farmer's
+    (`Gathering::farm`), all converted by datconv from the job units.
+  - When a site is used up (`run_cleanup`, `go_on_from`), its villagers go
+    on to the nearest reachable site of the same resource with their
+    loads; with none they bank and stand. Farmers do not go on.
 - **Sites:** `Site { origin, resource, remaining, size, blocks }`.
   - Mines, bushes, and trees are 1 tile and block it.
   - Farms are 3×3 and don't block.
@@ -125,6 +130,10 @@ the current phase's spec.
   - A gather order on a site with no walkable tile beside it goes to the
     nearest reachable site of the same resource; with none, the villagers
     stand.
+- **Cursor:** the game hides the system cursor and draws its own, frames of
+  `mcursors` (51000): the arrow, the axe (8) over trees with a gatherer
+  selected, the hand (3, provisional) over other sites. It picks as a
+  right-click does, and is the arrow over the interface.
 - **Drawing:**
   - Sites are drawn from the original graphics' pieces: gold [4479, 2561],
     stone [4482, 1034], bush [2560], forest oak [2296, 4652].
@@ -132,33 +141,102 @@ the current phase's spec.
   - Sites are drawn back to front and picked by their drawn rectangle; farms
     are picked by their tiles.
 
-## Where we are (2026-10-25)
+### Buildings' numbers (Phase 3 step 1, 2026-10-31)
 
-Phase 2, four resources:
+- **The house is unit 70 HOUS** (sprite 2223, icon 34, 900 HP). Unit 94 is
+  a berserk; an earlier guess took it for the house.
+- **Cost** is `creatable.costs`, charged when the foundation is placed
+  (house 30 wood).
+- **`build_time`** is `creatable.train_time` in ticks: one villager's time
+  (house 500). `None` for a building no one builds, such as an annex. There
+  is no build rate.
+- **Population** is resource 4 (population headroom) in a unit's storages:
+  mode 4 once standing gives `population_provided` (house and town centre
+  +5); mode 2 while alive, negated, gives `population_cost` (villager 1).
+  `datconv::headroom` reads it.
+- `default.ron` and `Content::default` match the conversion; the
+  real-file gate checks it.
 
-| Step | State |
-| --- | --- |
-| 1, 1b, 1c, 2, 3, 4 | Done and committed. |
-| 4: the map | Done; includes the woodline fix and drop-off-stands. Last commit 44376b2. |
-| 5: the original's numbers | Next. |
-| 6: gathering in the interface | Not started. |
-| 7: wrap-up | Not started. |
+### Foundations (Phase 3 step 3, 2026-10-31)
 
-**Step 5, the original's numbers:**
-- `datconv` writes the gathering table and the new types.
-- `default.ron` adopts the converted values:
-  - per-resource gather rates and carry capacity;
-  - the villager's attack (3 damage);
-  - the militia's real cost, 60 food + 20 gold. It is still 60 gold.
-- Bump the replay version.
+- `Foundation::progress` counts work in thirds of a villager's tick and is
+  finished at `3 * build_time`; `hp` follows from it.
+- `n` builders add `n + 2` thirds a tick: `3t / (n + 2)` in all.
+  Provisional, the rule as players know it.
+- Dead builders drop out at once; the work pauses without builders.
+- A finished foundation becomes its building and blocks its tiles.
+- `World::assign_builder` is the only way to add a builder, and is not a
+  command: only the build order (`run_building`) calls it in play.
+- A new foundation stands at 1 HP (provisional). Work adds the hit points
+  it builds, so damage stays; at 0 HP a foundation is destroyed; a finished
+  building keeps the damage.
+- The checksum covers foundations.
+- Mutation scripts: decide by the `--- FAILED` lines of the one test
+  target you mean, not by any `test result: ok` line, since a crate's empty
+  lib-test run also prints one.
 
-**Step 6, gathering in the interface:**
-- Job cursors (the pickaxe and others).
-- The carried load and unit details in the information panel.
+### Placing a building (Phase 3 step 2, 2026-10-31)
 
-**Step 7, wrap-up:**
-- QUICKSTART and a screenshot check.
-- The end-of-phase code review and the unanchored direction check.
+- **Panel:** with only your villagers selected, the command panel shows
+  building icons (`interfac.drs` 50705) from `ui::builds_on_buttons`:
+  house, barracks, mill, lumber camp, mining camp. Drawing and clicking use
+  that one list. A flat list is provisional; the original opens economic
+  and military pages.
+- **Placing:** a button or number key sets `PlayerUi::placing_building`.
+  A left click on the map sends `Command::PlaceBuilding`, footprint centred
+  on the cursor (`pick::placement_origin`), selection kept. A click on the
+  interface places nothing. A right click or `Esc` cancels; `Esc` quits the
+  game only when nothing is being placed (`main.rs`).
+- **Preview:** the building's sprite under the cursor, through
+  `Renderer::sprite_tinted`: `PLACEABLE` (see-through) or `UNPLACEABLE`
+  (red), both judged by eye. `RecordingRenderer::tinted_sprites()` records
+  them apart from `sprites()`.
+- **One rule:** `WorldView::can_place` (map edge, passable ground,
+  buildings, foundations, blocking sites) is what both the preview and the
+  order use. Never check placement a second way in `app`.
+- **Foundations** are drawn as their building, tinted `FOUNDATION`, until
+  step 5 reads the construction graphics.
+- **Mutation scripts:** restoring a file from a copy can leave it older
+  than the last build, so cargo runs the stale mutant. `touch` the restored
+  sources before trusting the next test run.
+
+### The build order (Phase 3 step 4, 2026-11-01)
+
+- `PlaceBuilding { units, .. }` names the placing villagers, who then walk
+  over and build; `Build { units, foundation }` sends villagers to your
+  own foundation (right click). `Order::Build` works like a gather walk:
+  on touching the footprint, `assign_builder`. A changed order drops a
+  builder out of the work.
+- A finished building idles its builders and puts units standing on its
+  footprint on the first free tile beside it (provisional).
+- Foundations can be selected (`PlayerUi::foundation`, picked by
+  `pick::foundation_at`); the information panel shows hit points and a
+  progress bar; they get an outline and a health bar.
+- The demo map starts with 200 wood.
+- Not done: the build cursor, builders going on to gather after a mill or
+  camp, a foundation blocking tiles before it is finished.
+
+### Not enough resources (2026-10-31)
+
+- An unaffordable build button, train button, or placing click orders
+  nothing and sets `PlayerUi::notice` to the original's message
+  (`ui::not_enough`, `language.dll` 3001 to 3004), chosen by
+  `ui::shortfall`. It shows for `NOTICE_SECONDS` (3 s), in a red box top left (by eye).
+- The demo map starts with 200 food, 200 gold, and no wood, so the first
+  house needs wood chopped first.
+
+## Where we are (2026-10-31)
+
+**Phase 2 (four resources) is complete.** The spec has a result for each
+step, the direction check's fixes, and a "Left for Phase 3" list. The gate
+test that holds `default.ron` to the conversion needs the install:
+`AOE_ASSETS=$PWD/aoe2-install cargo test -p datconv --test real_file -- --ignored`.
+
+**Phase 3** (construction and population) is under way; its spec is
+`docs/superpowers/specs/2026-10-26-phase3-construction-population.md`.
+Steps 1 (content and datconv), 2 (placing a building), 3 (the foundation
+entity), and 4 (the build order) are done. **Next: step 5**, the
+construction graphics read from the `.dat`.
 
 Known provisional items:
 - Annex offsets are not added.
@@ -167,5 +245,7 @@ Known provisional items:
 - The contact tolerance.
 - Picking uses whole rectangles, not pixel outlines.
 - "Reachable" means a walkable tile beside the site, not a found path.
-- Farm crops don't run down yet.
+- Going on from a used-up site has no distance limit.
+- The food, gold, and stone job cursors are the hand.
+- Farm crops don't run down yet; the used-up farm (15005) is not drawn.
 - The terrain table in the `.dat` is skipped, not read.
