@@ -71,6 +71,9 @@ Use the provided extraction script (reads original CDs/Steam):
 
 ```bash
 cd reverse/tools
+# /path/to/aoe2/install = the FOLDER containing the game's data/ directory
+# (e.g., ~/Games/aoe2conquerors/ or Steam/steamapps/common/Age of Empires 2/)
+# NOT the .exe file — the script reads empires2.dat, graphics.drs, etc. from data/
 python3 -I extract.py /path/to/aoe2/install ./aoe2-install
 ```
 
