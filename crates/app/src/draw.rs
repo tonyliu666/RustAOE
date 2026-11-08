@@ -352,6 +352,18 @@ fn draw_overlay<R: Renderer>(
             BAR_TEXT,
         );
     }
+    // Population display: "pop / cap" after stone (last resource slot).
+    let pop = view.population(hud.active_player);
+    let pop_cap = view.population_cap(hud.active_player);
+    let pop_text = format!("{}/{}", pop, pop_cap);
+    let stone_pos = layout.resource_at(Resource::Stone);
+    let pop_pos = stone_pos + Vec2::new(60.0, 0.0); // offset from stone
+    renderer.text(
+        &pop_text,
+        camera.screen_to_world(pop_pos),
+        layout.bar_text_px,
+        BAR_TEXT,
+    );
 
     let mut lines = vec![format!(
         "player {}  tick {}  zoom {:.1}  {}",

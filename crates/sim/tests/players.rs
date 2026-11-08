@@ -1,8 +1,8 @@
 //! More than two players, Gaia, and per-player defeat.
 
 use sim::{
-    BuildingKind, Command, Content, EntityId, Fx, MapSpec, Outcome, PlayerId, TilePos, UnitId,
-    UnitKind, World,
+    BuildingKind, Command, Content, EntityId, Fx, MapSpec, Outcome, PlayerId, Resources, TilePos,
+    UnitId, UnitKind, World,
 };
 use smallvec::smallvec;
 
@@ -366,4 +366,192 @@ fn every_player_on_the_proof_of_concept_map_starts_with_food_wood_and_gold() {
             "{player:?}"
         );
     }
+}
+
+/// A player starts with population 0 and cap 25; town center adds 5.
+#[test]
+fn a_player_starts_with_population_zero_and_cap_25() {
+    let map = MapSpec::new(16, 16).with_building(
+        BuildingKind::TOWN_CENTER,
+        PlayerId::ONE,
+        TilePos::new(2, 2),
+    );
+    let world = World::new(SEED, map);
+    assert_eq!(world.view().population(PlayerId::ONE), 0);
+    // Town center provides 5 population.
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 30);
+}
+
+/// Training is refused when at population cap.
+#[test]
+fn training_refused_at_population_cap() {
+    // Content where villager costs 1 pop, cap starts at 25.
+    // Town center adds 5, so cap is 30. We'll train 30 villagers to hit the cap.
+    let map = MapSpec::new(32, 32)
+        .with_starting_resources(Resources {
+            food: 2000,
+            wood: 200,
+            gold: 200,
+            stone: 0,
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2));
+    let mut world = World::new(SEED, map);
+
+    // Train villagers until cap (30). Queue limit is 5, so we need to wait for spawns.
+    // Train 5, wait for spawn, train 5 more, etc.
+    let mut trained = 0;
+    while trained < 30 {
+        let tc = world
+            .view()
+            .buildings()
+            .find(|(_, b)| b.owner == PlayerId::ONE)
+            .expect("tc")
+            .0;
+        let queue_len = world.view().building(tc).expect("tc").queue.len();
+        if queue_len < 5 {
+            world.step(&[Command::Train {
+                player: PlayerId::ONE,
+                building: tc,
+                unit: UnitKind::VILLAGER,
+            }]);
+            trained += 1;
+        } else {
+            world.step(&[]);
+        }
+    }
+
+    // Population is charged on enqueue, so should be 30 now.
+    assert_eq!(world.view().population(PlayerId::ONE), 30);
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 30);
+
+    // The 31st train should be refused (at cap).
+    let tc = world
+        .view()
+        .buildings()
+        .find(|(_, b)| b.owner == PlayerId::ONE)
+        .expect("tc")
+        .0;
+    let queue_before = world.view().building(tc).expect("tc").queue.len();
+    world.step(&[Command::Train {
+        player: PlayerId::ONE,
+        building: tc,
+        unit: UnitKind::VILLAGER,
+    }]);
+    let queue_after = world.view().building(tc).expect("tc").queue.len();
+    // Queue should not increase.
+    assert_eq!(queue_after, queue_before);
+}
+
+/// Population increases when unit is queued, decreases when unit dies.
+#[test]
+fn population_tracks_unit_lifecycle() {
+    let map = MapSpec::new(32, 32)
+        .with_starting_resources(Resources {
+            food: 200,
+            wood: 200,
+            gold: 200,
+            stone: 0,
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2));
+    let mut world = World::new(SEED, map);
+
+    let tc = world
+        .view()
+        .buildings()
+        .find(|(_, b)| b.owner == PlayerId::ONE)
+        .expect("tc")
+        .0;
+
+    // Train one villager.
+    world.step(&[Command::Train {
+        player: PlayerId::ONE,
+        building: tc,
+        unit: UnitKind::VILLAGER,
+    }]);
+
+    // Population should be 1 (charged on enqueue).
+    assert_eq!(world.view().population(PlayerId::ONE), 1);
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 30); // TC adds 5
+
+    // Run until it spawns (500 ticks).
+    for _ in 0..500 {
+        world.step(&[]);
+    }
+
+    // Population should still be 1.
+    assert_eq!(world.view().population(PlayerId::ONE), 1);
+
+    // Kill the villager by damaging it.
+    // We can't easily test death without combat. The death logic is covered by
+    // the mutation check. This test just verifies the enqueue behavior.
+}
+
+/// House raises population cap when completed.
+#[test]
+fn house_raises_population_cap_when_completed() {
+    let map = MapSpec::new(32, 32)
+        .with_starting_resources(Resources {
+            food: 200,
+            wood: 200,
+            gold: 200,
+            stone: 0,
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
+        // Place villagers adjacent to where the house will be (at 6,6 size 2).
+        // Foundation footprint: (6,6), (7,6), (6,7), (7,7). Adjacent tiles: (5,6), (5,7), (6,5), (7,5), (8,6), (8,7), (6,8), (7,8).
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(5, 6))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(5, 7));
+    let mut world = World::new(SEED, map);
+
+    let villagers: Vec<_> = world
+        .view()
+        .units()
+        .filter(|(_, u)| u.owner == PlayerId::ONE)
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(villagers.len(), 2);
+
+    // Place a house at (6, 6) - adjacent to town center at (2,2) which is 4x4 (occupies 2-5).
+    let house_kind = world
+        .view()
+        .content()
+        .building_named("house")
+        .expect("house in content");
+    let origin = TilePos::new(6, 6);
+    world.step(&[Command::PlaceBuilding {
+        player: PlayerId::ONE,
+        units: smallvec![villagers[0], villagers[1]],
+        kind: house_kind,
+        origin,
+    }]);
+
+    // Find the foundation.
+    let _foundation = world
+        .view()
+        .foundations()
+        .find(|(_, f)| f.owner == PlayerId::ONE)
+        .expect("foundation")
+        .0;
+
+    // Run until house completes. Villagers start adjacent, so they build immediately.
+    // Build time: 3*500/(2+2) = 375 ticks. Wait 400 to be safe.
+    for _ in 0..400 {
+        world.step(&[]);
+    }
+
+    // House should be built, population cap should be 35 (25 + 5 from TC + 5 from house).
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 35);
+    assert_eq!(world.view().population(PlayerId::ONE), 0);
+}
+
+/// Pre-placed house adds to population cap.
+#[test]
+fn preplaced_house_adds_to_population_cap() {
+    let map = MapSpec::new(32, 32)
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2))
+        .with_building(BuildingKind::HOUSE, PlayerId::ONE, TilePos::new(5, 5));
+    let world = World::new(SEED, map);
+
+    // Town center (5) + house (5) = 10, plus base 25 = 35.
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 35);
 }

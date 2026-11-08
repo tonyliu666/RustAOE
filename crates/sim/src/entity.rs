@@ -458,6 +458,10 @@ impl Foundation {
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Player {
     pub resources: Resources,
+    /// Current population used.
+    pub population: i32,
+    /// Maximum population cap. Starts at 25; houses and the town centre raise it.
+    pub population_cap: i32,
     /// Out of the game. Set once and never cleared; a defeated player's
     /// commands are dropped.
     pub defeated: bool,
