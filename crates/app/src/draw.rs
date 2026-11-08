@@ -308,6 +308,10 @@ fn draw_unit_info<R: Renderer>(
         ),
     ];
     if unit.carrying > 0 {
+        // Draw deposit icon (hand) to the left of the carrying text.
+        let hand = sprites.cursor(Some(Resource::Food)); // hand cursor (frame 3 of mcursors)
+        let hand_at = layout.carrying_at - Vec2::new(hand.width + 4.0, 0.0);
+        renderer.sprite(hand.texture, hand_at, Vec2::new(hand.width, hand.height));
         lines.push((
             format!("carrying {} {}", unit.carrying, unit.carried.name()),
             layout.carrying_at,
@@ -348,6 +352,18 @@ fn draw_overlay<R: Renderer>(
             BAR_TEXT,
         );
     }
+    // Population display: "pop / cap" after stone (last resource slot).
+    let pop = view.population(hud.active_player);
+    let pop_cap = view.population_cap(hud.active_player);
+    let pop_text = format!("{} / {}", pop, pop_cap);
+    let stone_pos = layout.resource_at(Resource::Stone);
+    let pop_pos = stone_pos + Vec2::new(80.0, 0.0); // offset from stone
+    renderer.text(
+        &pop_text,
+        camera.screen_to_world(pop_pos),
+        layout.bar_text_px,
+        BAR_TEXT,
+    );
 
     let mut lines = vec![format!(
         "player {}  tick {}  zoom {:.1}  {}",

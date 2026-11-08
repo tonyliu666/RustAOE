@@ -372,7 +372,7 @@ fn a_replay_from_before_hand_drop_offs_stood_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 12,
-                expected: 19
+                expected: 21
             })
         ),
         "{error:?}"
@@ -392,7 +392,7 @@ fn a_replay_from_before_original_numbers_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 13,
-                expected: 19
+                expected: 21
             })
         ),
         "{error:?}"
@@ -410,7 +410,7 @@ fn a_replay_from_before_walled_in_drop_offs_were_passed_by_is_refused_by_version
             error,
             Err(app::ReplayError::Version {
                 found: 14,
-                expected: 19
+                expected: 21
             })
         ),
         "{error:?}"
@@ -428,7 +428,7 @@ fn a_replay_from_before_villagers_went_on_from_a_used_up_site_is_refused_by_vers
             error,
             Err(app::ReplayError::Version {
                 found: 15,
-                expected: 19
+                expected: 21
             })
         ),
         "{error:?}"
@@ -446,7 +446,7 @@ fn a_replay_from_before_buildings_were_placed_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 16,
-                expected: 19
+                expected: 21
             })
         ),
         "{error:?}"
@@ -464,7 +464,7 @@ fn a_replay_from_before_foundations_were_built_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 17,
-                expected: 19
+                expected: 21
             })
         ),
         "{error:?}"
@@ -482,7 +482,7 @@ fn a_replay_from_before_the_build_order_is_refused_by_version() {
             error,
             Err(app::ReplayError::Version {
                 found: 18,
-                expected: 19
+                expected: 21
             })
         ),
         "{error:?}"

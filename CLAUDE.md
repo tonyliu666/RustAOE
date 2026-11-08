@@ -216,6 +216,15 @@ the current phase's spec.
 - Not done: the build cursor, builders going on to gather after a mill or
   camp, a foundation blocking tiles before it is finished.
 
+### Population (2026-11-08)
+
+- `WorldView::population` counts units that exist, including those the map
+  starts with. A unit in a training queue is not counted until it appears.
+- Queued units still hold a place under the cap
+  (`WorldView::population_reserved`), which `Train` and the train button check.
+- The cap is only what buildings provide (`population_provided`): a
+  player with just a town centre has 5, as in the original. There is no base cap.
+
 ### Not enough resources (2026-10-31)
 
 - An unaffordable build button, train button, or placing click orders

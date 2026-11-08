@@ -463,6 +463,8 @@ impl World {
                     } else {
                         map.starting_resources
                     },
+                    population: 0,
+                    population_cap: 0,
                     defeated: false,
                 })
                 .collect(),
@@ -478,6 +480,9 @@ impl World {
             let hp = world.content.building(kind).max_hp;
             let size = world.content.building(kind).size;
             let building = Building::new(kind, owner, origin, hp, size);
+            // Pre-placed buildings provide population cap.
+            world.players[owner.index()].population_cap +=
+                world.content.building(kind).population_provided;
             world.stamp(building.footprint(), Tile::BLOCKED);
             world.buildings.insert(building);
         }
@@ -488,6 +493,8 @@ impl World {
             world.sites.insert(site);
         }
         for (kind, owner, at) in map.units {
+            // Units standing at the start count toward the population.
+            world.players[owner.index()].population += world.content.unit(kind).population_cost;
             world.units.insert(Unit::new(
                 kind,
                 owner,
@@ -842,6 +849,19 @@ impl World {
         }
     }
 
+    /// Population held against the cap: units standing plus units still in
+    /// a training queue.
+    fn population_reserved(&self, player: PlayerId) -> i32 {
+        let queued: i32 = self
+            .buildings
+            .values()
+            .filter(|b| b.owner == player)
+            .flat_map(|b| b.queue.iter())
+            .map(|kind| self.content.unit(*kind).population_cost)
+            .sum();
+        self.players[player.index()].population + queued
+    }
+
     fn order_train(&mut self, player: PlayerId, building: BuildingId, unit: UnitKind) {
         let Some(target) = self.buildings.get(building) else {
             return;
@@ -852,8 +872,16 @@ impl World {
         {
             return;
         }
+        let pop_cost = self.content.unit(unit).population_cost;
+        // Units in production hold a place under the cap, but are not yet
+        // part of the population.
+        if self.population_reserved(player) + pop_cost > self.players[player.index()].population_cap
+        {
+            return;
+        }
+        let player_state = &mut self.players[player.index()];
         let cost = self.content.unit(unit).cost;
-        let stock = &mut self.players[player.index()].resources;
+        let stock = &mut player_state.resources;
         if !stock.covers(&cost) {
             return;
         }
@@ -1131,6 +1159,8 @@ impl World {
                 FxVec2::tile_center(spawn),
                 self.content.unit(kind).max_hp,
             ));
+            // The unit now exists, so it now counts as population.
+            self.players[owner.index()].population += self.content.unit(kind).population_cost;
             let building = &mut self.buildings[id];
             building.queue.remove(0);
             building.train_ticks = building
@@ -1679,7 +1709,18 @@ impl World {
     // --- Phase 7: cleanup --------------------------------------------------
 
     fn run_cleanup(&mut self) {
+        // Track population freed by dying units.
+        let dead_units: Vec<(UnitId, UnitKind, PlayerId)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.hp <= 0)
+            .map(|(id, u)| (id, u.kind, u.owner))
+            .collect();
+        for (_, kind, owner) in dead_units {
+            self.players[owner.index()].population -= self.content.unit(kind).population_cost;
+        }
         self.units.retain(|_, unit| unit.hp > 0);
+
         // A foundation brought to no hit points is destroyed. It blocks no
         // tiles, so nothing else changes.
         self.foundations.retain(|_, foundation| foundation.hp > 0);
@@ -1702,13 +1743,18 @@ impl World {
             removed.push((id, site));
         }
 
-        let dead: Vec<BuildingId> = self
+        // Track population cap lost when buildings are destroyed.
+        let dead: Vec<(BuildingId, BuildingKind, PlayerId)> = self
             .buildings
             .iter()
             .filter(|(_, b)| b.hp <= 0)
-            .map(|(id, _)| id)
+            .map(|(id, b)| (id, b.kind, b.owner))
             .collect();
-        for id in dead {
+        for (_, kind, owner) in &dead {
+            let pop_provided = self.content.building(*kind).population_provided;
+            self.players[owner.index()].population_cap -= pop_provided;
+        }
+        for (id, _, _) in dead {
             let footprint: Vec<TilePos> = self.buildings[id].footprint().collect();
             self.buildings.remove(id);
             self.stamp(footprint.into_iter(), Tile::OPEN);
@@ -1781,6 +1827,9 @@ impl World {
                 foundation.hp,
                 foundation.size,
             );
+            // Population cap increases when the building stands.
+            let pop_provided = self.content.building(building.kind).population_provided;
+            self.players[building.owner.index()].population_cap += pop_provided;
             for builder in &foundation.builders {
                 self.units[*builder].order = Order::Idle;
             }
@@ -1988,6 +2037,24 @@ impl<'a> WorldView<'a> {
     /// Shorthand for the gold part of [`WorldView::resources`].
     pub fn gold(&self, player: PlayerId) -> i32 {
         self.resources(player).gold
+    }
+
+    /// Current population of `player`: units that exist. A unit still
+    /// being trained is not counted until it appears.
+    pub fn population(&self, player: PlayerId) -> i32 {
+        self.world.players[player.index()].population
+    }
+
+    /// Population plus units waiting in training queues; what the cap is
+    /// checked against.
+    pub fn population_reserved(&self, player: PlayerId) -> i32 {
+        self.world.population_reserved(player)
+    }
+
+    /// Maximum population cap for `player`. Starts at 0; the buildings a player
+    /// has (house, town centre) provide it.
+    pub fn population_cap(&self, player: PlayerId) -> i32 {
+        self.world.players[player.index()].population_cap
     }
 
     /// The numbers the world plays by, for anything drawn from them, such as

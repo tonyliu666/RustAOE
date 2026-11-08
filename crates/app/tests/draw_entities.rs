@@ -583,6 +583,8 @@ fn training(count: usize, remaining: u32) -> World {
             ..Resources::default()
         })
         .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(1, 1))
+        // Barracks give no population, so a house makes room to train.
+        .with_building(BuildingKind::HOUSE, PlayerId::ONE, TilePos::new(6, 6))
         .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(10, 1));
     let mut world = World::new(7, map);
     let barracks = barracks_of(&world, PlayerId::ONE);
@@ -1226,6 +1228,69 @@ fn an_unselected_foundation_has_no_progress_bar_on_the_panel() {
     for frame in &sprites.progress {
         assert_eq!(drawn_with(&renderer, frame.texture), []);
     }
+}
+
+#[test]
+fn multiple_villagers_build_faster_than_one() {
+    // Set up a map with two villagers near the foundation site.
+    let map = MapSpec::new(16, 16)
+        .with_starting_resources(Resources {
+            wood: 200,
+            ..Resources::default()
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(7, 8))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(8, 8));
+    let mut world = World::new(7, map);
+
+    // Get both villagers.
+    let villagers: Vec<_> = world.view().units().map(|(id, _)| id).collect();
+    assert_eq!(villagers.len(), 2);
+
+    // Place house with both villagers.
+    world.step(&[Command::PlaceBuilding {
+        player: PlayerId::ONE,
+        units: smallvec![villagers[0], villagers[1]],
+        kind: BuildingKind::HOUSE,
+        origin: TilePos::new(8, 8),
+    }]);
+
+    let foundation = world.view().foundations().next().expect("a foundation").0;
+
+    // Step once so both villagers start building (they touch on placement).
+    world.step(&[]);
+
+    let progress_after_one_tick = world.view().foundation(foundation).expect("there").progress;
+
+    // Reset: create a new world with only one villager building.
+    let map2 = MapSpec::new(16, 16)
+        .with_starting_resources(Resources {
+            wood: 200,
+            ..Resources::default()
+        })
+        .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(1, 1))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(7, 8));
+    let mut world2 = World::new(7, map2);
+    let villager = world2.view().units().next().expect("a villager").0;
+    world2.step(&[Command::PlaceBuilding {
+        player: PlayerId::ONE,
+        units: smallvec![villager],
+        kind: BuildingKind::HOUSE,
+        origin: TilePos::new(8, 8),
+    }]);
+    world2.step(&[]);
+
+    let foundation2 = world2.view().foundations().next().expect("a foundation").0;
+    let progress_one_villager = world2
+        .view()
+        .foundation(foundation2)
+        .expect("there")
+        .progress;
+
+    // Two villagers should make more progress in one tick than one villager.
+    // Two builders: +4 per tick. One builder: +3 per tick.
+    assert!(progress_after_one_tick > progress_one_villager,
+        "two villagers ({progress_after_one_tick}) should make more progress than one ({progress_one_villager})");
 }
 
 #[test]

@@ -53,8 +53,10 @@ impl Replay {
     /// version 18 has builders work on foundations, which stand at one hit
     /// point, keep the damage they take, and are destroyed at none; version
     /// 19 has `PlaceBuilding` name the villagers that build, not a town
-    /// centre, and adds the `Build` command.
-    pub const FORMAT_VERSION: u32 = 19;
+    /// centre, and adds the `Build` command; version 20 adds construction
+    /// graphics stages; version 21 adds per-player population and population
+    /// cap fields.
+    pub const FORMAT_VERSION: u32 = 21;
 
     /// How often the checksum is sampled during recording.
     ///

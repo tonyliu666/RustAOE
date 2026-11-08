@@ -508,11 +508,23 @@ impl Session {
             {
                 match ui::shortfall(view.content().unit(unit).cost, stock) {
                     Some(short) => ui.notice = Some(Notice::new(ui::not_enough(short))),
-                    None => commands.push(Command::Train {
-                        player,
-                        building,
-                        unit,
-                    }),
+                    None => {
+                        // Check population cap: if at cap, refuse with custom message.
+                        let pop = view.population_reserved(player)
+                            + view.content().unit(unit).population_cost;
+                        let pop_cap = view.population_cap(player);
+                        if pop > pop_cap {
+                            ui.notice = Some(Notice::new(
+                                "please increase the population with building house",
+                            ));
+                        } else {
+                            commands.push(Command::Train {
+                                player,
+                                building,
+                                unit,
+                            });
+                        }
+                    }
                 }
             }
             return commands;
