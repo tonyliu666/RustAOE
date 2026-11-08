@@ -510,9 +510,10 @@ impl Session {
                     Some(short) => ui.notice = Some(Notice::new(ui::not_enough(short))),
                     None => {
                         // Check population cap: if at cap, refuse with custom message.
-                        let pop = view.population(player);
+                        let pop = view.population_reserved(player)
+                            + view.content().unit(unit).population_cost;
                         let pop_cap = view.population_cap(player);
-                        if pop >= pop_cap {
+                        if pop > pop_cap {
                             ui.notice = Some(Notice::new(
                                 "please increase the population with building house",
                             ));

@@ -420,8 +420,8 @@ fn training_refused_at_population_cap() {
         }
     }
 
-    // Population is charged on enqueue, so should be 30 now.
-    assert_eq!(world.view().population(PlayerId::ONE), 30);
+    // Queued units hold places under the cap without being population yet.
+    assert_eq!(world.view().population_reserved(PlayerId::ONE), 30);
     assert_eq!(world.view().population_cap(PlayerId::ONE), 30);
 
     // The 31st train should be refused (at cap).
@@ -442,7 +442,7 @@ fn training_refused_at_population_cap() {
     assert_eq!(queue_after, queue_before);
 }
 
-/// Population increases when unit is queued, decreases when unit dies.
+/// Population counts a unit once it appears, not while it is queued.
 #[test]
 fn population_tracks_unit_lifecycle() {
     let map = MapSpec::new(32, 32)
@@ -469,8 +469,9 @@ fn population_tracks_unit_lifecycle() {
         unit: UnitKind::VILLAGER,
     }]);
 
-    // Population should be 1 (charged on enqueue).
-    assert_eq!(world.view().population(PlayerId::ONE), 1);
+    // Still in production: not population yet, but it holds a place.
+    assert_eq!(world.view().population(PlayerId::ONE), 0);
+    assert_eq!(world.view().population_reserved(PlayerId::ONE), 1);
     assert_eq!(world.view().population_cap(PlayerId::ONE), 30); // TC adds 5
 
     // Run until it spawns (500 ticks).
@@ -541,7 +542,7 @@ fn house_raises_population_cap_when_completed() {
 
     // House should be built, population cap should be 35 (25 + 5 from TC + 5 from house).
     assert_eq!(world.view().population_cap(PlayerId::ONE), 35);
-    assert_eq!(world.view().population(PlayerId::ONE), 0);
+    assert_eq!(world.view().population(PlayerId::ONE), 2);
 }
 
 /// Pre-placed house adds to population cap.
@@ -554,4 +555,16 @@ fn preplaced_house_adds_to_population_cap() {
 
     // Town center (5) + house (5) = 10, plus base 25 = 35.
     assert_eq!(world.view().population_cap(PlayerId::ONE), 35);
+}
+
+/// Units standing at the start count toward the population.
+#[test]
+fn units_standing_at_the_start_are_population() {
+    let map = MapSpec::new(16, 16)
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(6, 6))
+        .with_unit(UnitKind::VILLAGER, PlayerId::ONE, TilePos::new(7, 6))
+        .with_unit(UnitKind::VILLAGER, PlayerId::TWO, TilePos::new(9, 9));
+    let world = World::new(SEED, map);
+    assert_eq!(world.view().population(PlayerId::ONE), 2);
+    assert_eq!(world.view().population(PlayerId::TWO), 1);
 }

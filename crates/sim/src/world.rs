@@ -493,6 +493,8 @@ impl World {
             world.sites.insert(site);
         }
         for (kind, owner, at) in map.units {
+            // Units standing at the start count toward the population.
+            world.players[owner.index()].population += world.content.unit(kind).population_cost;
             world.units.insert(Unit::new(
                 kind,
                 owner,
@@ -847,6 +849,19 @@ impl World {
         }
     }
 
+    /// Population held against the cap: units standing plus units still in
+    /// a training queue.
+    fn population_reserved(&self, player: PlayerId) -> i32 {
+        let queued: i32 = self
+            .buildings
+            .values()
+            .filter(|b| b.owner == player)
+            .flat_map(|b| b.queue.iter())
+            .map(|kind| self.content.unit(*kind).population_cost)
+            .sum();
+        self.players[player.index()].population + queued
+    }
+
     fn order_train(&mut self, player: PlayerId, building: BuildingId, unit: UnitKind) {
         let Some(target) = self.buildings.get(building) else {
             return;
@@ -858,10 +873,13 @@ impl World {
             return;
         }
         let pop_cost = self.content.unit(unit).population_cost;
-        let player_state = &mut self.players[player.index()];
-        if player_state.population + pop_cost > player_state.population_cap {
+        // Units in production hold a place under the cap, but are not yet
+        // part of the population.
+        if self.population_reserved(player) + pop_cost > self.players[player.index()].population_cap
+        {
             return;
         }
+        let player_state = &mut self.players[player.index()];
         let cost = self.content.unit(unit).cost;
         let stock = &mut player_state.resources;
         if !stock.covers(&cost) {
@@ -870,7 +888,6 @@ impl World {
         // Charged on enqueue rather than on completion, so that queueing five
         // units cannot spend the same resources five times.
         *stock = stock.saturating_sub(cost);
-        player_state.population += pop_cost;
         let target = &mut self.buildings[building];
         if target.queue.is_empty() {
             target.train_ticks = self.content.unit(unit).train_ticks;
@@ -1142,6 +1159,8 @@ impl World {
                 FxVec2::tile_center(spawn),
                 self.content.unit(kind).max_hp,
             ));
+            // The unit now exists, so it now counts as population.
+            self.players[owner.index()].population += self.content.unit(kind).population_cost;
             let building = &mut self.buildings[id];
             building.queue.remove(0);
             building.train_ticks = building
@@ -2020,9 +2039,16 @@ impl<'a> WorldView<'a> {
         self.resources(player).gold
     }
 
-    /// Current population used by `player`.
+    /// Current population of `player`: units that exist. A unit still
+    /// being trained is not counted until it appears.
     pub fn population(&self, player: PlayerId) -> i32 {
         self.world.players[player.index()].population
+    }
+
+    /// Population plus units waiting in training queues; what the cap is
+    /// checked against.
+    pub fn population_reserved(&self, player: PlayerId) -> i32 {
+        self.world.population_reserved(player)
     }
 
     /// Maximum population cap for `player`. Starts at 25; houses and the town
