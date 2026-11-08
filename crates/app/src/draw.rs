@@ -308,6 +308,10 @@ fn draw_unit_info<R: Renderer>(
         ),
     ];
     if unit.carrying > 0 {
+        // Draw deposit icon (hand) to the left of the carrying text.
+        let hand = sprites.cursor(Some(Resource::Food)); // hand cursor (frame 3 of mcursors)
+        let hand_at = layout.carrying_at - Vec2::new(hand.width + 4.0, 0.0);
+        renderer.sprite(hand.texture, hand_at, Vec2::new(hand.width, hand.height));
         lines.push((
             format!("carrying {} {}", unit.carrying, unit.carried.name()),
             layout.carrying_at,
