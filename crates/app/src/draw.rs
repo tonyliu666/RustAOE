@@ -355,9 +355,9 @@ fn draw_overlay<R: Renderer>(
     // Population display: "pop / cap" after stone (last resource slot).
     let pop = view.population(hud.active_player);
     let pop_cap = view.population_cap(hud.active_player);
-    let pop_text = format!("{}/{}", pop, pop_cap);
+    let pop_text = format!("{} / {}", pop, pop_cap);
     let stone_pos = layout.resource_at(Resource::Stone);
-    let pop_pos = stone_pos + Vec2::new(60.0, 0.0); // offset from stone
+    let pop_pos = stone_pos + Vec2::new(80.0, 0.0); // offset from stone
     renderer.text(
         &pop_text,
         camera.screen_to_world(pop_pos),
