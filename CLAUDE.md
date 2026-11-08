@@ -222,8 +222,8 @@ the current phase's spec.
   starts with. A unit in a training queue is not counted until it appears.
 - Queued units still hold a place under the cap
   (`WorldView::population_reserved`), which `Train` and the train button check.
-- Still the old rule, not the original's: every player starts with a cap
-  of 25 on top of buildings' `population_provided`.
+- The cap is only what buildings provide (`population_provided`): a
+  player with just a town centre has 5, as in the original. There is no base cap.
 
 ### Not enough resources (2026-10-31)
 

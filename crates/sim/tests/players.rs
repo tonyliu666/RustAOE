@@ -368,9 +368,9 @@ fn every_player_on_the_proof_of_concept_map_starts_with_food_wood_and_gold() {
     }
 }
 
-/// A player starts with population 0 and cap 25; town center adds 5.
+/// A player starts with population 0 and no cap of their own; the town center provides 5.
 #[test]
-fn a_player_starts_with_population_zero_and_cap_25() {
+fn a_player_starts_with_population_zero_and_only_buildings_give_a_cap() {
     let map = MapSpec::new(16, 16).with_building(
         BuildingKind::TOWN_CENTER,
         PlayerId::ONE,
@@ -379,14 +379,13 @@ fn a_player_starts_with_population_zero_and_cap_25() {
     let world = World::new(SEED, map);
     assert_eq!(world.view().population(PlayerId::ONE), 0);
     // Town center provides 5 population.
-    assert_eq!(world.view().population_cap(PlayerId::ONE), 30);
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 5);
 }
 
 /// Training is refused when at population cap.
 #[test]
 fn training_refused_at_population_cap() {
-    // Content where villager costs 1 pop, cap starts at 25.
-    // Town center adds 5, so cap is 30. We'll train 30 villagers to hit the cap.
+    // A villager costs 1 pop and the town center provides 5, so the cap is 5.
     let map = MapSpec::new(32, 32)
         .with_starting_resources(Resources {
             food: 2000,
@@ -397,10 +396,9 @@ fn training_refused_at_population_cap() {
         .with_building(BuildingKind::TOWN_CENTER, PlayerId::ONE, TilePos::new(2, 2));
     let mut world = World::new(SEED, map);
 
-    // Train villagers until cap (30). Queue limit is 5, so we need to wait for spawns.
-    // Train 5, wait for spawn, train 5 more, etc.
+    // Train villagers until the cap (5).
     let mut trained = 0;
-    while trained < 30 {
+    while trained < 5 {
         let tc = world
             .view()
             .buildings()
@@ -421,10 +419,10 @@ fn training_refused_at_population_cap() {
     }
 
     // Queued units hold places under the cap without being population yet.
-    assert_eq!(world.view().population_reserved(PlayerId::ONE), 30);
-    assert_eq!(world.view().population_cap(PlayerId::ONE), 30);
+    assert_eq!(world.view().population_reserved(PlayerId::ONE), 5);
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 5);
 
-    // The 31st train should be refused (at cap).
+    // The 6th train should be refused (at cap).
     let tc = world
         .view()
         .buildings()
@@ -472,7 +470,7 @@ fn population_tracks_unit_lifecycle() {
     // Still in production: not population yet, but it holds a place.
     assert_eq!(world.view().population(PlayerId::ONE), 0);
     assert_eq!(world.view().population_reserved(PlayerId::ONE), 1);
-    assert_eq!(world.view().population_cap(PlayerId::ONE), 30); // TC adds 5
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 5); // TC adds 5
 
     // Run until it spawns (500 ticks).
     for _ in 0..500 {
@@ -540,8 +538,8 @@ fn house_raises_population_cap_when_completed() {
         world.step(&[]);
     }
 
-    // House should be built, population cap should be 35 (25 + 5 from TC + 5 from house).
-    assert_eq!(world.view().population_cap(PlayerId::ONE), 35);
+    // House should be built, population cap should be 10 (5 from TC + 5 from house).
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 10);
     assert_eq!(world.view().population(PlayerId::ONE), 2);
 }
 
@@ -554,7 +552,7 @@ fn preplaced_house_adds_to_population_cap() {
     let world = World::new(SEED, map);
 
     // Town center (5) + house (5) = 10, plus base 25 = 35.
-    assert_eq!(world.view().population_cap(PlayerId::ONE), 35);
+    assert_eq!(world.view().population_cap(PlayerId::ONE), 10);
 }
 
 /// Units standing at the start count toward the population.

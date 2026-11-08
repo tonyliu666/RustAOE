@@ -583,6 +583,8 @@ fn training(count: usize, remaining: u32) -> World {
             ..Resources::default()
         })
         .with_building(BuildingKind::BARRACKS, PlayerId::ONE, TilePos::new(1, 1))
+        // Barracks give no population, so a house makes room to train.
+        .with_building(BuildingKind::HOUSE, PlayerId::ONE, TilePos::new(6, 6))
         .with_building(BuildingKind::BARRACKS, PlayerId::TWO, TilePos::new(10, 1));
     let mut world = World::new(7, map);
     let barracks = barracks_of(&world, PlayerId::ONE);

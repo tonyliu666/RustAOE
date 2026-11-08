@@ -464,7 +464,7 @@ impl World {
                         map.starting_resources
                     },
                     population: 0,
-                    population_cap: 25,
+                    population_cap: 0,
                     defeated: false,
                 })
                 .collect(),
@@ -2051,8 +2051,8 @@ impl<'a> WorldView<'a> {
         self.world.population_reserved(player)
     }
 
-    /// Maximum population cap for `player`. Starts at 25; houses and the town
-    /// centre raise it.
+    /// Maximum population cap for `player`. Starts at 0; the buildings a player
+    /// has (house, town centre) provide it.
     pub fn population_cap(&self, player: PlayerId) -> i32 {
         self.world.players[player.index()].population_cap
     }
