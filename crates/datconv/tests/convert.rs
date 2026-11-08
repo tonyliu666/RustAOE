@@ -106,6 +106,9 @@ fn unit(kind: u8, id: i16, name: &str, class: i16) -> Unit {
             button: 1,
         }),
         annexes: Vec::new(),
+        construction_generic: None,
+        construction_specific: None,
+        construction_count: 0,
     }
 }
 

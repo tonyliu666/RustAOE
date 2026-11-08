@@ -18,19 +18,27 @@ pub fn sprite(renderer: &mut RecordingRenderer, size: (u32, u32), hotspot: (f32,
     }
 }
 
+/// Creates an array of sprites, one per player slot (Gaia + 8 players).
+fn per_player(
+    renderer: &mut RecordingRenderer,
+    size: (u32, u32),
+    hotspot: (f32, f32),
+) -> [Sprite; 9] {
+    std::array::from_fn(|_| sprite(renderer, size, hotspot))
+}
+
 /// One fake sprite per type of the default content and per player, two grass
 /// variations, two of farm ground, a picture per kind of site, and the
 /// interface.
 pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
-    let mut per_player = |size, hotspot| std::array::from_fn(|_| sprite(renderer, size, hotspot));
-    let villager = per_player((21, 42), (10.0, 40.0));
-    let soldier = per_player((28, 47), (14.0, 44.0));
-    let town_center = per_player((200, 240), (100.0, 150.0));
-    let barracks = per_player((300, 260), (150.0, 160.0));
-    let mill = per_player((200, 150), (100.0, 100.0));
-    let lumber_camp = per_player((200, 150), (100.0, 100.0));
-    let mining_camp = per_player((200, 150), (100.0, 100.0));
-    let house = per_player((120, 100), (60.0, 70.0));
+    let villager = per_player(renderer, (21, 42), (10.0, 40.0));
+    let soldier = per_player(renderer, (28, 47), (14.0, 44.0));
+    let town_center = per_player(renderer, (200, 240), (100.0, 150.0));
+    let barracks = per_player(renderer, (300, 260), (150.0, 160.0));
+    let mill = per_player(renderer, (200, 150), (100.0, 100.0));
+    let lumber_camp = per_player(renderer, (200, 150), (100.0, 100.0));
+    let mining_camp = per_player(renderer, (200, 150), (100.0, 100.0));
+    let house = per_player(renderer, (120, 100), (60.0, 70.0));
     let grass = vec![
         renderer.load_texture(4, 4, &[0; 64]),
         renderer.load_texture(4, 4, &[0; 64]),
@@ -55,6 +63,19 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
     let progress = (0..100)
         .map(|_| sprite(renderer, (100, 12), (0.0, 0.0)))
         .collect();
+    let construction_generic = vec![
+        sprite(renderer, (120, 100), (60.0, 70.0)), // CNST2_NN (size 2)
+        sprite(renderer, (200, 150), (100.0, 100.0)), // CNST3_NN (size 3)
+        sprite(renderer, (300, 260), (150.0, 160.0)), // CNST4_NN (size 4)
+    ];
+    let construction_specific = vec![
+        per_player(renderer, (120, 100), (60.0, 70.0)), // HOUSS
+        per_player(renderer, (300, 260), (150.0, 160.0)), // BRKSS
+        per_player(renderer, (200, 240), (100.0, 150.0)), // RTWCS
+        per_player(renderer, (200, 150), (100.0, 100.0)), // MILLS
+        per_player(renderer, (200, 150), (100.0, 100.0)), // LUMCS
+        per_player(renderer, (200, 150), (100.0, 100.0)), // MINCS
+    ];
     Sprites {
         unit_icons,
         building_icons,
@@ -69,6 +90,8 @@ pub fn sprites(renderer: &mut RecordingRenderer) -> Sprites {
         cursors: std::array::from_fn(|_| sprite(renderer, (32, 32), (4.0, 2.0))),
         units: vec![villager, soldier],
         buildings: vec![town_center, barracks, mill, lumber_camp, mining_camp, house],
+        construction_generic,
+        construction_specific,
     }
 }
 

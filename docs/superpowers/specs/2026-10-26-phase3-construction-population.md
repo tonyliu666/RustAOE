@@ -261,3 +261,34 @@ of the checksum; and the tests reached in through public `foundation_mut`,
 - Tests: construction 28 (10 new), session 6 new, draw_entities 4 new,
   players 1 changed. Mutations caught: 9 of 9 in sim (the foundation in the
   checksum needed its own test) and 8 of 8 in app.
+
+### Step 5 result: construction graphics from .dat (2026-11-08)
+
+- The `.dat` holds 10 fields (17 bytes) for buildings (kind 80) at the
+  annex offset: `construction_graphic_1` (generic by size), 
+  `construction_graphic_2` (specific with pieces), 
+  `construction_graphic_count` (0–3).
+- Generic graphics shared by building size:
+  - CNST2_NN = SLP 237 (size 2: house, mill, lumber camp, mining camp)
+  - CNST3_NN = SLP 238 (size 3: barracks, mill)
+  - CNST4_NN = SLP 239 (size 4: town centre)
+- Building-specific graphics composed of pieces (like standing graphics):
+  - HOUSS = 6392 (1 piece)
+  - BRKSS = 6380 (13 pieces)
+  - RTWCS = 6406 (19 pieces)
+  - MILLS = 6396 (6 pieces)
+  - LUMCS / MINCS not yet extracted
+- `Sprites` gains:
+  - `construction_generic: Vec<Sprite>` (3 elements, indexed by `size - 2`)
+  - `construction_specific: Vec<[Sprite; PLAYER_SLOTS]>` (6 elements, per building kind)
+- `Look` gains `construction_generic: Option<u32>` and
+  `construction_specific: Option<(u32, Vec<Part>)>`.
+- Drawing stages by progress:
+  - 0–33% (`progress < build_time`): generic construction graphic, no tint
+  - 33–66% (`progress < 2 * build_time`): specific construction graphic, no tint
+  - 66–100%: standing graphic with `FOUNDATION` tint (see-through)
+- `default.ron`, `content_file`, `looks`, `sprites`, `draw` updated.
+- Replay format 20; version 19 is refused.
+- Tests: draw_entities 1 new (`a_new_foundation_uses_generic_construction_graphic`).
+  Mutations caught: 12 of 12.
+- Not done: annex offsets; LUMCS / MINCS graphics; build cursor.

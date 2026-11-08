@@ -33,6 +33,8 @@ pub const FOUNDATION: Color = Color::rgba(1.0, 1.0, 1.0, 0.4);
 /// The tint of a building being placed where it may not go: red.
 /// Provisional, judged by eye against the original.
 pub const UNPLACEABLE: Color = Color::rgba(1.0, 0.2, 0.2, 0.6);
+/// No tint (full opacity).
+const WHITE: Color = Color::rgb(1.0, 1.0, 1.0);
 
 /// Debug text height in screen pixels.
 const OVERLAY_PX: f32 = 16.0;
@@ -603,9 +605,7 @@ fn visible_tiles(camera: &Camera, map_width: i32, map_height: i32) -> (TilePos, 
     )
 }
 
-/// Draws each foundation as its building, see-through. Provisional: the
-/// original draws a foundation with the building's construction graphic in
-/// stages, which Phase 3 step 5 reads from the `.dat`.
+/// Draws each foundation with construction graphics based on progress.
 fn draw_foundations<R: Renderer>(
     renderer: &mut R,
     view: WorldView<'_>,
@@ -613,7 +613,35 @@ fn draw_foundations<R: Renderer>(
     sprites: &Sprites,
 ) {
     for (id, foundation) in view.foundations() {
-        let sprite = sprites.building(foundation.kind, foundation.owner);
+        let stats = view.content().building(foundation.kind);
+        let build_time = stats.build_time.unwrap_or(1);
+        let progress = foundation.progress;
+
+        // Choose sprite based on progress:
+        // 0-33%: generic construction graphic (CNST2/3/4_NN)
+        // 33-66%: building-specific construction graphic (HOUSS, BRKSS, etc.)
+        // 66-100%: standing graphic with foundation tint
+        let sprite = if progress < build_time {
+            // Generic construction graphic by size (index = size - 2)
+            let size_idx = foundation.size.saturating_sub(2) as usize;
+            if size_idx < sprites.construction_generic.len() {
+                &sprites.construction_generic[size_idx]
+            } else {
+                sprites.building(foundation.kind, foundation.owner)
+            }
+        } else if progress < 2 * build_time {
+            // Building-specific construction graphic
+            let kind_idx = foundation.kind.index();
+            if kind_idx < sprites.construction_specific.len() {
+                &sprites.construction_specific[kind_idx][1] // Gaia colours (slot 1 is player 1, but we use neutral)
+            } else {
+                sprites.building(foundation.kind, foundation.owner)
+            }
+        } else {
+            // Standing graphic with foundation tint
+            sprites.building(foundation.kind, foundation.owner)
+        };
+
         let scale = building_scale(sprite, foundation.size);
         let half = foundation.size as f32 * 0.5;
         let centre = Vec2::new(
@@ -621,7 +649,15 @@ fn draw_foundations<R: Renderer>(
             foundation.origin.y as f32 + half,
         );
         let (top_left, drawn) = placed(sprite, centre, scale);
-        renderer.sprite_tinted(sprite.texture, top_left, drawn, FOUNDATION);
+
+        // Apply foundation tint for stages that use standing graphic
+        let tint = if progress >= 2 * build_time {
+            FOUNDATION
+        } else {
+            WHITE
+        };
+        renderer.sprite_tinted(sprite.texture, top_left, drawn, tint);
+
         if hud.foundation == Some(id) {
             outline(renderer, top_left, top_left + drawn);
         }

@@ -199,6 +199,18 @@ struct BuildingFile {
     population_provided: Option<i32>,
     /// What placing its foundation costs.
     cost: ResourcesFile,
+    /// Generic construction graphic by building size (CNST2/3/4_NN).
+    construction_generic: Option<u32>,
+    /// Building-specific construction graphic with parts (HOUSS, BRKSS, etc.).
+    construction_specific: Option<ConstructionSpecificFile>,
+}
+
+/// Building-specific construction graphic: `(sprite, parts)`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConstructionSpecificFile {
+    sprite: u32,
+    parts: Vec<PartFile>,
 }
 
 #[derive(Deserialize)]
@@ -233,6 +245,18 @@ impl ContentFile {
             sprite,
             parts: parts(file.to_vec()),
             icon,
+            construction_generic: None,
+            construction_specific: None,
+        };
+        let building_look = |b: &BuildingFile| Look {
+            sprite: b.sprite,
+            parts: parts(b.parts.clone()),
+            icon: b.icon,
+            construction_generic: b.construction_generic,
+            construction_specific: b
+                .construction_specific
+                .as_ref()
+                .map(|cs| (cs.sprite, parts(cs.parts.clone()))),
         };
         Looks {
             units: self
@@ -243,7 +267,7 @@ impl ContentFile {
             buildings: self
                 .buildings
                 .iter()
-                .map(|b| (b.name.clone(), look(b.sprite, &b.parts, b.icon)))
+                .map(|b| (b.name.clone(), building_look(b)))
                 .collect(),
         }
     }

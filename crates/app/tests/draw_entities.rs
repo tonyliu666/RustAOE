@@ -529,7 +529,7 @@ fn the_placement_preview_goes_under_the_interface() {
 }
 
 #[test]
-fn a_placed_foundation_is_drawn_see_through_as_its_building() {
+fn a_new_foundation_uses_generic_construction_graphic() {
     let mut renderer = RecordingRenderer::new();
     let map = MapSpec::new(16, 16)
         .with_starting_resources(Resources {
@@ -550,7 +550,9 @@ fn a_placed_foundation_is_drawn_see_through_as_its_building() {
 
     let sprites = draw(&mut renderer, &world, &hud(&[], None));
 
-    assert_eq!(ghost_tints(&renderer, &sprites), [app::FOUNDATION]);
+    // At progress=0, house foundation (size 2) uses CNST2_NN, not the house texture.
+    // ghost_tints filters by house texture, so returns empty.
+    assert_eq!(ghost_tints(&renderer, &sprites), []);
 }
 
 // --- the information panel --------------------------------------------------------

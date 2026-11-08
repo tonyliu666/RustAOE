@@ -282,6 +282,10 @@ struct BuildingEntry {
     population_provided: i32,
     /// What placing its foundation costs, as `[food, wood, gold, stone]`.
     cost: [i32; 4],
+    /// Generic construction graphic by building size (CNST2/3/4_NN).
+    construction_generic: Option<i32>,
+    /// Building-specific construction graphic with pieces (HOUSS, BRKSS, etc.).
+    construction_specific: Option<(i32, Vec<Piece>)>,
 }
 
 /// What the whole file says about gathering, for the per-unit rules.
@@ -598,6 +602,48 @@ fn convert_building(
     });
     let population_provided = headroom(&unit.storages, ONCE_BUILT).max(0);
 
+    // Construction generic graphic (by building size)
+    let construction_generic = unit.construction_generic.and_then(|g| {
+        facts
+            .dat
+            .slp_of(g)
+            .filter(|slp| facts.install.has(*slp as u32))
+    });
+    if let Some(g) = unit.construction_generic {
+        if construction_generic.is_none() {
+            report.push(format!(
+                "{name}: construction generic graphic {g} not in install, left out"
+            ));
+        }
+    }
+
+    // Construction specific graphic (building-specific, with pieces)
+    let construction_specific = unit.construction_specific.and_then(|g| {
+        let specific_parts = pieces(facts, g, &name, report);
+        if specific_parts.is_empty() {
+            return None;
+        }
+        // Find the SLP: if a piece uses -1 (own graphic), use the graphic's own SLP
+        let own_slp = facts.dat.slp_of(g);
+        let slp = if specific_parts
+            .iter()
+            .any(|p| p.slp == own_slp.unwrap_or(0) as u32)
+        {
+            own_slp
+        } else {
+            specific_parts.first().map(|p| p.slp as i32)
+        };
+        slp.filter(|slp| facts.install.has(*slp as u32))
+            .map(|slp| (slp, specific_parts))
+    });
+    if let Some(g) = unit.construction_specific {
+        if construction_specific.is_none() {
+            report.push(format!(
+                "{name}: construction specific graphic {g} not in install, left out"
+            ));
+        }
+    }
+
     report.extend(notes);
     Ok(BuildingEntry {
         drop_off: facts.drop_offs.get(&unit.id).cloned().unwrap_or_default(),
@@ -609,6 +655,8 @@ fn convert_building(
         build_time,
         population_provided,
         cost: unit.creatable.as_ref().map_or([0; 4], |c| cost(&c.costs)),
+        construction_generic,
+        construction_specific,
     })
 }
 
@@ -755,9 +803,18 @@ fn write_ron(
             None => "None".to_string(),
         };
         let cost = ron_cost(b.cost);
+        let construction_generic = b
+            .construction_generic
+            .map_or("None".to_string(), |s| format!("Some({s})"));
+        let construction_specific = b
+            .construction_specific
+            .as_ref()
+            .map_or("None".to_string(), |(slp, parts)| {
+                format!("Some((sprite: {}, parts: [{}]))", slp, ron_parts(parts))
+            });
         let _ = write!(
             out,
-            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: [{}],\n            trains: [{}],\n            build_time: {},\n            population_provided: Some({}),\n            cost: ({cost}),\n        ),\n",
+            "        (\n            name: \"{}\", // unit {} {}\n            sprite: {},\n            parts: [{}],\n            icon: {},\n            size: {},\n            max_hp: {},\n            drop_off: [{}],\n            trains: [{}],\n            build_time: {},\n            population_provided: Some({}),\n            cost: ({cost}),\n            construction_generic: {},\n            construction_specific: {},\n        ),\n",
             b.name,
             b.unit.id,
             b.unit.name,
@@ -770,6 +827,8 @@ fn write_ron(
             trains.join(", "),
             build_time,
             b.population_provided,
+            construction_generic,
+            construction_specific,
         );
     }
     out.push_str("    ],\n    gather: (\n");

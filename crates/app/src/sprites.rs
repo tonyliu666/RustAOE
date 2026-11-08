@@ -106,6 +106,12 @@ pub struct Sprites {
     pub units: Vec<[Sprite; PLAYER_SLOTS]>,
     /// Indexed by building type ID, then player slot.
     pub buildings: Vec<[Sprite; PLAYER_SLOTS]>,
+    /// Generic construction graphics by building size (2x2, 3x3, 4x4, ...).
+    /// Indexed by size - 2 (so size 2 is index 0).
+    pub construction_generic: Vec<Sprite>,
+    /// Building-specific construction graphics, indexed by building type ID,
+    /// then player slot (Gaia colours for construction scaffolding).
+    pub construction_specific: Vec<[Sprite; PLAYER_SLOTS]>,
 }
 
 impl Sprites {
@@ -230,6 +236,12 @@ pub struct GameImages {
     /// Per unit type ID, one frame per player slot.
     units: Vec<Vec<Frame>>,
     buildings: Vec<Vec<Frame>>,
+    /// Generic construction graphics by building size (2x2, 3x3, 4x4, ...).
+    /// Indexed by size - 2 (so size 2 is index 0).
+    construction_generic: Vec<Frame>,
+    /// Building-specific construction graphics, indexed by building type ID,
+    /// one frame per player slot (Gaia colours for construction scaffolding).
+    construction_specific: Vec<Vec<Frame>>,
 }
 
 impl GameImages {
@@ -249,30 +261,60 @@ impl GameImages {
         let stone_mine = upload_one(renderer, &self.stone_mine);
         let bush = upload_one(renderer, &self.bush);
         let interface = upload_one(renderer, &self.interface);
-        let mut upload_all = |frames: &[Frame]| -> Vec<Sprite> {
-            frames.iter().map(|f| upload_one(renderer, f)).collect()
-        };
-        let unit_icons = upload_all(&self.unit_icons);
-        let building_icons = upload_all(&self.building_icons);
-        let progress = upload_all(&self.progress);
+
+        let unit_icons: Vec<Sprite> = self
+            .unit_icons
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+        let building_icons: Vec<Sprite> = self
+            .building_icons
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+        let progress: Vec<Sprite> = self
+            .progress
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+
         let cursors = std::array::from_fn(|i| upload_one(renderer, &self.cursors[i]));
-        let mut upload_set = |frames: &[Frame]| -> [Sprite; PLAYER_SLOTS] {
-            std::array::from_fn(|i| upload_one(renderer, &frames[i]))
-        };
-        let units = self.units.iter().map(|frames| upload_set(frames)).collect();
-        let buildings = self
+
+        let units: Vec<[Sprite; PLAYER_SLOTS]> = self
+            .units
+            .iter()
+            .map(|frames| std::array::from_fn(|i| upload_one(renderer, &frames[i])))
+            .collect();
+
+        let buildings: Vec<[Sprite; PLAYER_SLOTS]> = self
             .buildings
             .iter()
-            .map(|frames| upload_set(frames))
+            .map(|frames| std::array::from_fn(|i| upload_one(renderer, &frames[i])))
             .collect();
-        let mut ground = |images: &[Image]| -> Vec<TextureId> {
-            images
-                .iter()
-                .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
-                .collect()
-        };
-        let grass = ground(&self.grass);
-        let farm = ground(&self.farm);
+
+        let grass: Vec<TextureId> = self
+            .grass
+            .iter()
+            .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
+            .collect();
+        let farm: Vec<TextureId> = self
+            .farm
+            .iter()
+            .map(|image| renderer.load_texture(image.width, image.height, &image.rgba))
+            .collect();
+
+        let construction_generic: Vec<Sprite> = self
+            .construction_generic
+            .iter()
+            .map(|f| upload_one(renderer, f))
+            .collect();
+
+        let construction_specific: Vec<[Sprite; PLAYER_SLOTS]> = self
+            .construction_specific
+            .iter()
+            .map(|frames| std::array::from_fn(|i| upload_one(renderer, &frames[i])))
+            .collect();
+
         Sprites {
             grass,
             farm,
@@ -287,6 +329,8 @@ impl GameImages {
             cursors,
             units,
             buildings,
+            construction_generic,
+            construction_specific,
         }
     }
 }
@@ -638,6 +682,60 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Load generic construction graphics by building size.
+    // Collect unique sizes and their construction_generic SLPs.
+    let mut generic_by_size: std::collections::BTreeMap<i32, u32> =
+        std::collections::BTreeMap::new();
+    for (name, look) in &building_looks {
+        if let Some(slp) = look.construction_generic {
+            if let Some(stats) = content.buildings.iter().find(|b| b.name == *name) {
+                generic_by_size.insert(stats.size, slp);
+            }
+        }
+    }
+    // Load in order of size (2, 3, 4, ...)
+    let max_size = generic_by_size.keys().max().copied().unwrap_or(2);
+    let mut construction_generic = Vec::with_capacity((max_size - 1) as usize);
+    for size in 2..=max_size {
+        if let Some(slp) = generic_by_size.get(&size) {
+            construction_generic.push(neutral(
+                &format!("construction generic {size}x{size}"),
+                &[*slp],
+            )?);
+        } else {
+            construction_generic.push(Frame {
+                image: Image {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0; 4],
+                },
+                hotspot: Vec2::ZERO,
+            });
+        }
+    }
+
+    // Load building-specific construction graphics
+    let construction_specific = building_looks
+        .iter()
+        .map(|(name, look)| {
+            if let Some((sprite, parts)) = &look.construction_specific {
+                per_player(name, *sprite, parts)
+            } else {
+                Ok(vec![
+                    Frame {
+                        image: Image {
+                            width: 1,
+                            height: 1,
+                            rgba: vec![0; 4]
+                        },
+                        hotspot: Vec2::ZERO,
+                    };
+                    PLAYER_SLOTS
+                ])
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(GameImages {
         grass,
         farm,
@@ -664,6 +762,8 @@ pub fn load_images(dir: &Path, content: &Content, looks: &Looks) -> Result<GameI
             .iter()
             .map(|(name, look)| per_player(name, look.sprite, &look.parts))
             .collect::<Result<_, _>>()?,
+        construction_generic,
+        construction_specific,
     })
 }
 

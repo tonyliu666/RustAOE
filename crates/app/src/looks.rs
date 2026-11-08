@@ -40,6 +40,10 @@ pub struct Look {
     /// Its button: a frame of the original's unit icons (`interfac.drs`
     /// 50730) for a unit, of the building icons (50705) for a building.
     pub icon: u32,
+    /// Generic construction graphic by building size (CNST2/3/4_NN).
+    pub construction_generic: Option<u32>,
+    /// Building-specific construction graphic with parts (HOUSS, BRKSS, etc.).
+    pub construction_specific: Option<(u32, Vec<Part>)>,
 }
 
 /// How every type looks, by type name.
